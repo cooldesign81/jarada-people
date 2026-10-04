@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>자라다 People · 초기 설정</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+:root{
+  --brand-orange:#DE8619; --brand-yellow:#FECD3F; --warn-yellow:#F6DF20;
+  --warn-black:#141A1E; --tape:14px; --bar:56px;
+  --slot-navy:#1E3A5F;
+  --ink:#222222; --ink-deep:#161616; --panel-dark:#323232;
+  --text:#4E4E4E; --text-sub:#767676; --bg:#F5F5F5; --line:#EEEEEE;
+  --r-card:8px; --r-btn:6px; --sp:4px;
+  --font:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+}
+
+*{ box-sizing:border-box; }
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:var(--font); font-size:15px; line-height:1.6;
+}
+
+/* ---------- 1단: 최상단 다크바 ---------- */
+.topbar{
+  background:var(--ink-deep); color:#CFCFCF;
+  font-size:12px; padding:8px 16px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.topbar .who{ color:#fff; }
+
+/* ---------- 2단: 앱바 ---------- */
+.appbar{
+  background:var(--brand-yellow); color:var(--ink);
+  padding:12px 16px;
+  display:flex; align-items:center; gap:12px;
+}
+.appbar .logo{ font-weight:800; font-size:18px; letter-spacing:-0.02em; }
+.appbar .sub{ font-size:13px; opacity:.75; }
+.appbar .back{ margin-left:auto; font-size:13px; font-weight:600; color:var(--ink); text-decoration:none; }
+.appbar .back:hover{ text-decoration:underline; }
+
+/* ---------- 3단: 컨텐츠 ---------- */
+.wrap{ max-width:640px; margin:0 auto; padding:24px 16px; }
+
+.card{
+  background:#fff; border:1px solid var(--line);
+  border-radius:var(--r-card); padding:16px;
+  margin-bottom:24px;
+}
+.card h2{
+  margin:0 0 8px; font-size:16px; font-weight:700; color:var(--ink);
+}
+.card p{ margin:0 0 16px; font-size:14px; color:var(--text-sub); }
+
+.btn{
+  font-family:var(--font); font-size:15px; font-weight:700;
+  border-radius:var(--r-btn); padding:12px 20px;
+  border:0; cursor:pointer;
+}
+.btn-primary{ background:var(--brand-orange); color:#fff; }
+.btn-secondary{
+  background:#fff; border:1px solid var(--line); color:var(--text);
+  font-weight:500; padding:8px 14px; font-size:13px;
+}
+.btn:disabled{ opacity:.5; cursor:default; }
+
+.uid-box{
+  background:var(--panel-dark); color:#fff;
+  border-radius:var(--r-card); padding:16px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:16px; word-break:break-all;
+  font-variant-numeric:tabular-nums;
+  margin-bottom:12px;
+}
+.label{
+  font-size:12px; color:var(--text-sub);
+  text-transform:uppercase; letter-spacing:.06em;
+  margin-bottom:4px;
+}
+
+.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.hidden{ display:none; }
+
+.msg{ font-size:13px; color:var(--text-sub); margin-top:8px; }
+.msg.error{ color:#D1182A; }
+
+.steps{ font-size:14px; padding-left:20px; margin:0; }
+.steps li{ margin-bottom:8px; }
+.steps code{
+  background:var(--bg); padding:2px 6px; border-radius:4px;
+  font-size:13px;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span>자라다 People</span>
+  <span class="who" id="topWho">로그인 안 됨</span>
+</div>
+
+<div class="appbar">
+  <span class="logo">자라다 People</span>
+  <span class="sub">초기 설정</span>
+  <a class="back" href="./index.html">앱으로 이동 →</a>
+</div>
+
+<div class="wrap">
+
+  <!-- 로그인 전 -->
+  <div class="card" id="cardLogin">
+    <h2>계정 확인</h2>
+    <p>최초 관리자(최고관리자) 계정을 등록하기 위한 페이지입니다. 구글 계정으로 로그인하면 Firebase가 부여한 고유 ID(UID)를 확인할 수 있습니다.<br>이미 권한이 등록된 분은 <a href="./index.html">앱 화면</a>으로 바로 이동하세요.</p>
+    <button class="btn btn-primary" id="btnLogin">구글 계정으로 로그인</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- 로그인 후 -->
+  <div class="card hidden" id="cardUid">
+    <h2>내 UID</h2>
+    <p>아래 값을 복사해서 Firestore의 <code>roles</code> 문서 ID로 사용합니다.</p>
+    <div class="label">UID</div>
+    <div class="uid-box" id="uidValue">—</div>
+    <div class="row">
+      <button class="btn btn-secondary" id="btnCopy">복사</button>
+      <button class="btn btn-secondary" id="btnLogout">로그아웃</button>
+      <span class="msg" id="copyMsg"></span>
+    </div>
+  </div>
+
+  <!-- 다음 할 일 -->
+  <div class="card hidden" id="cardNext">
+    <h2>다음 단계</h2>
+    <ol class="steps">
+      <li>Firebase 콘솔 → Firestore → <strong>데이터</strong> 탭</li>
+      <li><strong>컬렉션 시작</strong> → 컬렉션 ID를 <code>roles</code> 로 입력</li>
+      <li>문서 ID 칸에 위 UID를 <strong>그대로 붙여넣기</strong> (자동 ID 쓰지 말 것)</li>
+      <li>필드 3개 추가:
+        <br><code>level</code> (문자열) = <code>super</code>
+        <br><code>orgId</code> (문자열) = <code>hq</code>
+        <br><code>employeeId</code> (문자열) = <code>emp_0001</code>
+      </li>
+      <li>저장 후 이 페이지를 새로고침하면 아래 상태가 바뀝니다</li>
+      <li>권한이 확인되면 <a href="./index.html">앱 화면</a>으로 이동해 조직과 직원을 등록합니다. 이후 직원은 이 페이지 없이 바로 로그인하면 됩니다.</li>
+    </ol>
+  </div>
+
+  <!-- 권한 확인 -->
+  <div class="card hidden" id="cardRole">
+    <h2>권한 상태</h2>
+    <div id="roleResult"></div>
+  </div>
+
+</div>
+
+<script type="module">
+import { auth, db } from "./js/firebase.js";
+import {
+  GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+const $ = (id) => document.getElementById(id);
+
+$("btnLogin").onclick = async () => {
+  $("loginMsg").textContent = "";
+  $("loginMsg").className = "msg";
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (e) {
+    $("loginMsg").className = "msg error";
+    if (e.code === "auth/unauthorized-domain") {
+      $("loginMsg").textContent =
+        "이 주소가 Firebase 승인된 도메인에 없습니다. Authentication → 설정 → 승인된 도메인에 추가하세요.";
+    } else if (e.code === "auth/popup-blocked") {
+      $("loginMsg").textContent = "팝업이 차단됐습니다. 주소창 오른쪽에서 팝업을 허용해주세요.";
+    } else if (e.code !== "auth/popup-closed-by-user") {
+      $("loginMsg").textContent = "로그인 실패: " + e.code;
+    }
+  }
+};
+
+$("btnLogout").onclick = () => signOut(auth);
+
+$("btnCopy").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($("uidValue").textContent);
+    $("copyMsg").textContent = "복사됐습니다";
+    setTimeout(() => ($("copyMsg").textContent = ""), 2000);
+  } catch {
+    $("copyMsg").textContent = "직접 선택해서 복사해주세요";
+  }
+};
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    $("topWho").textContent = "로그인 안 됨";
+    $("cardLogin").classList.remove("hidden");
+    $("cardUid").classList.add("hidden");
+    $("cardNext").classList.add("hidden");
+    $("cardRole").classList.add("hidden");
+    return;
+  }
+
+  $("topWho").textContent = user.email;
+  $("uidValue").textContent = user.uid;
+  $("cardLogin").classList.add("hidden");
+  $("cardUid").classList.remove("hidden");
+  $("cardRole").classList.remove("hidden");
+
+  // roles 문서가 이미 있는지 확인
+  $("roleResult").innerHTML = '<p class="msg">확인 중…</p>';
+  try {
+    const snap = await getDoc(doc(db, "roles", user.uid));
+    if (snap.exists()) {
+      const d = snap.data();
+      $("cardNext").classList.add("hidden");
+      $("roleResult").innerHTML =
+        '<p style="color:#11A33E;font-weight:700;margin:0 0 8px">권한 문서가 등록돼 있습니다.</p>' +
+        '<div class="label">level</div><div style="margin-bottom:8px">' + (d.level || "—") + '</div>' +
+        '<div class="label">orgId</div><div style="margin-bottom:8px">' + (d.orgId || "—") + '</div>' +
+        '<div class="label">employeeId</div><div style="margin-bottom:16px">' + (d.employeeId || "—") + '</div>' +
+        '<a class="btn btn-primary" style="display:inline-block;text-decoration:none" href="./index.html">앱 화면으로 이동</a>';
+    } else {
+      $("cardNext").classList.remove("hidden");
+      $("roleResult").innerHTML =
+        '<p class="msg">아직 권한 문서가 없습니다. 위 "다음 단계"를 따라 만들어주세요.</p>';
+    }
+  } catch (e) {
+    $("cardNext").classList.remove("hidden");
+    $("roleResult").innerHTML =
+      '<p class="msg error">읽기 거부됨 (' + e.code + ')<br>' +
+      '보안규칙이 게시됐는지, roles 문서가 있는지 확인해주세요.</p>';
+  }
+});
+</script>
+
+</body>
+</html>
