@@ -1,0 +1,118 @@
+rules_version = '2';
+
+// 자라다 People — Firestore 보안 규칙
+// Firebase 콘솔 → Firestore Database → 규칙 탭에 전체 내용을 붙여넣고 "게시"하세요.
+//
+// 컬렉션
+//   roles/{uid}            로그인 계정(UID) → 권한 (level, orgId, employeeId)
+//   employees/{employeeId} 직원 정보 (name, email, orgId, level, position, phone, joinedAt, status, memo)
+//   orgs/{orgId}           조직 (name, type: hq|branch, order, active)
+//   meta/counters          사번 카운터 (employee: number)
+//
+// 권한 등급
+//   super : 최고관리자 — 전체 조직 읽기/쓰기
+//   admin : 관리자     — 소속 조직(orgId) 직원만 읽기/쓰기 (최고관리자 등급은 부여/수정 불가)
+//   staff : 직원       — 본인 직원 정보 읽기, 조직 목록 읽기
+
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // ---------- 공통 함수 ----------
+    function signedIn() { return request.auth != null; }
+    function myEmail()  { return request.auth.token.email.lower(); }
+    function rolePath() { return /databases/$(db)/documents/roles/$(request.auth.uid); }
+    function hasRole()  { return signedIn() && exists(rolePath()); }
+    function myRole()   { return get(rolePath()).data; }
+    function isSuper()  { return hasRole() && myRole().level == 'super'; }
+    function isAdmin()  { return hasRole() && myRole().level == 'admin'; }
+    function myOrg()    { return myRole().orgId; }
+    function empPath(id){ return /databases/$(db)/documents/employees/$(id); }
+    function orgExists(id) { return exists(/databases/$(db)/documents/orgs/$(id)); }
+
+    function validLevel(l)  { return l in ['super', 'admin', 'staff']; }
+    function validStatus(s) { return s in ['active', 'leave', 'resigned']; }
+
+    function validEmployee() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && d.email is string && d.email == d.email.lower() && d.email.size() <= 254
+        && d.orgId is string && orgExists(d.orgId)
+        && validLevel(d.level)
+        && validStatus(d.status);
+    }
+
+    function validOrg() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && d.type in ['hq', 'branch']
+        && d.active is bool;
+    }
+
+    // ---------- roles ----------
+    match /roles/{uid} {
+      // 본인 권한 문서는 누구나 읽기 (로그인 직후 확인용)
+      allow get: if signedIn() && request.auth.uid == uid;
+      // 관리자 조회: 최고관리자는 전체, 관리자는 소속 조직 것만
+      allow read: if isSuper() || (isAdmin() && resource.data.orgId == myOrg());
+
+      // 셀프 등록: 로그인 이메일과 일치하는 직원 문서가 있고, 퇴직 상태가 아닐 때
+      // level/orgId/employeeId 가 그 직원 문서와 정확히 같아야 함
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['level', 'orgId', 'employeeId'])
+        && request.resource.data.employeeId is string
+        && exists(empPath(request.resource.data.employeeId))
+        && get(empPath(request.resource.data.employeeId)).data.email == myEmail()
+        && get(empPath(request.resource.data.employeeId)).data.status != 'resigned'
+        && request.resource.data.level == get(empPath(request.resource.data.employeeId)).data.level
+        && request.resource.data.orgId == get(empPath(request.resource.data.employeeId)).data.orgId;
+
+      // 최고관리자: 전체 쓰기
+      allow create, update, delete: if isSuper();
+
+      // 관리자: 소속 조직의 최고관리자가 아닌 권한만 수정/삭제 (최고관리자로 승격 불가)
+      allow update: if isAdmin()
+        && resource.data.orgId == myOrg() && resource.data.level != 'super'
+        && request.resource.data.orgId == myOrg() && request.resource.data.level != 'super';
+      allow delete: if isAdmin()
+        && resource.data.orgId == myOrg() && resource.data.level != 'super';
+    }
+
+    // ---------- employees ----------
+    match /employees/{employeeId} {
+      // 읽기: 최고관리자 전체 / 관리자 소속 조직 / 본인(이메일 일치 — 권한 등록 전 셀프 확인 포함)
+      allow read: if signedIn() && (
+        isSuper()
+        || (isAdmin() && resource.data.orgId == myOrg())
+        || resource.data.email == myEmail()
+      );
+
+      allow create, update: if isSuper() && validEmployee();
+      allow delete: if isSuper();
+
+      // 관리자: 소속 조직 안에서만, 최고관리자 등급은 생성/수정 불가
+      allow create: if isAdmin() && validEmployee()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.level != 'super';
+      allow update: if isAdmin() && validEmployee()
+        && resource.data.orgId == myOrg() && resource.data.level != 'super'
+        && request.resource.data.orgId == myOrg() && request.resource.data.level != 'super';
+    }
+
+    // ---------- orgs ----------
+    match /orgs/{orgId} {
+      allow read: if hasRole();
+      allow create, update: if isSuper() && validOrg();
+      allow delete: if isSuper();
+    }
+
+    // ---------- meta ----------
+    match /meta/{docId} {
+      allow read, write: if isSuper() || isAdmin();
+    }
+
+    // 그 외 모든 경로 차단
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

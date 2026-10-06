@@ -5,247 +5,206 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>자라다 People</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-<style>
-:root{
-  --brand-orange:#DE8619; --brand-yellow:#FECD3F; --warn-yellow:#F6DF20;
-  --warn-black:#141A1E; --tape:14px; --bar:56px;
-  --slot-navy:#1E3A5F;
-  --ink:#222222; --ink-deep:#161616; --panel-dark:#323232;
-  --text:#4E4E4E; --text-sub:#767676; --bg:#F5F5F5; --line:#EEEEEE;
-  --r-card:8px; --r-btn:6px; --sp:4px;
-  --font:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
-}
-
-*{ box-sizing:border-box; }
-body{
-  margin:0; background:var(--bg); color:var(--text);
-  font-family:var(--font); font-size:15px; line-height:1.6;
-}
-
-/* ---------- 1단: 최상단 다크바 ---------- */
-.topbar{
-  background:var(--ink-deep); color:#CFCFCF;
-  font-size:12px; padding:8px 16px;
-  display:flex; justify-content:space-between; align-items:center;
-}
-.topbar .who{ color:#fff; }
-
-/* ---------- 2단: 앱바 ---------- */
-.appbar{
-  background:var(--brand-yellow); color:var(--ink);
-  padding:12px 16px;
-  display:flex; align-items:center; gap:12px;
-}
-.appbar .logo{ font-weight:800; font-size:18px; letter-spacing:-0.02em; }
-.appbar .sub{ font-size:13px; opacity:.75; }
-
-/* ---------- 3단: 컨텐츠 ---------- */
-.wrap{ max-width:640px; margin:0 auto; padding:24px 16px; }
-
-.card{
-  background:#fff; border:1px solid var(--line);
-  border-radius:var(--r-card); padding:16px;
-  margin-bottom:24px;
-}
-.card h2{
-  margin:0 0 8px; font-size:16px; font-weight:700; color:var(--ink);
-}
-.card p{ margin:0 0 16px; font-size:14px; color:var(--text-sub); }
-
-.btn{
-  font-family:var(--font); font-size:15px; font-weight:700;
-  border-radius:var(--r-btn); padding:12px 20px;
-  border:0; cursor:pointer;
-}
-.btn-primary{ background:var(--brand-orange); color:#fff; }
-.btn-secondary{
-  background:#fff; border:1px solid var(--line); color:var(--text);
-  font-weight:500; padding:8px 14px; font-size:13px;
-}
-.btn:disabled{ opacity:.5; cursor:default; }
-
-.uid-box{
-  background:var(--panel-dark); color:#fff;
-  border-radius:var(--r-card); padding:16px;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-  font-size:16px; word-break:break-all;
-  font-variant-numeric:tabular-nums;
-  margin-bottom:12px;
-}
-.label{
-  font-size:12px; color:var(--text-sub);
-  text-transform:uppercase; letter-spacing:.06em;
-  margin-bottom:4px;
-}
-
-.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-.hidden{ display:none; }
-
-.msg{ font-size:13px; color:var(--text-sub); margin-top:8px; }
-.msg.error{ color:#D1182A; }
-
-.steps{ font-size:14px; padding-left:20px; margin:0; }
-.steps li{ margin-bottom:8px; }
-.steps code{
-  background:var(--bg); padding:2px 6px; border-radius:4px;
-  font-size:13px;
-}
-</style>
+<link rel="stylesheet" href="./css/app.css">
 </head>
 <body>
 
 <div class="topbar">
-  <span>자라다 People</span>
+  <span>자라다 People · JP 통합 HR</span>
   <span class="who" id="topWho">로그인 안 됨</span>
 </div>
 
-<div class="appbar">
-  <span class="logo">자라다 People</span>
-  <span class="sub">초기 설정</span>
-</div>
-
-<div class="wrap">
-
-  <!-- 로그인 전 -->
-  <div class="card" id="cardLogin">
-    <h2>계정 확인</h2>
-    <p>구글 계정으로 로그인하면 Firebase가 부여한 고유 ID(UID)를 확인할 수 있습니다.</p>
-    <button class="btn btn-primary" id="btnLogin">구글 계정으로 로그인</button>
-    <div class="msg" id="loginMsg"></div>
+<header class="appbar">
+  <div class="brand">
+    <span class="logo">자라다 People</span>
+    <span class="sub" id="appSub">통합 HR</span>
   </div>
+  <nav class="tabs hidden" id="nav" aria-label="주요 메뉴"></nav>
+  <button class="btn btn-ghost hidden" id="btnLogout">로그아웃</button>
+</header>
+<div class="tape"></div>
 
-  <!-- 로그인 후 -->
-  <div class="card hidden" id="cardUid">
-    <h2>내 UID</h2>
-    <p>아래 값을 복사해서 Firestore의 <code>roles</code> 문서 ID로 사용합니다.</p>
-    <div class="label">UID</div>
-    <div class="uid-box" id="uidValue">—</div>
-    <div class="row">
-      <button class="btn btn-secondary" id="btnCopy">복사</button>
-      <button class="btn btn-secondary" id="btnLogout">로그아웃</button>
-      <span class="msg" id="copyMsg"></span>
+<main class="wrap">
+
+  <!-- 로그인 -->
+  <section id="viewLogin">
+    <div class="card login-card">
+      <h1>자라다 People</h1>
+      <p>구글 계정으로 로그인하세요. 등록된 직원만 이용할 수 있습니다.</p>
+      <button class="btn btn-primary btn-lg" id="btnLogin">구글 계정으로 로그인</button>
+      <div class="msg" id="loginMsg"></div>
     </div>
-  </div>
+  </section>
 
-  <!-- 다음 할 일 -->
-  <div class="card hidden" id="cardNext">
-    <h2>다음 단계</h2>
-    <ol class="steps">
-      <li>Firebase 콘솔 → Firestore → <strong>데이터</strong> 탭</li>
-      <li><strong>컬렉션 시작</strong> → 컬렉션 ID를 <code>roles</code> 로 입력</li>
-      <li>문서 ID 칸에 위 UID를 <strong>그대로 붙여넣기</strong> (자동 ID 쓰지 말 것)</li>
-      <li>필드 3개 추가:
-        <br><code>level</code> (문자열) = <code>super</code>
-        <br><code>orgId</code> (문자열) = <code>hq</code>
-        <br><code>employeeId</code> (문자열) = <code>emp_0001</code>
-      </li>
-      <li>저장 후 이 페이지를 새로고침하면 아래 상태가 바뀝니다</li>
-    </ol>
-  </div>
+  <!-- 로딩 / 오류 -->
+  <section id="viewLoading" class="hidden">
+    <div class="card">
+      <p style="margin:0" id="loadingMsg">권한 확인 중…</p>
+      <div style="margin-top:12px"><button class="btn btn-secondary hidden" id="btnReload">다시 시도</button></div>
+    </div>
+  </section>
 
-  <!-- 권한 확인 -->
-  <div class="card hidden" id="cardRole">
-    <h2>권한 상태</h2>
-    <div id="roleResult"></div>
-  </div>
+  <!-- 권한 없음 -->
+  <section id="viewNoRole" class="hidden">
+    <div class="card">
+      <h2 id="noRoleTitle">등록된 직원 정보가 없습니다</h2>
+      <p id="noRoleMsg"></p>
+      <div class="notice">최초 관리자라면 <a href="./setup.html">초기 설정 페이지</a>에서 UID를 확인해 <code>roles</code> 문서를 직접 만들어 주세요.</div>
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="btnRetry">다시 확인</button>
+        <button class="btn btn-secondary" id="btnLogout2">다른 계정으로 로그인</button>
+      </div>
+    </div>
+  </section>
 
-</div>
+  <!-- 대시보드 -->
+  <section id="viewDash" class="hidden">
+    <div class="page-head"><h1>대시보드</h1><span class="hint" id="dashHint"></span></div>
+    <div class="kpis">
+      <div class="kpi accent"><div class="label">전체 직원</div><div class="value" id="kpiTotal">–</div></div>
+      <div class="kpi"><div class="label">재직</div><div class="value" id="kpiActive">–</div></div>
+      <div class="kpi"><div class="label">휴직</div><div class="value" id="kpiLeave">–</div></div>
+      <div class="kpi"><div class="label">퇴직</div><div class="value" id="kpiResigned">–</div></div>
+    </div>
+    <div class="card flush">
+      <div class="card-head"><h2>조직별 인원</h2></div>
+      <div class="tbl-wrap"><table class="tbl" id="tblOrgStats"></table></div>
+    </div>
+    <div class="card flush">
+      <div class="card-head"><h2>최근 등록 직원</h2><a href="#employees" class="btn btn-secondary">전체 보기</a></div>
+      <div class="tbl-wrap"><table class="tbl" id="tblRecent"></table></div>
+    </div>
+  </section>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
-import {
-  getFirestore, doc, getDoc
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+  <!-- 직원 -->
+  <section id="viewEmployees" class="hidden">
+    <div class="page-head"><h1>직원</h1><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
+    <div class="toolbar">
+      <input class="input" id="fltQ" type="search" placeholder="이름, 이메일, 사번, 직책 검색" autocomplete="off">
+      <select id="fltOrg"><option value="">전체 조직</option></select>
+      <select id="fltStatus">
+        <option value="">전체 상태</option>
+        <option value="active">재직</option>
+        <option value="leave">휴직</option>
+        <option value="resigned">퇴직</option>
+      </select>
+      <span class="hint" id="empCount" style="font-size:13px;color:var(--text-sub)"></span>
+    </div>
+    <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblEmp"></table></div></div>
+  </section>
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCi5HyQ3oGATMXwWUdYHYrlBjS95eW6AYA",
-  authDomain: "jarada-people.firebaseapp.com",
-  projectId: "jarada-people",
-  storageBucket: "jarada-people.firebasestorage.app",
-  messagingSenderId: "569769571149",
-  appId: "1:569769571149:web:53e04eaa86d663386c7d04"
-};
+  <!-- 조직 -->
+  <section id="viewOrgs" class="hidden">
+    <div class="page-head"><h1>조직</h1><button class="btn btn-primary hidden" id="btnAddOrg">+ 조직 추가</button></div>
+    <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblOrgs"></table></div></div>
+  </section>
 
-const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db   = getFirestore(app);
+  <!-- 내 정보 -->
+  <section id="viewMe" class="hidden">
+    <div class="page-head"><h1>내 정보</h1></div>
+    <div id="meBody"></div>
+  </section>
 
-const $ = (id) => document.getElementById(id);
+</main>
 
-$("btnLogin").onclick = async () => {
-  $("loginMsg").textContent = "";
-  $("loginMsg").className = "msg";
-  try {
-    await signInWithPopup(auth, new GoogleAuthProvider());
-  } catch (e) {
-    $("loginMsg").className = "msg error";
-    if (e.code === "auth/unauthorized-domain") {
-      $("loginMsg").textContent =
-        "이 주소가 Firebase 승인된 도메인에 없습니다. Authentication → 설정 → 승인된 도메인에 추가하세요.";
-    } else if (e.code === "auth/popup-blocked") {
-      $("loginMsg").textContent = "팝업이 차단됐습니다. 주소창 오른쪽에서 팝업을 허용해주세요.";
-    } else if (e.code !== "auth/popup-closed-by-user") {
-      $("loginMsg").textContent = "로그인 실패: " + e.code;
-    }
-  }
-};
+<!-- 직원 등록 / 수정 -->
+<dialog id="dlgEmp">
+  <form id="formEmp" novalidate>
+    <div class="dlg-head">
+      <h2 id="dlgEmpTitle">직원 등록</h2>
+      <span class="id mono" id="dlgEmpId"></span>
+    </div>
+    <div class="dlg-body">
+      <div class="field">
+        <label for="fName">이름<span class="req">*</span></label>
+        <input class="input" id="fName" maxlength="40" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="fEmail">구글 계정 이메일<span class="req">*</span></label>
+        <input class="input" id="fEmail" type="email" autocomplete="off" placeholder="name@gmail.com">
+        <span class="help">이 이메일로 로그인하면 권한이 자동 연결됩니다</span>
+      </div>
+      <div class="field">
+        <label for="fOrg">소속 조직<span class="req">*</span></label>
+        <select id="fOrg"></select>
+      </div>
+      <div class="field">
+        <label for="fLevel">권한<span class="req">*</span></label>
+        <select id="fLevel"></select>
+        <span class="help" id="fLevelHelp"></span>
+      </div>
+      <div class="field">
+        <label for="fPosition">직책</label>
+        <input class="input" id="fPosition" maxlength="30" placeholder="예: 원장, 교사, 행정">
+      </div>
+      <div class="field">
+        <label for="fPhone">연락처</label>
+        <input class="input" id="fPhone" type="tel" maxlength="20" placeholder="010-0000-0000">
+      </div>
+      <div class="field">
+        <label for="fJoined">입사일</label>
+        <input class="input" id="fJoined" type="date">
+      </div>
+      <div class="field">
+        <label for="fStatus">상태<span class="req">*</span></label>
+        <select id="fStatus">
+          <option value="active">재직</option>
+          <option value="leave">휴직</option>
+          <option value="resigned">퇴직</option>
+        </select>
+        <span class="help">‘퇴직’으로 바꾸면 로그인 권한이 제거됩니다</span>
+      </div>
+      <div class="field full">
+        <label for="fMemo">메모</label>
+        <textarea id="fMemo" maxlength="500"></textarea>
+      </div>
+      <div class="msg error dlg-err" id="empErr"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-danger left hidden" id="btnEmpDelete">삭제</button>
+      <button type="button" class="btn btn-secondary" id="btnEmpCancel">취소</button>
+      <button type="submit" class="btn btn-primary" id="btnEmpSave">저장</button>
+    </div>
+  </form>
+</dialog>
 
-$("btnLogout").onclick = () => signOut(auth);
+<!-- 조직 추가 / 수정 -->
+<dialog id="dlgOrg">
+  <form id="formOrg" novalidate>
+    <div class="dlg-head"><h2 id="dlgOrgTitle">조직 추가</h2></div>
+    <div class="dlg-body">
+      <div class="field">
+        <label for="fOrgId">조직 ID<span class="req">*</span></label>
+        <input class="input mono" id="fOrgId" maxlength="30" placeholder="예: anyang" autocomplete="off">
+        <span class="help">영문 소문자·숫자·-·_ 만 사용, 저장 후 변경 불가</span>
+      </div>
+      <div class="field">
+        <label for="fOrgName">이름<span class="req">*</span></label>
+        <input class="input" id="fOrgName" maxlength="40" placeholder="예: 안양 평촌원">
+      </div>
+      <div class="field">
+        <label for="fOrgType">구분</label>
+        <select id="fOrgType">
+          <option value="branch">지점</option>
+          <option value="hq">본사</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="fOrgOrder">정렬 순서</label>
+        <input class="input" id="fOrgOrder" type="number" min="0" step="1">
+      </div>
+      <label class="check full"><input type="checkbox" id="fOrgActive" checked> 운영 중 (해제하면 신규 직원 등록 시 선택 목록에서 숨김)</label>
+      <div class="msg error dlg-err" id="orgErr"></div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="btn btn-secondary" id="btnOrgCancel">취소</button>
+      <button type="submit" class="btn btn-primary" id="btnOrgSave">저장</button>
+    </div>
+  </form>
+</dialog>
 
-$("btnCopy").onclick = async () => {
-  try {
-    await navigator.clipboard.writeText($("uidValue").textContent);
-    $("copyMsg").textContent = "복사됐습니다";
-    setTimeout(() => ($("copyMsg").textContent = ""), 2000);
-  } catch {
-    $("copyMsg").textContent = "직접 선택해서 복사해주세요";
-  }
-};
+<div class="toast" id="toast" role="status"></div>
 
-onAuthStateChanged(auth, async (user) => {
-  if (!user) {
-    $("topWho").textContent = "로그인 안 됨";
-    $("cardLogin").classList.remove("hidden");
-    $("cardUid").classList.add("hidden");
-    $("cardNext").classList.add("hidden");
-    $("cardRole").classList.add("hidden");
-    return;
-  }
-
-  $("topWho").textContent = user.email;
-  $("uidValue").textContent = user.uid;
-  $("cardLogin").classList.add("hidden");
-  $("cardUid").classList.remove("hidden");
-  $("cardRole").classList.remove("hidden");
-
-  // roles 문서가 이미 있는지 확인
-  $("roleResult").innerHTML = '<p class="msg">확인 중…</p>';
-  try {
-    const snap = await getDoc(doc(db, "roles", user.uid));
-    if (snap.exists()) {
-      const d = snap.data();
-      $("cardNext").classList.add("hidden");
-      $("roleResult").innerHTML =
-        '<p style="color:#11A33E;font-weight:700;margin:0 0 8px">권한 문서가 등록돼 있습니다.</p>' +
-        '<div class="label">level</div><div style="margin-bottom:8px">' + (d.level || "—") + '</div>' +
-        '<div class="label">orgId</div><div style="margin-bottom:8px">' + (d.orgId || "—") + '</div>' +
-        '<div class="label">employeeId</div><div>' + (d.employeeId || "—") + '</div>';
-    } else {
-      $("cardNext").classList.remove("hidden");
-      $("roleResult").innerHTML =
-        '<p class="msg">아직 권한 문서가 없습니다. 위 "다음 단계"를 따라 만들어주세요.</p>';
-    }
-  } catch (e) {
-    $("cardNext").classList.remove("hidden");
-    $("roleResult").innerHTML =
-      '<p class="msg error">읽기 거부됨 (' + e.code + ')<br>' +
-      '보안규칙이 게시됐는지, roles 문서가 있는지 확인해주세요.</p>';
-  }
-});
-</script>
-
+<script type="module" src="./js/app.js"></script>
 </body>
 </html>
