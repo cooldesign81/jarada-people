@@ -4,30 +4,39 @@ rules_version = '2';
 // Firebase 콘솔 → Firestore Database → 규칙 탭에 전체 내용을 붙여넣고 "게시"하세요.
 //
 // 컬렉션
-//   roles/{uid}            로그인 계정(UID) → 권한 (level, orgId, employeeId)
-//   employees/{employeeId} 직원 정보 (name, email, orgId, level, position, phone, joinedAt, status, memo)
-//   orgs/{orgId}           조직 (name, type: hq|branch, order, active)
-//   meta/counters          사번 카운터 (employee: number)
+//   roles/{uid}                         로그인 계정(UID) → 권한 (level, orgId, employeeId [, selfToken])
+//   employees/{employeeId}              직원 기본 정보 (name, phone, email, orgIds[], orgId, level, position, joinedAt, status, memo, selfToken)
+//   employees/{id}/private/personalInfo 주소·계좌·보호자·각종 날짜
+//   employees/{id}/private/residentFront|residentBack  주민등록번호 앞/뒤
+//   employees/{id}/private/compensation 급여 (최고관리자 전용)
+//   employees/{id}/private/flags        등록 여부 표시 (주민번호/서류 등록됨)
+//   orgs/{orgId}                        조직(지점) (name, type: hq|branch, order, active)
+//   meta/counters                       사번 카운터 (employee: number)
 //
 // 권한 등급
-//   super : 최고관리자 — 전체 조직 읽기/쓰기
-//   admin : 관리자     — 소속 조직(orgId) 직원만 읽기/쓰기 (최고관리자 등급은 부여/수정 불가)
-//   staff : 직원       — 본인 직원 정보 읽기, 조직 목록 읽기
+//   super : 최고관리자 — 전체
+//   admin : 관리자     — 소속 지점 직원의 기본/개인정보/주민번호 앞자리 (급여·뒷자리·비공개서류 불가, 최고관리자 등급 부여/수정 불가)
+//   staff : 직원       — 본인 정보 입력(주민번호 뒷자리는 쓰기만), 지점 목록 읽기
+//
+// 참고: 직원은 본인 문서를 읽을 수 있어 memo 필드도 규칙상 읽힙니다. 화면에는 표시하지 않으니 민감한 내용은 메모에 적지 마세요.
 
 service cloud.firestore {
   match /databases/{db}/documents {
 
     // ---------- 공통 함수 ----------
     function signedIn() { return request.auth != null; }
-    function myEmail()  { return request.auth.token.email.lower(); }
+    function myEmail()  { return request.auth.token.get('email', '').lower(); }
     function rolePath() { return /databases/$(db)/documents/roles/$(request.auth.uid); }
     function hasRole()  { return signedIn() && exists(rolePath()); }
     function myRole()   { return get(rolePath()).data; }
     function isSuper()  { return hasRole() && myRole().level == 'super'; }
     function isAdmin()  { return hasRole() && myRole().level == 'admin'; }
     function myOrg()    { return myRole().orgId; }
-    function empPath(id){ return /databases/$(db)/documents/employees/$(id); }
+    function isSelf(employeeId) { return hasRole() && myRole().get('employeeId', '') == employeeId; }
+    function empPath(id) { return /databases/$(db)/documents/employees/$(id); }
     function orgExists(id) { return exists(/databases/$(db)/documents/orgs/$(id)); }
+    function orgsOf(d) { return d.get('orgIds', [d.get('orgId', '')]); }
+    function adminOfEmp(id) { return isAdmin() && exists(empPath(id)) && myOrg() in orgsOf(get(empPath(id)).data); }
 
     function validLevel(l)  { return l in ['super', 'admin', 'staff']; }
     function validStatus(s) { return s in ['active', 'leave', 'resigned']; }
@@ -36,7 +45,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.name is string && d.name.size() > 0 && d.name.size() <= 40
         && d.email is string && d.email == d.email.lower() && d.email.size() <= 254
-        && d.orgId is string && orgExists(d.orgId)
+        && d.orgIds is list && d.orgIds.size() >= 1 && d.orgId == d.orgIds[0] && orgExists(d.orgId)
         && validLevel(d.level)
         && validStatus(d.status);
     }
@@ -55,7 +64,7 @@ service cloud.firestore {
       // 관리자 조회: 최고관리자는 전체, 관리자는 소속 조직 것만
       allow read: if isSuper() || (isAdmin() && resource.data.orgId == myOrg());
 
-      // 셀프 등록: 로그인 이메일과 일치하는 직원 문서가 있고, 퇴직 상태가 아닐 때
+      // 셀프 등록 ①: 로그인 이메일과 일치하는 직원 문서가 있고, 퇴직 상태가 아닐 때
       // level/orgId/employeeId 가 그 직원 문서와 정확히 같아야 함
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['level', 'orgId', 'employeeId'])
@@ -65,6 +74,16 @@ service cloud.firestore {
         && get(empPath(request.resource.data.employeeId)).data.status != 'resigned'
         && request.resource.data.level == get(empPath(request.resource.data.employeeId)).data.level
         && request.resource.data.orgId == get(empPath(request.resource.data.employeeId)).data.orgId;
+
+      // 셀프 등록 ②: 등록 링크(?self=사번&t=토큰). 직원 문서의 selfToken 과 일치해야 하고 항상 ‘직원’ 등급
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['level', 'employeeId', 'selfToken'])
+        && request.resource.data.level == 'staff'
+        && request.resource.data.employeeId is string
+        && exists(empPath(request.resource.data.employeeId))
+        && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') != ''
+        && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') == request.resource.data.selfToken
+        && get(empPath(request.resource.data.employeeId)).data.status != 'resigned';
 
       // 최고관리자: 전체 쓰기
       allow create, update, delete: if isSuper();
@@ -79,23 +98,57 @@ service cloud.firestore {
 
     // ---------- employees ----------
     match /employees/{employeeId} {
-      // 읽기: 최고관리자 전체 / 관리자 소속 조직 / 본인(이메일 일치 — 권한 등록 전 셀프 확인 포함)
+      // 읽기: 최고관리자 전체 / 관리자 소속 지점 / 본인(권한 연결 후 또는 이메일 일치)
       allow read: if signedIn() && (
         isSuper()
-        || (isAdmin() && resource.data.orgId == myOrg())
+        || (isAdmin() && (resource.data.orgId == myOrg() || myOrg() in resource.data.orgIds))
+        || isSelf(employeeId)
         || resource.data.email == myEmail()
       );
 
       allow create, update: if isSuper() && validEmployee();
       allow delete: if isSuper();
 
-      // 관리자: 소속 조직 안에서만, 최고관리자 등급은 생성/수정 불가
+      // 관리자: 소속 지점 안에서만, 최고관리자 등급은 생성/수정 불가, 지점 목록은 바꿀 수 없음
       allow create: if isAdmin() && validEmployee()
-        && request.resource.data.orgId == myOrg()
+        && request.resource.data.orgIds == [myOrg()]
         && request.resource.data.level != 'super';
       allow update: if isAdmin() && validEmployee()
-        && resource.data.orgId == myOrg() && resource.data.level != 'super'
-        && request.resource.data.orgId == myOrg() && request.resource.data.level != 'super';
+        && myOrg() in orgsOf(resource.data)
+        && request.resource.data.orgIds == orgsOf(resource.data)
+        && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
+        && resource.data.level != 'super' && request.resource.data.level != 'super';
+
+      // ---------- 개인 정보 (하위 문서) ----------
+      match /private/{docId} {
+        function managerOf() { return isSuper() || adminOfEmp(employeeId); }
+        function ownerOrManager() { return isSelf(employeeId) || managerOf(); }
+        function validPersonal() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['address', 'bankAccount', 'guardianName', 'guardianRelation', 'guardianPhone',
+                                   'eduStartDate', 'workStartDate', 'insuranceRegDate', 'resignDate', 'updatedAt'])
+            && d.get('address', '') is string && d.get('address', '').size() <= 200
+            && d.get('bankAccount', '') is string && d.get('bankAccount', '').size() <= 200
+            && d.get('guardianName', '') is string && d.get('guardianName', '').size() <= 200
+            && d.get('guardianRelation', '') is string && d.get('guardianRelation', '').size() <= 200
+            && d.get('guardianPhone', '') is string && d.get('guardianPhone', '').size() <= 200;
+        }
+        function validRrnFront() { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{6}$'); }
+        function validRrnBack()  { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{7}$'); }
+
+        allow read: if (docId in ['personalInfo', 'flags', 'residentFront'] && ownerOrManager())
+                    || (docId == 'residentBack' && isSuper())
+                    || (docId == 'compensation' && isSuper());
+
+        allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
+                              || (docId == 'flags' && ownerOrManager())
+                              || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
+                              || (docId == 'residentBack' && (isSuper() || isSelf(employeeId)) && validRrnBack())
+                              || (docId == 'compensation' && isSuper());
+
+        // 삭제는 최고관리자만 (직원 삭제 시 정리용)
+        allow delete: if isSuper();
+      }
     }
 
     // ---------- orgs ----------

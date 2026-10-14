@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// 자라다 People — Cloud Storage 보안 규칙
+// Firebase 콘솔 → Storage → 규칙 탭에 붙여넣고 "게시". (Firestore 의 roles/employees 문서를 참조합니다)
+//
+// 파일 위치
+//   hr/{직원사번}/pub/{키}__{시각}__{원본이름}   공개서류: resume, portfolio, criminalRecord, diploma
+//   hr/{직원사번}/sec/{키}__{시각}__{원본이름}   비공개서류: residentCopy, bankbookCopy, businessRegistration, employmentInsuranceDoc
+//                                                인사평가(eval), 기타(etc)
+//
+// 공개서류  : 열람/삭제 = 최고관리자, 해당 지점 관리자 / 업로드 = 위 + 본인
+// 비공개·평가·기타 : 열람/삭제 = 최고관리자만 / 업로드 = 최고관리자, 본인(비공개서류 4종만)
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function fsDoc(path) { return /databases/(default)/documents/$(path); }
+    function signedIn() { return request.auth != null; }
+    function roleExists() { return signedIn() && firestore.exists(fsDoc('roles/' + request.auth.uid)); }
+    function role() { return firestore.get(fsDoc('roles/' + request.auth.uid)).data; }
+    function isSuper() { return roleExists() && role().level == 'super'; }
+    function isAdmin() { return roleExists() && role().level == 'admin'; }
+    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId; }
+    function adminOf(empId) {
+      return isAdmin() && firestore.exists(fsDoc('employees/' + empId))
+        && role().orgId in firestore.get(fsDoc('employees/' + empId)).data.get('orgIds', [firestore.get(fsDoc('employees/' + empId)).data.get('orgId', '')]);
+    }
+    function small() { return request.resource.size < 30 * 1024 * 1024; }
+
+    match /hr/{empId}/pub/{file} {
+      allow read, delete: if isSuper() || adminOf(empId);
+      allow create: if small()
+        && file.matches('(resume|portfolio|criminalRecord|diploma)__[0-9]+__.*')
+        && (isSuper() || adminOf(empId) || isSelf(empId));
+    }
+
+    match /hr/{empId}/sec/{file} {
+      allow read, delete: if isSuper();
+      allow create: if small() && (
+        isSuper()
+        || (isSelf(empId) && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc)__[0-9]+__.*'))
+      );
+    }
+  }
+}
