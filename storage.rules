@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// 자라다 People — Cloud Storage 보안 규칙
+// Firebase 콘솔 → Storage → 규칙 탭에 붙여넣고 "게시". (Firestore 의 roles/employees 문서를 참조합니다)
+//
+// 파일 위치
+//   hr/{직원사번}/pub/{키}__{시각}__{원본이름}   공개서류: resume, portfolio, criminalRecord, diploma
+//   hr/{직원사번}/sec/{키}__{시각}__{원본이름}   비공개서류: residentCopy, bankbookCopy, businessRegistration, employmentInsuranceDoc
+//                                                인사평가(eval), 기타(etc)
+//
+// 공개서류  : 열람/삭제 = 최고관리자·본사 인사(hr), 해당 지점 관리자(admin/principal) / 업로드 = 위 + 본인
+// 비공개·평가·기타 : 열람/삭제 = 최고관리자만 / 업로드 = 최고관리자, 본인(비공개서류 4종만)
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function rolePath() { return /databases/(default)/documents/roles/$(request.auth.uid); }
+    function empPath(id) { return /databases/(default)/documents/employees/$(id); }
+    function signedIn() { return request.auth != null; }
+    function roleExists() { return signedIn() && firestore.exists(rolePath()); }
+    function role() { return firestore.get(rolePath()).data; }
+    function isSuper() { return roleExists() && role().level == 'super'; }
+    function isHR() { return roleExists() && role().level in ['super', 'hr']; }
+    function isAdmin() { return roleExists() && role().level in ['admin', 'principal']; }
+    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId; }
+    // 직원 문서의 소속 지점 목록 (orgIds 가 없던 예전 문서는 orgId 하나로 취급)
+    function orgsOf(d) { return d.get('orgIds', [d.get('orgId', '')]); }
+    function adminOf(empId) {
+      return isAdmin() && firestore.exists(empPath(empId))
+        && role().orgId in orgsOf(firestore.get(empPath(empId)).data);
+    }
+    function small() { return request.resource.size < 30 * 1024 * 1024; }
+
+    match /hr/{empId}/pub/{file} {
+      allow read, delete: if isHR() || adminOf(empId);
+      allow create: if small()
+        && file.matches('(resume|portfolio|criminalRecord|diploma)__[0-9]+__.*')
+        && (isHR() || adminOf(empId) || isSelf(empId));
+    }
+
+    match /hr/{empId}/sec/{file} {
+      allow read, delete: if isSuper();
+      allow create: if small() && (
+        (isSuper() && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc|eval|etc)__[0-9]+__.*'))
+        || (isSelf(empId) && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc)__[0-9]+__.*'))
+      );
+    }
+  }
+}

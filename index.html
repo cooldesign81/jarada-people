@@ -49,7 +49,7 @@
     <div class="card">
       <h2 id="noRoleTitle">등록된 직원 정보가 없습니다</h2>
       <p id="noRoleMsg"></p>
-      <div class="notice">최초 관리자라면 <a href="./setup.html">초기 설정 페이지</a>에서 UID를 확인해 <code>roles</code> 문서를 직접 만들어 주세요.</div>
+      <div class="notice" id="noRoleNotice">최초 관리자라면 <a href="./setup.html">초기 설정 페이지</a>에서 UID를 확인해 <code>roles</code> 문서를 직접 만들어 주세요.</div>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="btnRetry">다시 확인</button>
         <button class="btn btn-secondary" id="btnLogout2">다른 계정으로 로그인</button>
@@ -78,7 +78,9 @@
 
   <!-- 직원 -->
   <section id="viewEmployees" class="hidden">
-    <div class="page-head"><h1>직원</h1><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
+    <div class="page-head"><h1>직원</h1>
+      <div class="row-actions"><button class="btn btn-secondary" id="btnBulk">일괄 등록</button><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
+    </div>
     <div class="toolbar">
       <input class="input" id="fltQ" type="search" placeholder="이름, 이메일, 사번, 직책 검색" autocomplete="off">
       <select id="fltOrg"><option value="">전체 조직</option></select>
@@ -99,7 +101,10 @@
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblOrgs"></table></div></div>
   </section>
 
-  <!-- 내 정보 -->
+  <!-- 직원 상세 (내 정보 포함) -->
+  <section id="viewDetail" class="hidden"><div id="detailRoot"></div></section>
+
+  <!-- 내 정보 등록 (직원 정보가 아직 없는 최고관리자용) -->
   <section id="viewMe" class="hidden">
     <div class="page-head"><h1>내 정보</h1></div>
     <div id="meBody"></div>
@@ -124,9 +129,10 @@
         <input class="input" id="fEmail" type="email" autocomplete="off" placeholder="name@gmail.com">
         <span class="help">이 이메일로 로그인하면 권한이 자동 연결됩니다</span>
       </div>
-      <div class="field">
-        <label for="fOrg">소속 조직<span class="req">*</span></label>
-        <select id="fOrg"></select>
+      <div class="field full">
+        <label>소속 지점<span class="req">*</span> (중복 선택 가능)</label>
+        <div class="chk-group" id="fOrgs"></div>
+        <span class="help">첫 번째로 선택한 지점이 대표 지점입니다. 지점 변경은 최고관리자만 할 수 있습니다.</span>
       </div>
       <div class="field">
         <label for="fLevel">권한<span class="req">*</span></label>
@@ -166,6 +172,51 @@
       <button type="submit" class="btn btn-primary" id="btnEmpSave">저장</button>
     </div>
   </form>
+</dialog>
+
+<!-- 증명서 발급 -->
+<dialog id="dlgCert">
+  <div class="dlg-head"><h2 id="certTitle">재직증명서 발급</h2></div>
+  <div class="dlg-body">
+    <div class="field"><label for="certPosition">직위/직책</label><input class="input" id="certPosition"></div>
+    <div class="field"><label for="certDuties">담당업무</label><input class="input" id="certDuties"></div>
+    <div class="field"><label for="certBranch">소속</label><input class="input" id="certBranch"></div>
+    <div class="field"><label for="certPurpose">용도</label><input class="input" id="certPurpose"></div>
+    <div class="field"><label for="certApplyDate">근무 시작일</label><input class="input" id="certApplyDate" type="date"></div>
+    <div class="field"><label for="certIssueDate">발급일</label><input class="input" id="certIssueDate" type="date"></div>
+    <div class="field full"><label for="certCompany">발급 회사명</label>
+      <select id="certCompany"><option value="">(선택 안 함)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
+    <div class="field"><label for="certCeo">대표자명</label><input class="input" id="certCeo"></div>
+    <div class="field"><label for="certAddr">사업장 주소</label><input class="input" id="certAddr"></div>
+  </div>
+  <div class="dlg-foot">
+    <button type="button" class="btn btn-secondary" id="btnCertCancel">취소</button>
+    <button type="button" class="btn btn-primary" id="btnCertGo">발급</button>
+  </div>
+</dialog>
+
+<!-- 직원 일괄 등록 -->
+<dialog id="dlgBulk" class="wide">
+  <div class="dlg-head"><h2>직원 일괄 등록</h2><span class="id" id="bulkLimit">한 번에 최대 500명</span></div>
+  <div class="bulk-body">
+    <p class="bulk-help">엑셀·구글시트에서 표를 <strong>복사해 아래 칸에 붙여넣거나</strong>, CSV 파일을 올리세요. <strong>‘양식 내려받기’</strong>의 제목 줄 그대로 쓰면 열 순서가 달라도 자동으로 맞춥니다. 이름과 이메일만 필수이고, 주민등록번호·급여·서류는 일괄 등록되지 않습니다(직원 상세에서 입력).</p>
+    <div class="bulk-tools">
+      <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,text/csv,text/plain">
+      <button type="button" class="btn btn-secondary" id="btnBulkTemplate">양식 내려받기</button>
+      <span class="spacer"></span>
+      <label for="bulkOrg" class="bulk-org-label">지점 칸이 비었을 때</label>
+      <select id="bulkOrg"></select>
+    </div>
+    <textarea id="bulkText" class="mono" rows="6" spellcheck="false" placeholder="이름&#9;이메일&#9;소속 지점&#9;직책&#9;전번&#9;입사일&#9;권한&#9;상태&#10;홍길동&#9;hong@gmail.com&#9;평촌원/반포원&#9;교사&#9;010-1234-5678&#9;2024-03-02&#9;직원&#9;재직"></textarea>
+    <div class="msg error" id="bulkErr"></div>
+    <div class="bulk-summary" id="bulkSummary"></div>
+    <div class="bulk-preview hidden" id="bulkPreviewWrap"><table class="tbl" id="bulkPreview"></table></div>
+    <p class="bulk-note">· 소속 지점은 <strong>이름 또는 ID</strong>로 적고, 여러 곳이면 <strong>평촌원/반포원</strong>처럼 / 로 구분합니다 (첫 번째가 대표 지점). · 날짜는 2024-03-02, 2024.3.2, 20240302 모두 가능. · 권한은 직원/관리자(최고관리자), 상태는 재직/휴직/퇴직이며 비우면 직원·재직입니다. · 오류가 있는 줄은 건너뛰고 정상인 줄만 등록합니다. · 등록된 이메일로 구글 로그인하면 권한이 자동 연결됩니다.</p>
+  </div>
+  <div class="dlg-foot">
+    <button type="button" class="btn btn-secondary" id="btnBulkCancel">닫기</button>
+    <button type="button" class="btn btn-primary" id="btnBulkSave" disabled>등록</button>
+  </div>
 </dialog>
 
 <!-- 조직 추가 / 수정 -->
