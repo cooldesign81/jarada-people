@@ -1,45 +1,117 @@
 rules_version = '2';
 
-// 자라다 People — Firestore 보안 규칙
-// Firebase 콘솔 → Firestore Database → 규칙 탭에 전체 내용을 붙여넣고 "게시"하세요.
+// ============================================================
+// JARADA People — Firestore 보안규칙 v0.2
 //
-// 컬렉션
-//   roles/{uid}                         로그인 계정(UID) → 권한 (level, orgId, employeeId [, selfToken])
-//   employees/{employeeId}              직원 기본 정보 (name, phone, email, orgIds[], orgId, level, position, joinedAt, status, memo, selfToken)
-//   employees/{id}/private/personalInfo 주소·계좌·보호자·각종 날짜
-//   employees/{id}/private/residentFront|residentBack  주민등록번호 앞/뒤
-//   employees/{id}/private/compensation 급여 (최고관리자 전용)
-//   employees/{id}/private/flags        등록 여부 표시 (주민번호/서류 등록됨)
-//   orgs/{orgId}                        조직(지점) (name, type: hq|branch, order, active)
-//   meta/counters                       사번 카운터 (employee: number)
+// v0.1(기존 게시본)을 그대로 이어받고, 직원·조직 관리 앱에 필요한 부분을 합쳤다.
 //
-// 권한 등급
-//   super : 최고관리자 — 전체
-//   admin : 관리자     — 소속 지점 직원의 기본/개인정보/주민번호 앞자리 (급여·뒷자리·비공개서류 불가, 최고관리자 등급 부여/수정 불가)
-//   staff : 직원       — 본인 정보 입력(주민번호 뒷자리는 쓰기만), 지점 목록 읽기
+// 전제 1) 권한은 roles/{uid} 문서 한 장으로 결정한다.
+//         { level: 'super'|'hr'|'edu'|'principal'|'manager'|'admin'|'staff',
+//           orgId: 'hq', employeeId: 'emp_0001' }
+//         · super          대표 — 전체
+//         · hr / edu       본사 인사 / 교육팀 — 모든 지점
+//         · admin / principal  지점 관리자·원장 — 소속 지점 직원을 등록·수정 (admin 은 앱이 쓰는 이름)
+//         · manager        실장 — 소속 지점 직원 읽기
+//         · staff          직원 — 본인 정보
+// 전제 2) 삭제는 원칙적으로 금지. 상태 변경으로 처리한다.
+//         (예외: 대표가 직원 정보를 완전 삭제하는 것만 허용)
+// 전제 3) 앱이 쓰는 경로
+//         roles/{uid}                          권한 (+ 이메일 셀프 등록, 등록 링크 셀프 등록)
+//         orgs/{orgId}                         지점
+//         meta/counters                        사번 카운터
+//         employees/{id}                       직원 기본 정보 (orgIds[] 복수 지점, orgId = 대표 지점)
+//         employees/{id}/private/personalInfo  주소·계좌·보호자·각종 날짜
+//         employees/{id}/private/residentFront|residentBack  주민등록번호 앞/뒤  ※ 아래 보안 참고
+//         employees/{id}/private/compensation  급여 (대표 전용)
+//         employees/{id}/private/flags         등록 여부 표시
 //
-// 참고: 직원은 본인 문서를 읽을 수 있어 memo 필드도 규칙상 읽힙니다. 화면에는 표시하지 않으니 민감한 내용은 메모에 적지 마세요.
+// 보안 참고) residentFront/Back 은 현재 앱이 평문으로 저장한다(jarada-hr 와 동일).
+//   v0.1 의 방침(암호화 보관, 클라이언트 접근 전면 차단)과 다르다.
+//   방침대로 가려면 아래 residentFront/residentBack 줄을 지우고 Cloud Functions 로 옮길 것.
+// ============================================================
 
 service cloud.firestore {
-  match /databases/{db}/documents {
+  match /databases/{database}/documents {
 
-    // ---------- 공통 함수 ----------
-    function signedIn() { return request.auth != null; }
-    function myEmail()  { return request.auth.token.get('email', '').lower(); }
-    function rolePath() { return /databases/$(db)/documents/roles/$(request.auth.uid); }
-    function hasRole()  { return signedIn() && exists(rolePath()); }
-    function myRole()   { return get(rolePath()).data; }
-    function isSuper()  { return hasRole() && myRole().level == 'super'; }
-    function isAdmin()  { return hasRole() && myRole().level == 'admin'; }
-    function myOrg()    { return myRole().orgId; }
-    function isSelf(employeeId) { return hasRole() && myRole().get('employeeId', '') == employeeId; }
-    function empPath(id) { return /databases/$(db)/documents/employees/$(id); }
-    function orgExists(id) { return exists(/databases/$(db)/documents/orgs/$(id)); }
-    function orgsOf(d) { return d.get('orgIds', [d.get('orgId', '')]); }
-    function adminOfEmp(id) { return isAdmin() && exists(empPath(id)) && myOrg() in orgsOf(get(empPath(id)).data); }
+    // ---------- 헬퍼 ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+    function myEmail() {
+      return request.auth.token.get('email', '').lower();
+    }
+    function rolePath() {
+      return /databases/$(database)/documents/roles/$(request.auth.uid);
+    }
+    function hasRole() {
+      return signedIn() && exists(rolePath());
+    }
 
-    function validLevel(l)  { return l in ['super', 'admin', 'staff']; }
-    function validStatus(s) { return s in ['active', 'leave', 'resigned']; }
+    // 같은 요청 안에서 같은 문서를 여러 번 get() 해도 1회로 캐시된다
+    function me() {
+      return get(rolePath()).data;
+    }
+
+    function isSuper() {
+      return hasRole() && me().level == 'super';
+    }
+
+    function isHR() {
+      return hasRole() && me().level in ['super', 'hr'];
+    }
+
+    // 교육팀: 교육과정 / 자격 / 학회 관리
+    function isEdu() {
+      return hasRole() && me().level in ['super', 'hr', 'edu'];
+    }
+
+    // 지점 관리자 계열 (읽기): 원장 / 실장 / admin
+    function isOrgMgr() {
+      return hasRole() && me().level in ['admin', 'principal', 'manager'];
+    }
+
+    // 지점 관리자 계열 (쓰기): 원장 / admin
+    function isOrgAdmin() {
+      return hasRole() && me().level in ['admin', 'principal'];
+    }
+
+    // 해당 지역원의 원장 또는 실장
+    function isManagerOf(orgId) {
+      return isOrgMgr() && me().orgId == orgId;
+    }
+
+    function isPrincipalOf(orgId) {
+      return isOrgAdmin() && me().orgId == orgId;
+    }
+
+    function isSelf(empId) {
+      return hasRole() && me().get('employeeId', '') == empId;
+    }
+
+    function empPath(id) {
+      return /databases/$(database)/documents/employees/$(id);
+    }
+    function orgExists(id) {
+      return exists(/databases/$(database)/documents/orgs/$(id));
+    }
+    // 직원 문서의 소속 지점 목록 (orgIds 가 없던 예전 문서는 orgId 하나로 취급)
+    function orgsOf(d) {
+      return d.get('orgIds', [d.get('orgId', '')]);
+    }
+    function orgAdminOfEmp(id) {
+      return isOrgAdmin() && exists(empPath(id)) && me().orgId in orgsOf(get(empPath(id)).data);
+    }
+
+    function validLevel(l) {
+      return l in ['super', 'hr', 'edu', 'principal', 'manager', 'admin', 'staff'];
+    }
+    function validStatus(s) {
+      return s in ['active', 'leave', 'resigned'];
+    }
+    // 지점 관리자가 부여할 수 있는 등급 (본사 등급은 불가)
+    function orgLevel(l) {
+      return l in ['staff', 'manager', 'admin', 'principal'];
+    }
 
     function validEmployee() {
       let d = request.resource.data;
@@ -57,15 +129,14 @@ service cloud.firestore {
         && d.active is bool;
     }
 
-    // ---------- roles ----------
+    // ---------- 권한 마스터 ----------
     match /roles/{uid} {
-      // 본인 권한 문서는 누구나 읽기 (로그인 직후 확인용)
+      // 본인 권한은 본인이 읽을 수 있어야 앱이 메뉴를 그린다
       allow get: if signedIn() && request.auth.uid == uid;
-      // 관리자 조회: 최고관리자는 전체, 관리자는 소속 조직 것만
-      allow read: if isSuper() || (isAdmin() && resource.data.orgId == myOrg());
+      allow read: if isHR() || (isOrgAdmin() && resource.data.orgId == me().orgId);
 
       // 셀프 등록 ①: 로그인 이메일과 일치하는 직원 문서가 있고, 퇴직 상태가 아닐 때
-      // level/orgId/employeeId 가 그 직원 문서와 정확히 같아야 함
+      // level/orgId/employeeId 가 그 직원 문서와 정확히 같아야 한다
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['level', 'orgId', 'employeeId'])
         && request.resource.data.employeeId is string
@@ -85,44 +156,68 @@ service cloud.firestore {
         && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') == request.resource.data.selfToken
         && get(empPath(request.resource.data.employeeId)).data.status != 'resigned';
 
-      // 최고관리자: 전체 쓰기
       allow create, update, delete: if isSuper();
 
-      // 관리자: 소속 조직의 최고관리자가 아닌 권한만 수정/삭제 (최고관리자로 승격 불가)
-      allow update: if isAdmin()
-        && resource.data.orgId == myOrg() && resource.data.level != 'super'
-        && request.resource.data.orgId == myOrg() && request.resource.data.level != 'super';
-      allow delete: if isAdmin()
-        && resource.data.orgId == myOrg() && resource.data.level != 'super';
+      // 본사 인사: 최고관리자 등급은 건드릴 수 없다
+      allow create: if isHR() && request.resource.data.level != 'super';
+      allow update: if isHR()
+        && resource.data.level != 'super' && request.resource.data.level != 'super';
+      allow delete: if isHR() && resource.data.level != 'super';
+
+      // 지점 관리자: 같은 지점의 본사 등급이 아닌 권한만 수정/삭제 (승격 불가)
+      allow update: if isOrgAdmin()
+        && resource.data.orgId == me().orgId && orgLevel(resource.data.level)
+        && request.resource.data.orgId == me().orgId && orgLevel(request.resource.data.level);
+      allow delete: if isOrgAdmin()
+        && resource.data.orgId == me().orgId && orgLevel(resource.data.level);
     }
 
-    // ---------- employees ----------
-    match /employees/{employeeId} {
-      // 읽기: 최고관리자 전체 / 관리자 소속 지점 / 본인(권한 연결 후 또는 이메일 일치)
+    // ---------- 조직 ----------
+    match /orgs/{orgId} {
+      allow read: if signedIn();
+      allow create, update: if isHR() && validOrg();
+      allow delete: if isSuper();
+    }
+
+    // ---------- 사번 카운터 ----------
+    match /meta/{docId} {
+      allow read, write: if isHR() || isOrgAdmin();
+    }
+
+    // ---------- 직원: 공개 인사정보 ----------
+    // 이름 / 사번 / 소속 / 직군 / 직급 / 입사일 / 재직상태 / 사진
+    // 민감정보는 절대 이 문서에 넣지 않는다.
+    match /employees/{empId} {
+      // 읽기: 본사 / 소속 지점 관리자 / 본인(권한 연결 후, 또는 이메일 일치)
       allow read: if signedIn() && (
-        isSuper()
-        || (isAdmin() && (resource.data.orgId == myOrg() || myOrg() in resource.data.orgIds))
-        || isSelf(employeeId)
+        isHR()
+        || (isOrgMgr() && (resource.data.orgId == me().orgId || me().orgId in resource.data.orgIds))
+        || isSelf(empId)
         || resource.data.email == myEmail()
       );
 
+      // 대표: 모든 등급 부여 가능 / 본사 인사: 최고관리자 등급만 제외
       allow create, update: if isSuper() && validEmployee();
-      allow delete: if isSuper();
-
-      // 관리자: 소속 지점 안에서만, 최고관리자 등급은 생성/수정 불가, 지점 목록은 바꿀 수 없음
-      allow create: if isAdmin() && validEmployee()
-        && request.resource.data.orgIds == [myOrg()]
-        && request.resource.data.level != 'super';
-      allow update: if isAdmin() && validEmployee()
-        && myOrg() in orgsOf(resource.data)
-        && request.resource.data.orgIds == orgsOf(resource.data)
-        && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
+      allow create: if isHR() && validEmployee() && request.resource.data.level != 'super';
+      allow update: if isHR() && validEmployee()
         && resource.data.level != 'super' && request.resource.data.level != 'super';
 
-      // ---------- 개인 정보 (하위 문서) ----------
+      // 지점 관리자: 소속 지점 안에서만, 본사 등급은 생성/수정 불가, 지점 목록은 바꿀 수 없음
+      allow create: if isOrgAdmin() && validEmployee()
+        && request.resource.data.orgIds == [me().orgId]
+        && orgLevel(request.resource.data.level);
+      allow update: if isOrgAdmin() && validEmployee()
+        && me().orgId in orgsOf(resource.data)
+        && request.resource.data.orgIds == orgsOf(resource.data)
+        && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
+        && orgLevel(resource.data.level) && orgLevel(request.resource.data.level);
+
+      allow delete: if isSuper();   // 퇴사는 status 변경이 원칙. 완전 삭제는 대표만 (하위 문서·파일은 앱이 함께 정리)
+
+      // ---------- 개인 정보 / 주민등록번호 앞뒤 / 급여 (앱 사용) ----------
       match /private/{docId} {
-        function managerOf() { return isSuper() || adminOfEmp(employeeId); }
-        function ownerOrManager() { return isSelf(employeeId) || managerOf(); }
+        function managerOf() { return isHR() || orgAdminOfEmp(empId); }
+        function ownerOrManager() { return isSelf(empId) || managerOf(); }
         function validPersonal() {
           let d = request.resource.data;
           return d.keys().hasOnly(['address', 'bankAccount', 'guardianName', 'guardianRelation', 'guardianPhone',
@@ -143,27 +238,149 @@ service cloud.firestore {
         allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
                               || (docId == 'flags' && ownerOrManager())
                               || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
-                              || (docId == 'residentBack' && (isSuper() || isSelf(employeeId)) && validRrnBack())
+                              || (docId == 'residentBack' && (isSuper() || isSelf(empId)) && validRrnBack())
                               || (docId == 'compensation' && isSuper());
 
-        // 삭제는 최고관리자만 (직원 삭제 시 정리용)
+        // 삭제는 대표만 (직원 완전 삭제 시 정리용)
         allow delete: if isSuper();
+      }
+
+      // ---------- 민감: 신원 / 계좌 / 주소 (v0.1, 앱 미사용) ----------
+      // 직원 본인과 본사 HR만. 원장도 볼 수 없다.
+      // 주민등록번호는 여기에 마스킹값(901231-1******)만 둔다.
+      match /private/identity {
+        allow read: if isSelf(empId) || isHR();
+        allow write: if isHR();   // 본인 수정은 changeRequests 경유
+      }
+
+      // ---------- 최고민감: 주민등록번호 암호문 ----------
+      // 개인정보보호법상 주민등록번호는 암호화 보관이 의무다.
+      // 브라우저에는 복호화 키를 둘 수 없으므로 이 문서는
+      // 클라이언트에서 읽기·쓰기 모두 전면 차단한다.
+      // 접근은 Cloud Functions(Admin SDK)만 가능하며,
+      // Admin SDK는 보안규칙을 우회하므로 아래 false가 서버를 막지는 않는다.
+      match /secure/{secureDoc} {
+        allow read, write: if false;
+      }
+
+      // ---------- 대표 전용: 퇴직금 중간정산 (v0.1, 앱 미사용 — 앱은 compensation 에 함께 저장) ----------
+      match /private/severance {
+        allow read, write: if isSuper();
+      }
+
+      // ---------- 발령 이력 ----------
+      match /assignments/{assignmentId} {
+        allow read: if isSelf(empId)
+                    || isHR()
+                    || isManagerOf(resource.data.orgId);
+        allow create, update: if isHR();
+        allow delete: if false;
+      }
+
+      // ---------- 자격증 ----------
+      match /certs/{certId} {
+        allow read: if isSelf(empId)
+                    || isEdu()
+                    || isManagerOf(resource.data.orgId);
+        allow create, update: if isEdu();
+        allow delete: if false;
+      }
+
+      // ---------- 교육 / 학회 이수 ----------
+      // 규정상 학회보고서의 적용점은 교사가 직접 작성한다.
+      // 따라서 확정(approved) 전까지는 본인이 쓰고 고칠 수 있다.
+      match /enrollments/{enrollmentId} {
+        allow read: if isSelf(empId)
+                    || isEdu()
+                    || isManagerOf(resource.data.orgId);
+
+        allow create: if (isSelf(empId) || isEdu())
+                      && request.resource.data.status == 'draft';
+
+        allow update: if isEdu()
+                      || (isSelf(empId)
+                          && resource.data.status != 'approved'
+                          && request.resource.data.status in ['draft', 'submitted']);
+
+        allow delete: if false;
+      }
+
+      // ---------- 면담 / 평가 ----------
+      // visibility: 'shared'(직원 열람 가능) | 'manager'(관리자 전용) | 'hr'(본사 전용)
+      match /reviews/{reviewId} {
+        allow read: if isHR()
+                    || (isManagerOf(resource.data.orgId)
+                        && resource.data.visibility in ['shared', 'manager'])
+                    || (isSelf(empId) && resource.data.visibility == 'shared');
+
+        allow create: if isHR() || isManagerOf(request.resource.data.orgId);
+        allow update: if isHR() || isManagerOf(resource.data.orgId);
+        allow delete: if false;
+      }
+
+      // ---------- 문서 메타 (실제 파일은 Storage) ----------
+      match /docs/{docId} {
+        allow read: if isSelf(empId) || isHR();
+        allow create: if isSelf(empId) || isHR();
+        allow update: if isHR();
+        allow delete: if false;
       }
     }
 
-    // ---------- orgs ----------
-    match /orgs/{orgId} {
-      allow read: if hasRole();
-      allow create, update: if isSuper() && validOrg();
-      allow delete: if isSuper();
+    // ---------- 접근 요청 ----------
+    // 권한 없는 계정이 로그인하면 본인 UID로 요청을 남긴다.
+    // 대표는 이 목록을 보고 권한을 부여한다.
+    match /accessRequests/{uid} {
+      allow read: if isHR() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update, delete: if isHR();
     }
 
-    // ---------- meta ----------
-    match /meta/{docId} {
-      allow read, write: if isSuper() || isAdmin();
+    // ---------- 본인 정보 변경 요청 ----------
+    // 직원이 주소·연락처·계좌를 직접 고치는 대신 요청을 남기고 HR이 반영한다.
+    match /changeRequests/{requestId} {
+      allow read: if isHR() || isSelf(resource.data.employeeId);
+      allow create: if isSelf(request.resource.data.employeeId)
+                    && request.resource.data.status == 'submitted';
+      allow update: if isHR();
+      allow delete: if false;
     }
 
-    // 그 외 모든 경로 차단
+    // ---------- 휴가 ----------
+    // 승인함에서 원별로 모아 봐야 하므로 최상위에 둔다.
+    match /leaveRequests/{requestId} {
+      allow read: if isHR()
+                  || isSelf(resource.data.employeeId)
+                  || isManagerOf(resource.data.orgId);
+
+      allow create: if isSelf(request.resource.data.employeeId)
+                    && request.resource.data.status == 'submitted';
+
+      allow update: if isHR()
+                    || isManagerOf(resource.data.orgId)
+                    || (isSelf(resource.data.employeeId)
+                        && resource.data.status == 'submitted');
+
+      allow delete: if false;
+    }
+
+    // ---------- 교육과정 마스터 ----------
+    match /courses/{courseId} {
+      allow read: if signedIn();
+      allow write: if isEdu();
+    }
+
+    // ---------- 감사로그 ----------
+    // 생성만 가능. 수정·삭제는 누구도 할 수 없다.
+    match /auditLogs/{logId} {
+      allow read: if isHR();
+      allow create: if signedIn()
+                    && request.resource.data.actorUid == request.auth.uid
+                    && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    // ---------- 기본 차단 ----------
     match /{document=**} {
       allow read, write: if false;
     }
