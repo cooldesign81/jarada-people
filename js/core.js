@@ -6,7 +6,8 @@ import {
 
 export const $ = (id) => document.getElementById(id);
 
-export const LEVELS    = { super: "최고관리자", admin: "관리자", staff: "직원" };
+export const LEVELS    = { super: "최고관리자", hr: "본사 인사", edu: "교육팀", principal: "원장", admin: "관리자", manager: "실장", staff: "직원" };
+export const ORG_LEVELS = ["staff", "manager", "admin", "principal"];   // 지점 관리자가 부여할 수 있는 등급
 export const STATUS    = { active: "재직", leave: "휴직", resigned: "퇴직" };
 export const ORG_TYPES = { hq: "본사", branch: "지점" };
 
@@ -18,8 +19,9 @@ export const state = {
   noRoleReason: "",
 };
 export const isSuper   = () => state.role?.level === "super";
-export const isAdmin   = () => state.role?.level === "admin";
-export const canManage = () => isSuper() || isAdmin();
+export const isHR      = () => ["super", "hr"].includes(state.role?.level);          // 모든 지점 관리
+export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level);   // 소속 지점 관리
+export const canManage = () => isHR() || isAdmin();
 
 export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -83,7 +85,7 @@ export function readOrgChecks(el) {
 // 직원 정보 변경 → 연결된 roles 동기화 (퇴직이면 권한 제거). orgId = 대표(첫 번째) 지점
 export async function syncRoles(employeeId, data) {
   const col = collection(db, "roles");
-  const q = isSuper()
+  const q = isHR()
     ? query(col, where("employeeId", "==", employeeId))
     : query(col, where("employeeId", "==", employeeId), where("orgId", "==", state.role.orgId));
   const qs = await getDocs(q);

@@ -8,17 +8,17 @@ import {
   query, where, limit, runTransaction, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, LEVELS, STATUS, ORG_TYPES, state, isSuper, isAdmin, canManage, esc, toast, errMsg,
+  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg,
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
   tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles
 } from "./core.js";
 import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
 
 const NAV = [
-  { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "admin"] },
-  { id: "employees", label: "직원",     view: "Employees", levels: ["super", "admin"] },
-  { id: "orgs",      label: "조직",     view: "Orgs",      levels: ["super", "admin", "staff"] },
-  { id: "me",        label: "내 정보",  view: "Me",        levels: ["super", "admin", "staff"] },
+  { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "hr", "admin", "principal"] },
+  { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
+  { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
+  { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
 ];
 const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Employees", "Orgs", "Me", "Detail"];
 function showView(name) {
@@ -159,7 +159,7 @@ async function loadOrgs() {
   const qs = await getDocs(collection(db, "orgs"));
   state.orgs = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
   // 최고관리자 최초 진입 시 본사(hq) 자동 생성
-  if (isSuper() && !state.orgs.some((o) => o.id === "hq")) {
+  if (isHR() && !state.orgs.some((o) => o.id === "hq")) {
     const hq = { name: "본사", type: "hq", order: 0, active: true };
     await setDoc(doc(db, "orgs", "hq"), { ...hq, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     state.orgs.push({ id: "hq", ...hq });
@@ -172,7 +172,7 @@ async function loadOrgs() {
 
 async function loadEmployees() {
   const col = collection(db, "employees");
-  if (isSuper()) {
+  if (isHR()) {
     const qs = await getDocs(col);
     state.employees = qs.docs.map(toEmp);
   } else if (isAdmin()) {
@@ -246,9 +246,9 @@ function renderDash() {
   $("kpiActive").textContent   = cnt("active");
   $("kpiLeave").textContent    = cnt("leave");
   $("kpiResigned").textContent = cnt("resigned");
-  $("dashHint").textContent = isSuper() ? "전체 조직 기준" : `${orgName(state.role.orgId)} 기준`;
+  $("dashHint").textContent = isHR() ? "전체 조직 기준" : `${orgName(state.role.orgId)} 기준`;
 
-  const orgs = isSuper() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId);
+  const orgs = isHR() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId);
   const known = new Set(orgs.map((o) => o.id));
   const rows = orgs.map((o) => statRow(o.name, o.type, emps.filter((e) => e.orgIds.includes(o.id))));
   const orphan = emps.filter((e) => !e.orgIds.some((id) => known.has(id)));
@@ -295,8 +295,8 @@ function fillOrgSelect(sel, { all = false, onlyActive = false, ensure = "" } = {
 function renderEmployees() {
   const fo = $("fltOrg");
   fillOrgSelect(fo, { all: true });
-  fo.disabled = !isSuper();
-  if (!isSuper()) fo.value = state.role.orgId;
+  fo.disabled = !isHR();
+  if (!isHR()) fo.value = state.role.orgId;
   const q  = $("fltQ").value.trim().toLowerCase();
   const org = fo.value;
   const st  = $("fltStatus").value;
@@ -329,7 +329,7 @@ function openEmp(id) {
   if (!canManage()) return;
   state.editing = emp;
   const self   = !!emp && emp.id === state.role.employeeId;
-  const locked = !!emp && isAdmin() && emp.level === "super"; // 관리자는 최고관리자 정보 수정 불가
+  const locked = !!emp && !isSuper() && (isAdmin() ? !ORG_LEVELS.includes(emp.level) : emp.level === "super"); // 본사 등급은 지점 관리자가, 최고관리자는 본사 인사가 수정할 수 없음
 
   $("dlgEmpTitle").textContent = emp ? (locked ? "직원 정보 (읽기 전용)" : "직원 정보 수정") : "직원 등록";
   $("dlgEmpId").textContent = emp ? emp.id : "사번은 자동으로 부여됩니다";
@@ -338,12 +338,12 @@ function openEmp(id) {
     : [state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (state.orgs.find((o) => o.active !== false)?.id || "")].filter(Boolean);
   renderOrgChecks($("fOrgs"), { selected: defOrgs, disabled: isAdmin() || locked, onlyActive: !emp });
 
-  const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || k !== "super");
+  const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k)));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   $("fLevel").value = emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
   $("fLevel").disabled = self || locked;
   $("fLevelHelp").textContent = self ? "본인 권한은 변경할 수 없습니다" :
-    (isSuper() ? "최고관리자: 전체 / 관리자: 소속 조직 / 직원: 본인 정보만" : "관리자: 소속 조직 / 직원: 본인 정보만");
+    (isHR() ? "최고관리자·본사 인사: 전체 / 관리자·원장: 소속 지점 / 직원: 본인 정보만" : "관리자·원장: 소속 지점 / 직원: 본인 정보만");
 
   $("fName").value     = emp?.name || "";
   $("fEmail").value    = emp?.email || "";
@@ -367,8 +367,9 @@ function validateEmp(d, emp) {
   if (!d.orgIds.length || !d.orgIds.every((id) => state.orgs.some((o) => o.id === id))) return "소속 지점을 하나 이상 선택하세요.";
   if (!LEVELS[d.level]) return "권한을 선택하세요.";
   if (!STATUS[d.status]) return "상태를 선택하세요.";
-  if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || d.level === "super"))
-    return "관리자는 소속 조직 내 직원만, 관리자 이하 권한으로 등록할 수 있습니다.";
+  if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
+    return "지점 관리자는 소속 지점 직원만, 직원·실장·관리자·원장 권한으로 등록할 수 있습니다.";
+  if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
   const dup = state.employees.find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
   return "";
@@ -456,7 +457,7 @@ async function nextEmployeeId() {
     for (let i = 0; i < 20; i++) {
       n += 1;
       id = "emp_" + String(n).padStart(4, "0");
-      if (!isSuper()) break; // 관리자는 다른 조직 문서를 읽을 수 없어 카운터만 신뢰
+      if (!isHR()) break; // 지점 관리자는 다른 지점 문서를 읽을 수 없어 카운터만 신뢰
       const ex = await tx.get(doc(db, "employees", id));
       if (!ex.exists()) break;
     }
@@ -487,7 +488,7 @@ const BULK_COLS = [
   { key: "insuranceRegDate", label: "4대보험 등록일", alias: ["4대보험등록일", "4대보험", "보험등록일"], pi: true, date: true },
   { key: "resignDate",       label: "퇴사일",         alias: ["퇴사일", "퇴직일"], pi: true, date: true },
 ];
-const LEVEL_WORDS  = { 직원: "staff", staff: "staff", 관리자: "admin", admin: "admin", 최고관리자: "super", super: "super" };
+const LEVEL_WORDS  = { 직원: "staff", staff: "staff", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 실장: "manager", manager: "manager", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
 const bulk = { rows: [], busy: false };
 const nrm = (s) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
@@ -600,6 +601,7 @@ function parseBulk(text) {
     }
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
+    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 직원·실장·관리자·원장 권한만 부여");
     if (isAdmin() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
       errors.push("관리자는 소속 조직 직원만 등록 가능");
     return { line, data: d, pi, errors };
@@ -744,11 +746,11 @@ $("btnBulkSave").onclick = async () => {
 
 // ---------- 조직 ----------
 function renderOrgs() {
-  $("btnAddOrg").classList.toggle("hidden", !isSuper());
+  $("btnAddOrg").classList.toggle("hidden", !isHR());
   const rows = state.orgs.map((o) => {
-    const mine = isSuper() || o.id === state.role.orgId;
+    const mine = isHR() || o.id === state.role.orgId;
     const active = state.employees.filter((e) => e.orgIds.includes(o.id) && e.status === "active").length;
-    return `<tr class="${isSuper() ? "click" : ""}" data-id="${esc(o.id)}">
+    return `<tr class="${isHR() ? "click" : ""}" data-id="${esc(o.id)}">
       <td class="mono">${esc(o.id)}</td><td class="strong">${esc(o.name)}</td>
       <td>${orgTypeBadge(o.type)}</td>
       <td class="num">${canManage() && mine ? active : "—"}</td>
@@ -757,7 +759,7 @@ function renderOrgs() {
   $("tblOrgs").innerHTML =
     `<thead><tr><th>조직 ID</th><th>이름</th><th>구분</th><th class="num">재직 인원</th><th>상태</th></tr></thead>` +
     `<tbody>${rows.join("") || `<tr><td colspan="5" class="empty">조직이 없습니다</td></tr>`}</tbody>`;
-  if (isSuper()) $("tblOrgs").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => openOrg(tr.dataset.id)));
+  if (isHR()) $("tblOrgs").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => openOrg(tr.dataset.id)));
 }
 
 $("btnAddOrg").onclick    = () => openOrg(null);
@@ -765,7 +767,7 @@ $("btnOrgCancel").onclick = () => $("dlgOrg").close();
 $("formOrg").addEventListener("input", () => { $("orgErr").textContent = ""; });
 
 function openOrg(id) {
-  if (!isSuper()) return;
+  if (!isHR()) return;
   const org = id ? state.orgs.find((o) => o.id === id) : null;
   if (id && !org) return;
   state.editingOrg = org;

@@ -7,7 +7,7 @@ import {
   ref, uploadBytes, listAll, getMetadata, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 import {
-  $, state, isSuper, isAdmin, canManage, esc, toast, errMsg, orgNames, orgName,
+  $, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, orgName,
   statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles
 } from "./core.js";
 import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
@@ -49,8 +49,8 @@ const isOwnPage = () => !!cur.emp && state.role?.employeeId === cur.id;
 const mgrView   = () => canManage() && !state.selfMode;      // 관리 버튼 표시
 const canSeeBack = () => isSuper();
 const canSeeFront = () => isOwnPage() || canManage();
-const canViewKey = (key) => isSuper() || (isAdmin() && PUB_KEYS.includes(key));
-const canUploadKey = (key) => isSuper() || isOwnPage() || (isAdmin() && PUB_KEYS.includes(key));
+const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : isSuper());
+const canUploadKey = (key) => isSuper() || isOwnPage() || (PUB_KEYS.includes(key) && (isHR() || isAdmin()));
 
 // ---------- 유틸 ----------
 const get = async (...path) => {
@@ -110,7 +110,7 @@ export async function renderDetail(empId) {
     files: { pub: [], sec: [] }, filesLoaded: false,
   });
   draw();
-  if (isSuper() || isAdmin()) {
+  if (isHR() || isAdmin()) {
     const [pub, sec] = await Promise.all([listFolder("pub"), isSuper() ? listFolder("sec") : []]);
     if (token !== cur.token) return;
     cur.files = { pub, sec }; cur.filesLoaded = true;
@@ -140,7 +140,7 @@ function draw() {
       <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} <span class="mono sub">${esc(e.id)}</span></div>
       <div class="label" style="margin-top:14px">소속 지점 (중복 선택 가능)</div>
       <div class="chk-group" id="dBranches"></div>
-      ${isSuper() && !state.selfMode ? `<button class="btn btn-secondary" id="dBtnBranches" style="margin-top:12px">지점 저장</button>` : ""}
+      ${isHR() && !state.selfMode ? `<button class="btn btn-secondary" id="dBtnBranches" style="margin-top:12px">지점 저장</button>` : ""}
     </div>
 
     <div class="card">
@@ -178,7 +178,7 @@ function draw() {
     <div class="card"><h3 class="sec-title">기타</h3><div id="dEtc"></div>
       <button class="btn btn-secondary" id="dBtnEtc" style="margin-top:8px">+ 항목 추가</button></div>` : ""}
   `;
-  renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isSuper() || state.selfMode });
+  renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
   rrnStatus();
   bindHead(); bindRrn(); bindPi();
   if (isSuper()) bindComp();
