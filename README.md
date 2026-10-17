@@ -41,7 +41,7 @@ Firebase(Authentication + Firestore) 위에서 동작하는 정적 웹앱입니�
 | 주민등록번호 | 앞 6자리 | 최고관리자 / 해당 지점 관리자 / 본인 |
 | | 뒤 7자리 | **최고관리자만** (본인은 입력만 가능) |
 | 개인 정보 | 주소, 계좌번호, 보호자 성명·관계·연락처, 교육시작일, 근로시작일, 4대보험 등록일, 퇴사일 | 최고관리자 / 해당 지점 관리자 / 본인 |
-| 급여 정보 | 기본급, 식대, 추가급여, 인센티브(기준·금액), 기타 급여, 퇴직금 중간정산, 메모 | **최고관리자만** |
+| 급여 정보 | 기본급, 식대, 추가급여 1~3(항목명을 직접 입력), 인센티브(기준·금액), 기타 급여, 퇴직금 중간정산, 메모 | **최고관리자만** |
 | 공개서류 | 이력서, 포트폴리오, 범죄기록조회서, 졸업증명서 | 최고관리자 / 해당 지점 관리자 (업로드는 본인도) |
 | 비공개서류 | 주민등록등본, 통장사본, 사업자등록확인서, 고용보험 관련서류 | **최고관리자만** 열람 (업로드는 본인도) |
 | 인사 평가 파일 / 기타 | 여러 파일, 항목명+설명+파일 | **최고관리자만** |
@@ -53,8 +53,8 @@ Firebase(Authentication + Firestore) 위에서 동작하는 정적 웹앱입니�
 ## 일괄 등록
 
 *직원 → 일괄 등록*에서 엑셀·구글시트의 표를 복사해 붙여넣거나 CSV 를 올립니다. `양식 내려받기`의 제목 줄을 쓰면 열 순서가 달라도 자동으로 맞춥니다.
-열: 이름, 이메일, 소속 지점, 직책, 전번, 입사일, 권한, 상태, 주소, 계좌번호, 보호자 성명, 보호자와의 관계, 보호자 연락처, 교육시작일, 근로시작일, 4대보험 등록일, 퇴사일.
-소속 지점은 이름 또는 ID 로 적고 여러 곳이면 `평촌원/반포원` 처럼 `/` 로 구분합니다. 오류가 있는 줄은 건너뛰고 정상인 줄만 등록합니다. 주민등록번호·급여·서류는 일괄 등록하지 않습니다.
+열: 이름, 이메일, 소속 지점, 직책, 전번, 입사일, 권한, 상태, 주소, 계좌번호, 보호자 성명, 보호자와의 관계, 보호자 연락처, 교육시작일, 근로시작일, 4대보험 등록일, 퇴사일, 그리고 최고관리자 전용 급여 열(기본급, 식대, 추가급여1~3의 항목·금액, 인센티브 기준·금액, 기타 급여, 급여 메모). 금액은 `1,000,000`처럼 쉼표나 ‘원’이 있어도 읽습니다.
+소속 지점은 이름 또는 ID 로 적고 여러 곳이면 `평촌원/반포원` 처럼 `/` 로 구분합니다. 오류가 있는 줄은 건너뛰고 정상인 줄만 등록합니다. 주민등록번호·서류·퇴직금 중간정산은 일괄 등록하지 않습니다.
 
 ## 데이터 구조
 
@@ -65,8 +65,8 @@ employees/{employeeId}       { name, phone, email(소문자), orgIds[], orgId(=o
   private/personalInfo       { address, bankAccount, guardianName, guardianRelation, guardianPhone,
                                eduStartDate, workStartDate, insuranceRegDate, resignDate }
   private/residentFront      { value }          private/residentBack  { value }
-  private/compensation       { baseSalary, mealAllowance, additionalSalary, incentiveThreshold, incentiveAmount,
-                               otherSalary, memo, severanceSettlements[] }
+  private/compensation       { baseSalary, mealAllowance, additionalLabel1~3, additionalSalary1~3, incentiveThreshold,
+                               incentiveAmount, otherSalary, memo, severanceSettlements[] }
   private/flags              { residentFront, residentBack, uploaded: { 서류키: true } }
 orgs/{orgId}                 { name, type(hq|branch), order, active }
 meta/counters                { employee }   ← 사번(emp_0001 …) 자동 부여 카운터

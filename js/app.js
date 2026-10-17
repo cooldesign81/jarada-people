@@ -487,6 +487,19 @@ const BULK_COLS = [
   { key: "workStartDate",    label: "근로시작일",     alias: ["근로시작일", "근로시작"], pi: true, date: true },
   { key: "insuranceRegDate", label: "4대보험 등록일", alias: ["4대보험등록일", "4대보험", "보험등록일"], pi: true, date: true },
   { key: "resignDate",       label: "퇴사일",         alias: ["퇴사일", "퇴직일"], pi: true, date: true },
+  // 급여 정보(private/compensation) — 최고관리자만 입력 가능
+  { key: "baseSalary",    label: "기본급", alias: ["기본급"], comp: true, num: true },
+  { key: "mealAllowance", label: "식대",   alias: ["식대"],   comp: true, num: true },
+  { key: "additionalLabel1",  label: "추가급여1 항목", alias: ["추가급여1항목", "추가급여1항목명", "추가급여1명"], comp: true },
+  { key: "additionalSalary1", label: "추가급여1 금액", alias: ["추가급여1금액", "추가급여1"], comp: true, num: true },
+  { key: "additionalLabel2",  label: "추가급여2 항목", alias: ["추가급여2항목", "추가급여2항목명", "추가급여2명"], comp: true },
+  { key: "additionalSalary2", label: "추가급여2 금액", alias: ["추가급여2금액", "추가급여2"], comp: true, num: true },
+  { key: "additionalLabel3",  label: "추가급여3 항목", alias: ["추가급여3항목", "추가급여3항목명", "추가급여3명"], comp: true },
+  { key: "additionalSalary3", label: "추가급여3 금액", alias: ["추가급여3금액", "추가급여3"], comp: true, num: true },
+  { key: "incentiveThreshold", label: "인센티브 기준", alias: ["인센티브기준", "인센티브초과기준", "인센티브-초과기준"], comp: true },
+  { key: "incentiveAmount",    label: "인센티브 금액", alias: ["인센티브금액", "인센티브-금액"], comp: true, num: true },
+  { key: "otherSalary", label: "기타 급여", alias: ["기타급여"], comp: true },
+  { key: "memo",        label: "급여 메모", alias: ["급여메모"], comp: true, long: true },
 ];
 const LEVEL_WORDS  = { 직원: "staff", staff: "staff", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 실장: "manager", manager: "manager", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
@@ -604,7 +617,18 @@ function parseBulk(text) {
     if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 직원·실장·관리자·원장 권한만 부여");
     if (isAdmin() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
       errors.push("관리자는 소속 조직 직원만 등록 가능");
-    return { line, data: d, pi, errors };
+    // 급여 열 (숫자 칸은 1,000,000 / 100만원처럼 쉼표·‘원’이 있어도 숫자만 뽑음)
+    const comp = {};
+    for (const c of BULK_COLS.filter((x) => x.comp)) {
+      let v = get(c.key);
+      if (c.num && v) {
+        const n = v.replace(/[,\s원]/g, "");
+        if (!/^\d+$/.test(n)) { errors.push(`${c.label} 형식 오류 (숫자만)`); v = ""; } else v = n;
+      } else if (v.length > (c.long ? 2000 : 200)) errors.push(`${c.label}이 너무 깁니다`);
+      if (v) comp[c.key] = v;
+    }
+    if (Object.keys(comp).length && !isSuper()) errors.push("급여 정보는 최고관리자만 등록할 수 있습니다");
+    return { line, data: d, pi, comp, errors };
   });
   return { rows, fatal: "" };
 }
@@ -620,13 +644,14 @@ function renderBulk() {
     : "";
   $("bulkPreviewWrap").classList.toggle("hidden", !rows.length);
   $("bulkPreview").innerHTML = rows.length
-    ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>결과</th></tr></thead><tbody>` +
+    ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>결과</th></tr></thead><tbody>` +
       rows.map((r) => {
         const d = r.data, ok = !r.errors.length;
         return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}</td><td>${esc(d.email)}</td>
           <td>${esc(d.orgIds.length ? orgNames(d.orgIds) : "—")}</td><td>${esc(d.position || "—")}</td>
           <td>${d.level ? levelBadge(d.level) : "—"}</td><td>${d.status ? statusBadge(d.status) : "—"}</td>
           <td class="sub">${esc(d.joinedAt || "—")}</td><td class="sub">${Object.keys(r.pi).length ? Object.keys(r.pi).length + "개 항목" : "—"}</td>
+          <td class="sub">${Object.keys(r.comp).length ? Object.keys(r.comp).length + "개 항목" : "—"}</td>
           <td class="res ${ok ? "ok" : "bad"}">${ok ? "정상" : esc(r.errors.join(" · "))}</td></tr>`;
       }).join("") + `</tbody>`
     : "";
@@ -670,11 +695,16 @@ $("btnBulkTemplate").onclick = () => {
   const o = state.orgs.find((x) => x.type !== "hq") || state.orgs[0];
   const sample = o?.name || "본사";
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  const csv = "\uFEFF" + [
-    BULK_COLS.map((c) => c.label),
-    ["홍길동", "hong@gmail.com", sample, "교사", "010-1234-5678", "2024-03-02", "직원", "재직", "서울시 서초구 …", "신한 110-000-000000", "홍부모", "부", "010-0000-0000", "2024-02-01", "2024-03-02", "2024-03-02", ""],
-    ["김원장", "kim@gmail.com", sample, "원장", "010-9876-5432", "2020-01-01", "관리자", "재직", "", "", "", "", "", "", "2020-01-01", "", ""],
-  ].map((r) => r.map(csvCell).join(",")).join("\r\n");
+  const cols = BULK_COLS.filter((c) => isSuper() || !c.comp);
+  const rows = [
+    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직",
+      address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
+      eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
+      baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
+    { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "관리자", status: "재직", workStartDate: "2020-01-01" },
+  ];
+  const csv = "\uFEFF" + [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => r[c.key] ?? ""))]
+    .map((r) => r.map(csvCell).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   a.download = "직원_일괄등록_양식.csv";
@@ -715,7 +745,7 @@ $("btnBulkSave").onclick = async () => {
   try {
     btn.textContent = "사번 확보 중…";
     const ids = await reserveEmployeeIds(okRows.length);
-    const CHUNK = 200;   // 직원 1명당 문서 2개(직원 + 개인정보) → 배치당 최대 400건
+    const CHUNK = 130;   // 직원 1명당 문서 최대 3개(직원 + 개인정보 + 급여) → 배치당 최대 390건
     for (let i = 0; i < okRows.length; i += CHUNK) {
       btn.textContent = `등록 중… ${saved}/${okRows.length}`;
       const batch = writeBatch(db);
@@ -724,6 +754,9 @@ $("btnBulkSave").onclick = async () => {
         batch.set(doc(db, "employees", id), {
           ...r.data, memo: "", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
+        if (Object.keys(r.comp).length)
+          batch.set(doc(db, "employees", id, "private", "compensation"),
+            { ...r.comp, updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" });
         if (Object.keys(r.pi).length)
           batch.set(doc(db, "employees", id, "private", "personalInfo"), { ...r.pi, updatedAt: serverTimestamp() });
       });
