@@ -491,6 +491,38 @@ service cloud.firestore {
       allow delete: if isHR() || (isOrgAdmin() && resource.data.orgIds == [me().orgId]);
     }
 
+    // ---------- 공지사항 ----------
+    // scope 'all' = 전체, 'org' = orgIds 에 든 지점 (대표 지점 기준). 쓰기는 본사 인사 또는 지점 관리자(자기 지점 공지만)
+    match /notices/{noticeId} {
+      function validNotice() {
+        let d = request.resource.data;
+        return d.title is string && d.title.size() > 0 && d.title.size() <= 80
+          && d.body is string && d.body.size() > 0 && d.body.size() <= 5000
+          && d.scope in ['all', 'org']
+          && d.orgIds is list && d.orgIds.size() <= 20
+          && (d.scope == 'all' ? d.orgIds.size() == 0 : d.orgIds.size() > 0)
+          && d.get('pinned', false) is bool;
+      }
+      allow read: if hasRole() && (isHR() || resource.data.scope == 'all' || me().orgId in resource.data.orgIds);
+      allow create: if (isHR() || (isOrgAdmin() && request.resource.data.scope == 'org' && request.resource.data.orgIds == [me().orgId]))
+                    && validNotice() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if (isHR() || (isOrgAdmin() && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]
+                                   && request.resource.data.scope == 'org' && request.resource.data.orgIds == [me().orgId]))
+                    && validNotice() && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isHR() || (isOrgAdmin() && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]);
+    }
+
+    // 사용자별 읽은 공지 목록. 본인만 쓰고, 읽음 현황은 본사 인사 / 같은 지점 관리자가 본다
+    match /noticeReads/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isHR() || (isOrgAdmin() && resource.data.orgId == me().orgId));
+      allow create, update: if hasRole() && request.auth.uid == uid
+                            && request.resource.data.keys().hasOnly(['reads', 'employeeId', 'name', 'orgId', 'updatedAt'])
+                            && request.resource.data.reads is map
+                            && request.resource.data.employeeId == me().get('employeeId', '')
+                            && request.resource.data.orgId == me().get('orgId', '');
+      allow delete: if isSuper();
+    }
+
     // ---------- 교육과정 마스터 ----------
     match /courses/{courseId} {
       allow read: if signedIn();

@@ -17,6 +17,8 @@ import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from ".
 import { initAdmin, renderAdmin } from "./admin.js";
 import { exportEmployees } from "./export.js";
 import { renderTodo } from "./todo.js";
+import { renderCharts, renderOrgChart } from "./charts.js";
+import { initNotices, loadNotices, renderNotices, unreadCount } from "./notices.js";
 import { addAssignments, diffEmployee } from "./records.js";
 import { initCalendar, renderCalendar } from "./calendar.js";
 
@@ -24,12 +26,13 @@ const NAV = [
   { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "hr", "admin", "principal"] },
   { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
   { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
+  { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
   { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
   { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
 ];
-const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Employees", "Orgs", "Admin", "Me", "Detail"];
+const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Employees", "Orgs", "Admin", "Me", "Detail"];
 function showView(name) {
   VIEWS.forEach((v) => $("view" + v).classList.toggle("hidden", v !== name));
 }
@@ -168,7 +171,7 @@ async function loadAll() {
   await loadSettings();
   await loadOrgs();
   await loadEmployees();
-  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents()]);
+  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents(), loadNotices()]);
 }
 
 async function loadOrgs() {
@@ -234,6 +237,8 @@ function buildNav() {
 function updateBadges() {
   const n = pendingCount();
   document.querySelectorAll('.tab[data-view="leaves"]').forEach((t) => { t.innerHTML = `휴가${n ? ` <span class="tab-badge">${n}</span>` : ""}`; });
+  const u = unreadCount();
+  document.querySelectorAll('.tab[data-view="notices"]').forEach((t) => { t.innerHTML = `공지${u ? ` <span class="tab-badge">${u}</span>` : ""}`; });
 }
 
 function route() {
@@ -256,7 +261,7 @@ function route() {
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
   showView(nav.view);
-  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, employees: renderEmployees, orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
+  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
   updateBadges();
 }
 window.addEventListener("hashchange", route);
@@ -270,6 +275,7 @@ function renderDash() {
   $("kpiActive").textContent   = cnt("active");
   $("kpiLeave").textContent    = cnt("leave");
   $("kpiResigned").textContent = cnt("resigned");
+  renderCharts($("dashCharts"), emps.filter((e) => !e.deleted), isHR() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId), isHR());
   $("dashHint").textContent = isHR() ? "전체 조직 기준" : `${orgName(state.role.orgId)} 기준`;
 
   const orgs = isHR() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId);
@@ -317,7 +323,31 @@ function fillOrgSelect(sel, { all = false, onlyActive = false, ensure = "" } = {
 }
 
 let lastList = [];
-function renderEmployees() {
+// 목록 보기 설정: 정렬·열·쪽·선택 (열 설정은 이 브라우저에만 저장)
+const LIST_COLS = [
+  { k: "id", l: "사번", on: true, cls: "mono", v: (e) => esc(e.id), s: (e) => e.id },
+  { k: "name", l: "이름", fixed: true, cls: "strong", v: (e) => esc(e.name), s: (e) => e.name },
+  { k: "orgs", l: "조직", fixed: true, v: (e) => branchTags(e.orgIds), s: (e) => orgNames(e.orgIds) },
+  { k: "position", l: "직책", on: true, v: (e) => esc(e.position || "—"), s: (e) => e.position || "" },
+  { k: "level", l: "권한", on: true, v: (e) => levelBadge(e.level), s: (e) => e.level },
+  { k: "status", l: "상태", fixed: true, v: (e) => statusBadge(e.status), s: (e) => e.status },
+  { k: "joinedAt", l: "입사일", on: true, cls: "sub", v: (e) => esc(fmtDate(e.joinedAt)), s: (e) => e.joinedAt || "" },
+  { k: "email", l: "이메일", on: true, cls: "sub", v: (e) => esc(e.email || "—"), s: (e) => e.email || "" },
+  { k: "phone", l: "연락처", on: true, cls: "sub", v: (e) => esc(e.phone || "—"), s: (e) => e.phone || "" },
+  { k: "birthDate", l: "생년월일", cls: "sub", v: (e) => esc(fmtDate(e.birthDate)), s: (e) => e.birthDate || "" },
+  { k: "contractEndDate", l: "계약 만료일", cls: "sub", v: (e) => esc(fmtDate(e.contractEndDate)), s: (e) => e.contractEndDate || "" },
+  { k: "probationEndDate", l: "수습 종료일", cls: "sub", v: (e) => esc(fmtDate(e.probationEndDate)), s: (e) => e.probationEndDate || "" },
+];
+const PAGE_SIZE = 50;
+const lv = { sort: { k: "", dir: 1 }, page: 1, sel: new Set(), cols: null };
+function listCols() {
+  if (!lv.cols) {
+    let saved = null; try { saved = JSON.parse(localStorage.getItem("jarada.listCols") || "null"); } catch {}
+    lv.cols = new Set(LIST_COLS.filter((c) => c.fixed || (saved ? saved.includes(c.k) : c.on)).map((c) => c.k));
+  }
+  return LIST_COLS.filter((c) => lv.cols.has(c.k));
+}
+function renderEmployees(keepPage) {
   const fo = $("fltOrg");
   fillOrgSelect(fo, { all: true });
   fo.disabled = !isHR();
@@ -328,22 +358,79 @@ function renderEmployees() {
   const list = state.employees.filter((e) =>
     (!org || e.orgIds.includes(org)) && (!st || e.status === st) &&
     (!q || [e.name, e.email, e.id, e.position].some((v) => String(v || "").toLowerCase().includes(q))));
-  $("empCount").textContent = `${list.length}명`;
+  const col = LIST_COLS.find((c) => c.k === lv.sort.k);
+  if (col) list.sort((a, b) => String(col.s(a)).localeCompare(String(col.s(b)), "ko") * lv.sort.dir || a.id.localeCompare(b.id));
   lastList = list;
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (!keepPage) lv.page = 1;
+  lv.page = Math.min(Math.max(1, lv.page), pages);
+  const view = list.slice((lv.page - 1) * PAGE_SIZE, lv.page * PAGE_SIZE);
+  const cols = listCols(), bulk = isHR();
+  $("empCount").textContent = `${list.length}명`;
   $("tblEmp").innerHTML = list.length
-    ? `<thead><tr><th>사번</th><th>이름</th><th>조직</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>이메일</th><th>연락처</th></tr></thead><tbody>` +
-      list.map((e) => `<tr class="click" data-id="${esc(e.id)}">
-          <td class="mono">${esc(e.id)}</td><td class="strong">${esc(e.name)}</td>
-          <td>${branchTags(e.orgIds)}</td><td>${esc(e.position || "—")}</td>
-          <td>${levelBadge(e.level)}</td><td>${statusBadge(e.status)}</td>
-          <td class="sub">${esc(fmtDate(e.joinedAt))}</td><td class="sub">${esc(e.email || "—")}</td>
-          <td class="sub">${esc(e.phone || "—")}</td></tr>`).join("") + `</tbody>`
+    ? `<thead><tr>${bulk ? `<th style="width:34px"><input type="checkbox" id="selAll" title="이 쪽 전체 선택" ${view.length && view.every((e) => lv.sel.has(e.id)) ? "checked" : ""}></th>` : ""}${cols.map((c) =>
+        `<th class="sortable" data-sort="${c.k}">${c.l}${lv.sort.k === c.k ? (lv.sort.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>` +
+      view.map((e) => `<tr class="click" data-id="${esc(e.id)}">${bulk ? `<td><input type="checkbox" data-sel="${esc(e.id)}" ${lv.sel.has(e.id) ? "checked" : ""}></td>` : ""}${cols.map((c) => `<td class="${c.cls || ""}">${c.v(e)}</td>`).join("")}</tr>`).join("") + `</tbody>`
     : `<tbody><tr><td class="empty"><strong>직원이 없습니다</strong>${
         state.employees.length ? "검색 조건을 바꿔보세요." : "오른쪽 위 ‘직원 등록’으로 첫 직원을 등록하세요."
       }</td></tr></tbody>`;
-  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => { location.hash = "#emp/" + tr.dataset.id; }));
+  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = (ev) => { if (ev.target.closest("input")) return; location.hash = "#emp/" + tr.dataset.id; }));
+  $("tblEmp").querySelectorAll("[data-sort]").forEach((th) => (th.onclick = () => {
+    lv.sort = lv.sort.k === th.dataset.sort ? { k: th.dataset.sort, dir: -lv.sort.dir } : { k: th.dataset.sort, dir: 1 }; renderEmployees();
+  }));
+  $("tblEmp").querySelectorAll("[data-sel]").forEach((cb) => (cb.onchange = () => { cb.checked ? lv.sel.add(cb.dataset.sel) : lv.sel.delete(cb.dataset.sel); renderBulkBar(); }));
+  const all = $("selAll"); if (all) all.onchange = () => { view.forEach((e) => (all.checked ? lv.sel.add(e.id) : lv.sel.delete(e.id))); renderEmployees(true); };
+  $("empPager").innerHTML = pages > 1 ? `<button class="btn btn-secondary btn-sm" id="pgPrev" ${lv.page <= 1 ? "disabled" : ""}>이전</button><span>${lv.page} / ${pages}쪽</span><button class="btn btn-secondary btn-sm" id="pgNext" ${lv.page >= pages ? "disabled" : ""}>다음</button>` : "";
+  if (pages > 1) { $("pgPrev").onclick = () => { lv.page--; renderEmployees(true); }; $("pgNext").onclick = () => { lv.page++; renderEmployees(true); }; }
+  renderBulkBar();
 }
-["fltQ", "fltOrg", "fltStatus"].forEach((id) => $(id).addEventListener("input", renderEmployees));
+function renderBulkBar() {
+  const bar = $("empBulkBar"); const ids = [...lv.sel].filter((id) => state.employees.some((e) => e.id === id));
+  lv.sel = new Set(ids);
+  if (!isHR() || !ids.length) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  $("bulkCount").textContent = `${ids.length}명 선택`;
+  fillOrgSelect($("bulkOrg"), { onlyActive: true });
+}
+$("bulkClear").onclick = () => { lv.sel.clear(); renderEmployees(true); };
+$("bulkStatusGo").onclick = () => bulkChange({ status: $("bulkStatus").value }, `상태를 ‘${STATUS[$("bulkStatus").value]}’(으)로 바꿉니다.`);
+$("bulkOrgGo").onclick = () => bulkChange({ addOrg: $("bulkOrg").value }, `‘${orgName($("bulkOrg").value)}’ 지점을 소속에 추가합니다.`);
+$("bulkOrgMove").onclick = () => bulkChange({ moveOrg: $("bulkOrg").value }, `소속을 ‘${orgName($("bulkOrg").value)}’ 한 곳으로 바꿉니다.`);
+async function bulkChange(op, desc) {
+  const targets = state.employees.filter((e) => lv.sel.has(e.id));
+  if (!targets.length || !isHR()) return;
+  if (op.status === "resigned" && !confirm("퇴직으로 바꾸면 이 직원들의 로그인 권한이 제거됩니다.")) return;
+  if (!confirm(`${targets.length}명에 대해 ${desc} 계속할까요?`)) return;
+  let ok = 0, fail = 0;
+  for (const e of targets) {
+    try {
+      const patch = { updatedAt: serverTimestamp() }; const after = { ...e };
+      if (op.status) { patch.status = op.status; after.status = op.status; }
+      if (op.addOrg && !e.orgIds.includes(op.addOrg)) { after.orgIds = [...e.orgIds, op.addOrg]; }
+      if (op.moveOrg) { after.orgIds = [op.moveOrg]; after.orgId = op.moveOrg; }
+      if (after.orgIds !== e.orgIds) { patch.orgIds = after.orgIds; patch.orgId = after.orgIds[0]; after.orgId = after.orgIds[0]; }
+      if (Object.keys(patch).length === 1) continue;
+      await updateDoc(doc(db, "employees", e.id), patch);
+      if (e.orgId !== after.orgId || e.status !== after.status) await syncRoles(e.id, after);
+      const changes = diffEmployee(e, after, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...e, orgId: after.orgId }, changes);
+      ok++;
+    } catch (err) { console.warn(err); fail++; }
+  }
+  audit("emp_bulk_change", { detail: `${desc} 성공 ${ok} · 실패 ${fail}` });
+  toast(`${ok}명 변경${fail ? `, ${fail}명 실패` : ""}`, !!fail);
+  lv.sel.clear(); await loadEmployees(); renderEmployees(true);
+}
+$("btnListCols").onclick = () => {
+  $("colList").innerHTML = LIST_COLS.map((c) => `<label class="chk"><input type="checkbox" value="${c.k}" ${lv.cols.has(c.k) ? "checked" : ""} ${c.fixed ? "disabled" : ""}> ${c.l}</label>`).join("");
+  $("dlgCols").showModal();
+};
+$("btnColsDone").onclick = () => {
+  lv.cols = new Set(LIST_COLS.filter((c) => c.fixed || $("colList").querySelector(`input[value="${c.k}"]`).checked).map((c) => c.k));
+  try { localStorage.setItem("jarada.listCols", JSON.stringify([...lv.cols])); } catch {}
+  $("dlgCols").close(); renderEmployees(true);
+};
+["fltQ", "fltOrg", "fltStatus"].forEach((id) => $(id).addEventListener("input", () => renderEmployees()));
 
 $("btnAddEmp").onclick   = () => openEmp(null);
 $("btnExportList").onclick = () => exportEmployees(lastList);
@@ -829,6 +916,7 @@ $("btnBulkSave").onclick = async () => {
 // ---------- 조직 ----------
 function renderOrgs() {
   $("btnAddOrg").classList.toggle("hidden", !isHR());
+  renderOrgChart($("orgChart"));
   const rows = state.orgs.map((o) => {
     const mine = isHR() || o.id === state.role.orgId;
     const active = state.employees.filter((e) => e.orgIds.includes(o.id) && e.status === "active").length;
@@ -963,4 +1051,5 @@ initDetail({
 bindCertModal();
 initLeave({ rerender: () => route() });
 initCalendar({});
+initNotices({ onRead: () => updateBadges() });
 initAdmin({ reload: loadEmployees, rerender: () => route() });

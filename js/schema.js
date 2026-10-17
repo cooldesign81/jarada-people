@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = {
   link_create: "등록 링크 발급", link_revoke: "등록 링크 폐기",
   leave_request: "휴가 신청", leave_register: "휴가 대리 등록", leave_approved: "휴가 승인", leave_rejected: "휴가 반려", leave_cancelled: "휴가 취소 처리", leave_cancel: "휴가 신청 취소",
   annual_adjust: "연차 조정", event_create: "일정 등록", event_update: "일정 수정", event_delete: "일정 삭제",
+  emp_bulk_change: "직원 일괄 변경", notice_create: "공지 작성", notice_update: "공지 수정", notice_delete: "공지 삭제",
   cert_issue: "증명서 발급", record_add: "인사 기록 추가", record_delete: "인사 기록 삭제",
   notice_create: "공지 등록", notice_delete: "공지 삭제", contract_issue: "계약서 작성", payslip_issue: "급여명세서 작성",
 };

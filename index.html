@@ -67,6 +67,7 @@
       <div class="kpi"><div class="label">휴직</div><div class="value" id="kpiLeave">–</div></div>
       <div class="kpi"><div class="label">퇴직</div><div class="value" id="kpiResigned">–</div></div>
     </div>
+    <div id="dashCharts"></div>
     <div class="card flush">
       <div class="card-head"><h2>조직별 인원</h2></div>
       <div class="tbl-wrap"><table class="tbl" id="tblOrgStats"></table></div>
@@ -109,15 +110,27 @@
         <option value="leave">휴직</option>
         <option value="resigned">퇴직</option>
       </select>
-      <span class="hint" id="empCount" style="font-size:13px;color:var(--text-sub)"></span>
+      <span class="hint" id="empCount" style="font-size:13px;color:var(--text-sub)"></span><button class="btn btn-secondary btn-sm" id="btnListCols">표시 항목</button>
     </div>
+    <div class="bulk-bar hidden" id="empBulkBar"><strong id="bulkCount"></strong>
+      <select id="bulkStatus"><option value="active">재직</option><option value="leave">휴직</option><option value="resigned">퇴직</option></select><button class="btn btn-secondary btn-sm" id="bulkStatusGo">상태 변경</button>
+      <select id="bulkOrg"></select><button class="btn btn-secondary btn-sm" id="bulkOrgGo">지점 추가</button><button class="btn btn-secondary btn-sm" id="bulkOrgMove">이 지점으로 이동</button>
+      <button class="btn btn-secondary btn-sm" id="bulkClear">선택 해제</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblEmp"></table></div></div>
+    <div class="pager" id="empPager"></div>
   </section>
 
   <!-- 조직 -->
   <section id="viewOrgs" class="hidden">
     <div class="page-head"><h1>조직</h1><button class="btn btn-primary hidden" id="btnAddOrg">+ 조직 추가</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblOrgs"></table></div></div>
+    <div class="card"><h2>조직도</h2><div id="orgChart"></div></div>
+  </section>
+
+  <!-- 공지 -->
+  <section id="viewNotices" class="hidden">
+    <div class="page-head"><h1>공지사항</h1><button class="btn btn-primary hidden" id="btnNoticeNew">+ 공지 작성</button></div>
+    <div id="noticeBody"></div>
   </section>
 
   <!-- 관리 -->
@@ -273,6 +286,29 @@
   <div class="dlg-foot"><button type="button" class="btn btn-danger left hidden" id="btnEvDelete">삭제</button>
     <button type="button" class="btn btn-secondary" id="btnEvCancel">취소</button><button type="button" class="btn btn-primary" id="btnEvSave">저장</button></div>
   </form>
+</dialog>
+
+<!-- 공지 작성 -->
+<dialog id="dlgNotice">
+  <form onsubmit="return false">
+  <div class="dlg-head"><h2 id="ntDlgTitle">공지 작성</h2></div>
+  <div class="dlg-body">
+    <div class="field full"><label for="ntTitle">제목<span class="req">*</span></label><input class="input" id="ntTitle" maxlength="80"></div>
+    <div class="field full"><label for="ntBody">내용<span class="req">*</span></label><textarea id="ntBody" rows="8" maxlength="5000"></textarea></div>
+    <div class="field"><label for="ntScope">대상</label><select id="ntScope"></select></div>
+    <div class="field"><label>&nbsp;</label><label class="chk"><input type="checkbox" id="ntPinned"> 상단에 고정</label></div>
+    <div class="field full" id="ntOrgWrap"><label>대상 지점</label><div class="chk-group" id="ntOrgs"></div></div>
+    <div class="msg error dlg-err" id="ntErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnNtCancel">취소</button><button type="button" class="btn btn-primary" id="btnNtSave">저장</button></div>
+  </form>
+</dialog>
+
+<!-- 목록 표시 항목 -->
+<dialog id="dlgCols">
+  <div class="dlg-head"><h2>목록에 표시할 항목</h2></div>
+  <div class="dlg-body"><div class="chk-group" id="colList"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-primary" id="btnColsDone">확인</button></div>
 </dialog>
 
 <!-- 인사 기록 추가/수정 (발령, 자격증, 교육, 면담) -->
