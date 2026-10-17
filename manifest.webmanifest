@@ -1,0 +1,16 @@
+{
+  "name": "자라다 People",
+  "short_name": "자라다 People",
+  "description": "자라다 직원 관리 — 휴가·달력·공지·인사 기록",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FECD3F",
+  "theme_color": "#FECD3F",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

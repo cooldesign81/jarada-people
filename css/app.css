@@ -395,3 +395,8 @@ th.sortable:hover{ color:var(--brand-orange); }
 .notice-head{ cursor:pointer; display:flex; flex-direction:column; gap:4px; }
 .notice-body{ white-space:pre-wrap; margin:12px 0; line-height:1.7; }
 .notice .stat{ margin-top:10px; padding:10px 12px; background:#F8F9FA; border-radius:8px; font-size:14px; }
+
+/* 프로필 사진 */
+.name-row{ display:flex; gap:14px; align-items:center; }
+.avatar-lg{ width:64px; height:64px; font-size:26px; }
+.photo-actions{ margin-top:6px; display:flex; gap:6px; }

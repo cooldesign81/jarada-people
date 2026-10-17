@@ -116,7 +116,8 @@ function draw() {
     ${state.selfMode ? `<div class="notice" style="margin-bottom:16px">내 정보를 직접 입력하는 페이지입니다. 저장한 내용은 담당 관리자에게 전달됩니다. 이미 등록한 주민등록번호 뒷자리와 서류는 본인도 다시 볼 수 없습니다.</div>` : ""}
     <div class="card">
       <div class="head-top">
-        <h2 class="emp-name">${esc(e.name)}</h2>
+        <div class="name-row"><div class="avatar avatar-lg" id="dAvatar">${esc((e.name || "?").slice(0, 1))}</div>
+          <div><h2 class="emp-name">${esc(e.name)}</h2>${canPhoto() ? `<div class="photo-actions"><button class="btn btn-secondary btn-sm" id="dBtnPhoto" type="button">사진 변경</button> <button class="btn btn-secondary btn-sm hidden" id="dBtnPhotoDel" type="button">사진 삭제</button><input type="file" id="dPhotoInput" accept="image/*" class="hidden"></div>` : ""}</div></div>
         ${mgr ? `<div class="row-actions">
           <button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button>
           <button class="btn btn-secondary" id="dBtnLink">등록 링크 복사</button>
@@ -212,7 +213,46 @@ function compHtml() {
 }
 
 // ---------- 상단: 지점/링크/증명서 ----------
+// ---------- 프로필 사진: 정해진 이름 하나로 덮어쓴다 (공개서류 폴더) ----------
+const photoPath = () => `hr/${cur.id}/pub/photo__0__profile.jpg`;
+const canPhoto = () => isHR() || isAdmin() || isOwnPage();
+async function loadPhoto() {
+  const av = $("dAvatar"); if (!av) return;
+  try { const url = await getDownloadURL(ref(storage, photoPath())); if ($("dAvatar") === av) { av.innerHTML = `<img alt="" src="${esc(url)}">`; $("dBtnPhotoDel")?.classList.remove("hidden"); } }
+  catch (e) { /* 사진이 없거나 볼 권한이 없으면 이니셜을 그대로 둔다 */ }
+}
+function resizeImage(file, max = 480) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); c.toBlob((b) => (b ? resolve(b) : reject(new Error("이미지를 변환하지 못했습니다"))), "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("이미지 파일이 아닙니다")); };
+    img.src = url;
+  });
+}
+function bindPhoto() {
+  $("dBtnPhoto")?.addEventListener("click", () => $("dPhotoInput").click());
+  $("dPhotoInput")?.addEventListener("change", async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = ""; if (!f) return;
+    try {
+      const blob = await resizeImage(f);
+      await uploadBytes(ref(storage, photoPath()), blob, { contentType: "image/jpeg", customMetadata: { uploadedBy: who() } });
+      audit("file_upload", { targetEmployeeId: cur.id, detail: "프로필 사진" }); toast("사진을 바꿨습니다"); await loadPhoto();
+    } catch (e) { console.warn(e); toast(errMsg(e), true); }
+  });
+  $("dBtnPhotoDel")?.addEventListener("click", async () => {
+    if (!confirm("프로필 사진을 삭제할까요?")) return;
+    try { await deleteObject(ref(storage, photoPath())); audit("file_delete", { targetEmployeeId: cur.id, detail: "프로필 사진" }); $("dAvatar").textContent = (cur.emp.name || "?").slice(0, 1); $("dBtnPhotoDel").classList.add("hidden"); toast("삭제했습니다"); }
+    catch (e) { console.error(e); toast(errMsg(e), true); }
+  });
+  loadPhoto();
+}
 function bindHead() {
+  bindPhoto();
   $("dBtnEdit")?.addEventListener("click", () => ctx.openEdit(cur.emp));
   $("dBtnLink")?.addEventListener("click", copySelfLink);
   $("dBtnLinkNew")?.addEventListener("click", reissueLink);

@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>자라다 People</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#FECD3F">
+<link rel="icon" type="image/png" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="./css/app.css">
 </head>
@@ -391,12 +395,13 @@
   <div class="bulk-body">
     <p class="bulk-help">엑셀·구글시트에서 표를 <strong>복사해 아래 칸에 붙여넣거나</strong>, CSV 파일을 올리세요. <strong>‘양식 내려받기’</strong>의 제목 줄 그대로 쓰면 열 순서가 달라도 자동으로 맞춥니다. 이름과 이메일만 필수입니다. 급여 열(기본급·식대·추가급여1~3·인센티브 등)은 <strong>최고관리자만</strong> 넣을 수 있고, 주민등록번호·서류는 일괄 등록되지 않습니다(직원 상세에서 입력).</p>
     <div class="bulk-tools">
-      <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,text/csv,text/plain">
+      <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,text/plain">
       <button type="button" class="btn btn-secondary" id="btnBulkTemplate">양식 내려받기</button>
       <span class="spacer"></span>
       <label for="bulkOrg" class="bulk-org-label">지점 칸이 비었을 때</label>
       <select id="bulkOrg"></select>
     </div>
+    <label class="chk hidden" id="bulkUpdateWrap" style="margin:6px 0"><input type="checkbox" id="bulkUpdate"> 이미 등록된 이메일은 <strong>기존 직원 정보를 수정</strong>한다 (비워 둔 칸은 그대로 둠)</label>
     <textarea id="bulkText" class="mono" rows="6" spellcheck="false" placeholder="이름&#9;이메일&#9;소속 지점&#9;직책&#9;전번&#9;입사일&#9;권한&#9;상태&#10;홍길동&#9;hong@gmail.com&#9;평촌원/반포원&#9;교사&#9;010-1234-5678&#9;2024-03-02&#9;직원&#9;재직"></textarea>
     <div class="msg error" id="bulkErr"></div>
     <div class="bulk-summary" id="bulkSummary"></div>
@@ -447,5 +452,8 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script type="module" src="./js/app.js"></script>
+<script>
+if ("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+</script>
 </body>
 </html>

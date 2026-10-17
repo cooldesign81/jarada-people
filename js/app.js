@@ -690,6 +690,7 @@ function parseBulk(text) {
   const seen = new Map(); // 이메일 -> 먼저 나온 행 번호
   const existing = new Map(state.employees.map((e) => [e.email, e]));
   const findOrg = (t) => state.orgs.find((o) => nrm(o.id) === nrm(t) || nrm(o.name) === nrm(t));
+  const upsert = isHR() && $("bulkUpdate").checked;
   const rows = body.map((cells, idx) => {
     const line = idx + (hasHeader ? 2 : 1);
     const get = (k) => (k in colIdx ? (cells[colIdx[k]] ?? "").trim() : "");
@@ -701,7 +702,7 @@ function parseBulk(text) {
     if (!d.name) errors.push("이름 없음");
     else if (d.name.length > 40) errors.push("이름이 40자 초과");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) errors.push("이메일 형식 오류");
-    else if (existing.has(d.email)) errors.push(`이미 등록된 이메일 (${existing.get(d.email).id})`);
+    else if (existing.has(d.email) && !upsert) errors.push(`이미 등록된 이메일 (${existing.get(d.email).id}) — 기존 직원 수정을 켜면 갱신됩니다`);
     else if (seen.has(d.email)) errors.push(`${seen.get(d.email)}행과 이메일 중복`);
     if (d.email && !seen.has(d.email)) seen.set(d.email, line);
 
@@ -763,6 +764,17 @@ function parseBulk(text) {
       if (v) comp[c.key] = v;
     }
     if (Object.keys(comp).length && !isSuper()) errors.push("급여 정보는 최고관리자만 등록할 수 있습니다");
+    // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
+    const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
+    if (ex) {
+      const patch = {};
+      for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate"]) if (get(k)) patch[k] = d[k];
+      if (lvRaw) patch.level = d.level;
+      if (stRaw) patch.status = d.status;
+      if (names.length) { patch.orgIds = d.orgIds; patch.orgId = d.orgId; }
+      if (ex.level === "super" && !isSuper()) errors.push("최고관리자 계정은 수정할 수 없습니다");
+      return { line, data: patch, pi, comp, errors: errors.filter((x) => !/소속 지점 미지정|이름 없음/.test(x)), update: ex, full: { ...ex, ...patch } };
+    }
     return { line, data: d, pi, comp, errors };
   });
   return { rows, fatal: "" };
@@ -775,23 +787,23 @@ function renderBulk() {
   const okRows = rows.filter((r) => !r.errors.length);
   const bad = rows.length - okRows.length;
   $("bulkSummary").innerHTML = rows.length
-    ? `총 ${rows.length}행 · <span class="ok">등록 가능 ${okRows.length}명</span>` + (bad ? ` · <span class="bad">오류 ${bad}행 (건너뜀)</span>` : "")
+    ? `총 ${rows.length}행 · <span class="ok">등록 가능 ${okRows.filter((r) => !r.update).length}명</span>` + (okRows.some((r) => r.update) ? ` · <span class="ok">기존 직원 수정 ${okRows.filter((r) => r.update).length}명</span>` : "") + (bad ? ` · <span class="bad">오류 ${bad}행 (건너뜀)</span>` : "")
     : "";
   $("bulkPreviewWrap").classList.toggle("hidden", !rows.length);
   $("bulkPreview").innerHTML = rows.length
     ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>결과</th></tr></thead><tbody>` +
       rows.map((r) => {
-        const d = r.data, ok = !r.errors.length;
+        const d = r.update ? r.full : r.data, ok = !r.errors.length;
         return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}</td><td>${esc(d.email)}</td>
           <td>${esc(d.orgIds.length ? orgNames(d.orgIds) : "—")}</td><td>${esc(d.position || "—")}</td>
           <td>${d.level ? levelBadge(d.level) : "—"}</td><td>${d.status ? statusBadge(d.status) : "—"}</td>
           <td class="sub">${esc(d.joinedAt || "—")}</td><td class="sub">${Object.keys(r.pi).length ? Object.keys(r.pi).length + "개 항목" : "—"}</td>
           <td class="sub">${Object.keys(r.comp).length ? Object.keys(r.comp).length + "개 항목" : "—"}</td>
-          <td class="res ${ok ? "ok" : "bad"}">${ok ? "정상" : esc(r.errors.join(" · "))}</td></tr>`;
+          <td class="res ${ok ? "ok" : "bad"}">${ok ? (r.update ? `수정 (${esc(r.update.id)})` : "정상") : esc(r.errors.join(" · "))}</td></tr>`;
       }).join("") + `</tbody>`
     : "";
   const b = $("btnBulkSave");
-  b.textContent = okRows.length ? `정상 ${okRows.length}명 등록` : "등록";
+  b.textContent = okRows.length ? `정상 ${okRows.length}명 ${okRows.every((r) => r.update) ? "수정" : "등록"}` : "등록";
   b.disabled = bulk.busy || okRows.length === 0;
 }
 
@@ -802,14 +814,39 @@ function openBulk() {
   sel.value = state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (sel.options[0]?.value || "");
   sel.disabled = isAdmin();
   $("bulkText").value = ""; $("bulkFile").value = "";
+  $("bulkUpdate").checked = false; $("bulkUpdateWrap").classList.toggle("hidden", !isHR());
   bulk.rows = []; bulk.busy = false;
   renderBulk();
   $("dlgBulk").showModal();
   $("bulkText").focus();
 }
 
+// 엑셀(.xlsx/.xls) 파일은 SheetJS 를 그때 불러와 첫 시트를 탭으로 구분한 글로 바꾼다
+let sheetJs = null;
+function loadSheetJs() {
+  if (globalThis.XLSX) return Promise.resolve(globalThis.XLSX);
+  return (sheetJs ||= new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    sc.onload = () => resolve(globalThis.XLSX); sc.onerror = () => { sheetJs = null; reject(new Error("엑셀 읽기 도구를 불러오지 못했습니다. 인터넷 연결을 확인하거나 CSV 로 저장해 올려주세요.")); };
+    document.head.appendChild(sc);
+  }));
+}
+async function readSheetFile(file) {
+  const X = await loadSheetJs();
+  const wb = X.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error("시트가 비어 있습니다.");
+  // 날짜 칸은 Date 로 읽혀 오므로 직접 yyyy-mm-dd 로 바꾼다 (시간대 어긋남을 피하려고 12시간을 더한 뒤 UTC 날짜를 쓴다)
+  const cell = (v) => {
+    if (v instanceof Date) { const d = new Date(v.getTime() + 12 * 3600 * 1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`; }
+    return String(v ?? "").replace(/[\t\r\n]+/g, " ").trim();
+  };
+  return X.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false, defval: "" }).map((r) => r.map(cell).join("\t")).join("\n");
+}
 // UTF-8 우선, 실패하면 한국어 엑셀 CSV(EUC-KR/CP949)로 해석
 async function readTextFile(file) {
+  if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) return readSheetFile(file);
   const buf = await file.arrayBuffer();
   try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); }
   catch { return new TextDecoder("euc-kr").decode(buf); }
@@ -820,6 +857,7 @@ $("btnBulkCancel").onclick = () => { if (!bulk.busy) $("dlgBulk").close(); };
 $("dlgBulk").addEventListener("cancel", (e) => { if (bulk.busy) e.preventDefault(); });
 $("bulkText").addEventListener("input", renderBulk);
 $("bulkOrg").addEventListener("change", renderBulk);
+$("bulkUpdate").addEventListener("change", renderBulk);
 $("bulkFile").addEventListener("change", async (ev) => {
   const f = ev.target.files[0];
   if (!f) return;
@@ -870,8 +908,10 @@ async function reserveEmployeeIds(count) {
 }
 
 $("btnBulkSave").onclick = async () => {
-  const okRows = bulk.rows.filter((r) => !r.errors.length);
-  if (!okRows.length || bulk.busy) return;
+  const allOk = bulk.rows.filter((r) => !r.errors.length);
+  const updRows = allOk.filter((r) => r.update), okRows = allOk.filter((r) => !r.update);
+  if (!allOk.length || bulk.busy) return;
+  if (updRows.length && !confirm(`기존 직원 ${updRows.length}명의 정보를 파일 내용으로 덮어씁니다 (비워 둔 칸은 그대로 둡니다). 계속할까요?`)) return;
   bulk.busy = true;
   const btn = $("btnBulkSave");
   btn.disabled = true; $("btnBulkCancel").disabled = true;
@@ -879,7 +919,7 @@ $("btnBulkSave").onclick = async () => {
   let saved = 0;
   try {
     btn.textContent = "사번 확보 중…";
-    const ids = await reserveEmployeeIds(okRows.length);
+    const ids = okRows.length ? await reserveEmployeeIds(okRows.length) : [];
     const CHUNK = 130;   // 직원 1명당 문서 최대 3개(직원 + 개인정보 + 급여) → 배치당 최대 390건
     for (let i = 0; i < okRows.length; i += CHUNK) {
       btn.textContent = `등록 중… ${saved}/${okRows.length}`;
@@ -898,8 +938,21 @@ $("btnBulkSave").onclick = async () => {
       await batch.commit();
       saved += Math.min(CHUNK, okRows.length - i);
     }
-    audit("bulk_import", { detail: `${saved}명` });
-    toast(`${saved}명을 등록했습니다`);
+    let updated = 0;
+    for (const r of updRows) {
+      btn.textContent = `수정 중… ${updated}/${updRows.length}`;
+      const ex = r.update, id = ex.id;
+      if (Object.keys(r.data).length) await updateDoc(doc(db, "employees", id), { ...r.data, updatedAt: serverTimestamp() });
+      if (Object.keys(r.pi).length) await setDoc(doc(db, "employees", id, "private", "personalInfo"), { ...r.pi, updatedAt: serverTimestamp() }, { merge: true });
+      if (Object.keys(r.comp).length) await setDoc(doc(db, "employees", id, "private", "compensation"), { ...r.comp, updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" }, { merge: true });
+      const after = { ...ex, ...r.data };
+      if (ex.level !== after.level || ex.orgId !== after.orgId || ex.status !== after.status) await syncRoles(id, after);
+      const changes = diffEmployee(ex, after, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...ex, orgId: after.orgId }, changes);
+      updated++;
+    }
+    audit("bulk_import", { detail: `등록 ${saved}명${updated ? ` · 수정 ${updated}명` : ""}` });
+    toast(`${saved ? `${saved}명을 등록` : ""}${saved && updated ? ", " : ""}${updated ? `${updated}명을 수정` : ""}했습니다`);
     $("dlgBulk").close();
   } catch (e) {
     console.error(e);
