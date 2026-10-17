@@ -1,37 +1,20 @@
 // 직원 상세 화면: 기본/지점, 주민등록번호, 개인정보, 급여(최고관리자), 서류 업로드, 증명서 발급
 import { db, storage, auth } from "./firebase.js";
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, runTransaction, serverTimestamp, Timestamp, deleteField
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
   ref, uploadBytes, listAll, getMetadata, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 import {
   $, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, orgName,
-  statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles
+  statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles, audit, tsMillis, revokeLinkRoles
 } from "./core.js";
+import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
+import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
 import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
 
 // 서류/파일 규칙 — storage.rules 와 반드시 같이 바꿀 것
-const PERSONAL_FIELDS = [
-  { key: "address",          label: "주소", half: true },
-  { key: "bankAccount",      label: "계좌번호" },
-  { key: "guardianName",     label: "보호자 성명" },
-  { key: "guardianRelation", label: "보호자와의 관계" },
-  { key: "guardianPhone",    label: "보호자 연락처" },
-  { key: "eduStartDate",     label: "교육시작일", type: "date" },
-  { key: "workStartDate",    label: "근로시작일", type: "date" },
-  { key: "insuranceRegDate", label: "4대보험 등록일", type: "date" },
-  { key: "resignDate",       label: "퇴사일", type: "date" },
-];
-const PUBLIC_DOCS = [
-  { key: "resume", label: "이력서" }, { key: "portfolio", label: "포트폴리오" },
-  { key: "criminalRecord", label: "범죄기록조회서" }, { key: "diploma", label: "졸업증명서" },
-];
-const SECRET_DOCS = [
-  { key: "residentCopy", label: "주민등록등본" }, { key: "bankbookCopy", label: "통장사본" },
-  { key: "businessRegistration", label: "사업자등록확인서" }, { key: "employmentInsuranceDoc", label: "고용보험 관련서류" },
-];
 const PUB_KEYS = PUBLIC_DOCS.map((d) => d.key);
 const SEC_KEYS = SECRET_DOCS.map((d) => d.key);
 
@@ -48,6 +31,7 @@ const cur = {
 const isOwnPage = () => !!cur.emp && state.role?.employeeId === cur.id;
 const mgrView   = () => canManage() && !state.selfMode;      // 관리 버튼 표시
 const canSeeBack = () => isSuper();
+const backOff = () => state.settings?.rrnBackEnabled === false;     // 설정에서 뒷자리 수집을 껐는지
 const canSeeFront = () => isOwnPage() || canManage();
 const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : isSuper());
 const canUploadKey = (key) => isSuper() || isOwnPage() || (PUB_KEYS.includes(key) && (isHR() || isAdmin()));
@@ -93,7 +77,9 @@ export async function renderDetail(empId) {
   emp = emp || cached;
   if (token !== cur.token) return;
   if (!emp) {
-    root.innerHTML = `<div class="card"><h2>직원 정보를 찾을 수 없습니다</h2><p>삭제됐거나 볼 수 있는 권한이 없는 직원입니다.</p><a class="btn btn-secondary" href="#employees">목록으로</a></div>`;
+    root.innerHTML = state.selfMode
+      ? `<div class="card"><h2>등록 링크를 사용할 수 없습니다</h2><p>링크가 만료됐거나 폐기됐습니다. 담당 관리자에게 새 링크를 요청하세요.</p></div>`
+      : `<div class="card"><h2>직원 정보를 찾을 수 없습니다</h2><p>삭제됐거나 볼 수 있는 권한이 없는 직원입니다.</p><a class="btn btn-secondary" href="#employees">목록으로</a></div>`;
     return;
   }
   cur.emp = emp;
@@ -110,6 +96,8 @@ export async function renderDetail(empId) {
     files: { pub: [], sec: [] }, filesLoaded: false,
   });
   draw();
+  const seen = [back && "주민번호 뒷자리", comp && "급여"].filter(Boolean);
+  if (seen.length && !isOwnPage()) audit("view_sensitive", { targetEmployeeId: empId, detail: seen.join(", ") });
   if (isHR() || isAdmin()) {
     const [pub, sec] = await Promise.all([listFolder("pub"), isSuper() ? listFolder("sec") : []]);
     if (token !== cur.token) return;
@@ -138,6 +126,8 @@ function draw() {
       <div class="label">전번</div>
       <div class="big-phone">${esc(e.phone || "—")}</div>
       <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} <span class="mono sub">${esc(e.id)}</span></div>
+      ${mgr ? `<div class="link-line"><span class="sub">등록 링크:</span> <span id="dLinkState"></span>
+        <button class="btn btn-secondary btn-sm" id="dBtnLinkNew">재발급</button> <button class="btn btn-secondary btn-sm" id="dBtnLinkOff">폐기</button></div>` : ""}
       <div class="label" style="margin-top:14px">소속 지점 (중복 선택 가능)</div>
       <div class="chk-group" id="dBranches"></div>
       ${isHR() && !state.selfMode ? `<button class="btn btn-secondary" id="dBtnBranches" style="margin-top:12px">지점 저장</button>` : ""}
@@ -147,10 +137,11 @@ function draw() {
       <h3 class="sec-title">주민등록번호</h3>
       <div class="rrn-row">
         <input class="input" id="dFront" inputmode="numeric" maxlength="6" placeholder="앞 6자리" autocomplete="off" value="${esc(cur.front)}" ${canSeeFront() ? "" : ""}>
-        <span class="sep">-</span>
+        ${backOff() ? "" : `<span class="sep">-</span>
         <input class="input" id="dBack" type="password" inputmode="numeric" maxlength="7" placeholder="뒤 7자리" autocomplete="new-password" value="${esc(cur.back)}">
-        ${canSeeBack() ? `<button class="btn btn-secondary" id="dBtnShow" type="button">보기</button>` : ""}
+        ${canSeeBack() ? `<button class="btn btn-secondary" id="dBtnShow" type="button">보기</button>` : ""}`}
       </div>
+      ${backOff() ? `<div class="help">보안 설정에 따라 뒷자리는 새로 저장하지 않습니다.</div>` : ""}
       <div class="msg" id="dRrnStatus"></div>
       <button class="btn btn-primary" id="dBtnRrn" style="margin-top:10px">주민번호 저장</button>
     </div>
@@ -167,6 +158,7 @@ function draw() {
     </div>
 
     ${isSuper() ? compHtml() : ""}
+    ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
     <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
     <div class="card"><h3 class="sec-title">비공개서류 (주민등록등본·통장사본·사업자등록확인서·고용보험 관련서류)</h3><div id="dSec"></div></div>
@@ -184,6 +176,10 @@ function draw() {
   if (isSuper()) bindComp();
   if (isSuper()) bindEval();
   drawFiles();
+  if (!state.selfMode && $("dRecords")) {
+    const tk = cur.token;
+    mountRecords($("dRecords"), e).then(() => { if (tk === cur.token && $("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
+  }
 }
 
 // 추가급여 1~3: 항목명(직접 입력) + 금액. 예전 단일 ‘추가급여’ 값은 추가급여1 로 이어받음
@@ -208,6 +204,7 @@ function compHtml() {
     <div class="field"><label>퇴직금 중간 정산</label><div id="cSev"></div>
       <button class="btn btn-secondary" id="cBtnSev" type="button" style="margin-top:6px;align-self:flex-start">+ 추가</button></div>
     <div class="field"><label>메모</label><textarea id="cMemo" rows="5" placeholder="메모">${esc(c.memo || "")}</textarea></div>
+    <div id="cHist"></div>
     <button class="btn btn-primary" id="cBtnSave" style="margin-top:8px">급여 정보 저장</button></div>`;
 }
 
@@ -215,6 +212,9 @@ function compHtml() {
 function bindHead() {
   $("dBtnEdit")?.addEventListener("click", () => ctx.openEdit(cur.emp));
   $("dBtnLink")?.addEventListener("click", copySelfLink);
+  $("dBtnLinkNew")?.addEventListener("click", reissueLink);
+  $("dBtnLinkOff")?.addEventListener("click", revokeLink);
+  drawLinkState();
   $("dBtnCert")?.addEventListener("click", () => openCert("current"));
   $("dBtnCareer")?.addEventListener("click", () => openCert("career"));
   $("dBtnBranches")?.addEventListener("click", async () => {
@@ -223,6 +223,8 @@ function bindHead() {
     try {
       await updateDoc(doc(db, "employees", cur.id), { orgIds: ids, orgId: ids[0], updatedAt: serverTimestamp() });
       await syncRoles(cur.id, { level: cur.emp.level, orgId: ids[0], status: cur.emp.status });
+      if (JSON.stringify(ids) !== JSON.stringify(cur.emp.orgIds)) await addAssignments({ ...cur.emp, orgId: ids[0] }, [{ type: "transfer", from: orgNames(cur.emp.orgIds), to: orgNames(ids) }]);
+      audit("branch_save", { targetEmployeeId: cur.id, detail: orgNames(ids) });
       toast("지점 정보를 저장했습니다");
       await ctx.reload();
       await renderDetail(cur.id);
@@ -230,20 +232,53 @@ function bindHead() {
   });
 }
 
+function linkInfo(emp) {
+  if (!emp.selfToken) return { ok: false, text: "발급된 링크 없음" };
+  const exp = tsMillis(emp.selfTokenExpires);
+  const day = (ms) => new Date(ms).toLocaleDateString("ko-KR");
+  if (exp && exp < Date.now()) return { ok: false, text: `만료됨 (${day(exp)})` };
+  return { ok: true, text: exp ? `사용 가능 · ${day(exp)}까지` : "사용 가능 · 만료일 없음" };
+}
+function drawLinkState() {
+  const el = $("dLinkState"); if (!el) return;
+  const i = linkInfo(cur.emp);
+  el.textContent = i.text; el.className = i.ok ? "link-ok" : "link-off";
+  $("dBtnLinkOff").disabled = !cur.emp.selfToken;
+}
+// 새 링크 발급: 새 토큰 + 유효기간. 이전 링크는 즉시 무효
+async function issueLink() {
+  const days = Math.max(1, Math.min(365, Number(state.settings?.linkDays) || 14));
+  const token = randomToken();
+  const exp = Timestamp.fromDate(new Date(Date.now() + days * 86400000));
+  await updateDoc(doc(db, "employees", cur.id), { selfToken: token, selfTokenExpires: exp, updatedAt: serverTimestamp() });
+  Object.assign(cur.emp, { selfToken: token, selfTokenExpires: exp });
+  await revokeLinkRoles(cur.id);   // 이전 링크로 만든 접속 권한 정리
+  audit("link_create", { targetEmployeeId: cur.id, detail: `${days}일` });
+}
 async function copySelfLink() {
   try {
-    let token = cur.emp.selfToken;
-    if (!token) {
-      token = randomToken();
-      await updateDoc(doc(db, "employees", cur.id), { selfToken: token, updatedAt: serverTimestamp() });
-      cur.emp.selfToken = token;
-    }
+    if (!linkInfo(cur.emp).ok) await issueLink();
     const u = new URL("./", location.href);
     u.search = ""; u.hash = "";
-    u.searchParams.set("self", cur.id); u.searchParams.set("t", token);
+    u.searchParams.set("self", cur.id); u.searchParams.set("t", cur.emp.selfToken);
     const url = u.toString();
+    drawLinkState();
     try { await navigator.clipboard.writeText(url); toast("등록 링크를 복사했습니다"); }
     catch { prompt("아래 링크를 복사하세요", url); }
+  } catch (e) { console.error(e); toast(errMsg(e), true); }
+}
+async function reissueLink() {
+  if (cur.emp.selfToken && !confirm("새 링크를 발급하면 이전에 보낸 링크는 더 이상 쓸 수 없습니다. 계속할까요?")) return;
+  try { await issueLink(); drawLinkState(); await copySelfLink(); } catch (e) { console.error(e); toast(errMsg(e), true); }
+}
+async function revokeLink() {
+  if (!confirm("등록 링크를 폐기할까요? 링크로 접속한 사람도 바로 접근할 수 없게 됩니다.")) return;
+  try {
+    await updateDoc(doc(db, "employees", cur.id), { selfToken: deleteField(), selfTokenExpires: deleteField(), updatedAt: serverTimestamp() });
+    delete cur.emp.selfToken; delete cur.emp.selfTokenExpires;
+    await revokeLinkRoles(cur.id);
+    audit("link_revoke", { targetEmployeeId: cur.id });
+    drawLinkState(); toast("등록 링크를 폐기했습니다");
   } catch (e) { console.error(e); toast(errMsg(e), true); }
 }
 
@@ -251,13 +286,13 @@ async function copySelfLink() {
 function rrnStatus() {
   const f = cur.flags.residentFront, b = cur.flags.residentBack;
   const fl = f ? (canSeeFront() ? "앞자리: 등록됨" : "앞자리: 이미 등록됨 (조회 불가)") : "앞자리: 미등록";
-  const bl = b ? (canSeeBack() ? "뒷자리: 등록됨" : "뒷자리: 이미 등록됨 (조회 불가)") : "뒷자리: 미등록";
+  const bl = b ? (canSeeBack() ? "뒷자리: 등록됨" : "뒷자리: 이미 등록됨 (조회 불가)") : (backOff() ? "뒷자리: 저장 안 함" : "뒷자리: 미등록");
   $("dRrnStatus").textContent = `${fl} · ${bl}`;
 }
 function bindRrn() {
   $("dBtnShow")?.addEventListener("click", () => { const i = $("dBack"); i.type = i.type === "password" ? "text" : "password"; });
   $("dBtnRrn").addEventListener("click", async () => {
-    const front = $("dFront").value.trim(), back = $("dBack").value.trim();
+    const front = $("dFront").value.trim(), back = backOff() ? "" : ($("dBack")?.value.trim() || "");
     if (!front && !back) return toast("입력된 값이 없습니다.", true);
     if (front && !/^\d{6}$/.test(front)) return toast("앞자리는 숫자 6자리입니다.", true);
     if (back && !/^\d{7}$/.test(back)) return toast("뒷자리는 숫자 7자리입니다.", true);
@@ -268,9 +303,10 @@ function bindRrn() {
       if (back)  { await setDoc(doc(db, ...priv("residentBack")), { value: back, ...meta }); flags.residentBack = true; if (canSeeBack()) cur.back = back; }
       await setDoc(doc(db, ...priv("flags")), flags, { merge: true });
       Object.assign(cur.flags, flags);
-      if (!canSeeBack()) $("dBack").value = "";
+      if (!canSeeBack() && $("dBack")) $("dBack").value = "";
       if (!canSeeFront()) $("dFront").value = "";
       rrnStatus();
+      audit("rrn_save", { targetEmployeeId: cur.id, detail: [front && "앞자리", back && "뒷자리"].filter(Boolean).join("·") });
       toast("저장했습니다");
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
@@ -292,6 +328,7 @@ function bindPi() {
     try {
       await setDoc(doc(db, ...priv("personalInfo")), { ...vals, updatedAt: serverTimestamp() }, { merge: true });
       Object.assign(cur.pi, vals);
+      audit("personal_save", { targetEmployeeId: cur.id });
       toast("저장했습니다");
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
@@ -327,8 +364,19 @@ function bindComp() {
       severanceSettlements: cur.severance.map((s) => ({ year: String(s.year ?? ""), month: String(s.month ?? ""), day: String(s.day ?? ""), amount: String(s.amount ?? "") })),
       updatedAt: serverTimestamp(), updatedBy: who(),
     };
-    try { await setDoc(doc(db, ...priv("compensation")), payload, { merge: true }); toast("급여 정보를 저장했습니다"); }
-    catch (e) { console.error(e); toast(errMsg(e), true); }
+    // 이전 값과 비교해 변경 이력을 남긴다 (예전 단일 추가급여는 추가급여1 로 비교)
+    const old = { ...cur.comp }; if (!("additionalSalary1" in old) && old.additionalSalary) old.additionalSalary1 = old.additionalSalary;
+    const changes = COMP_FIELDS.filter(([k]) => String(old[k] ?? "") !== String(payload[k] ?? "")).map(([k, label]) => ({ key: k, label, from: String(old[k] ?? ""), to: String(payload[k] ?? "") }));
+    const sevOld = (cur.comp.severanceSettlements || []).length, sevNew = payload.severanceSettlements.length;
+    if (sevOld !== sevNew) changes.push({ key: "severance", label: "퇴직금 중간정산", from: `${sevOld}건`, to: `${sevNew}건` });
+    try {
+      await setDoc(doc(db, ...priv("compensation")), payload, { merge: true });
+      Object.assign(cur.comp, payload);
+      await addCompHistory(cur.id, changes);
+      audit("comp_save", { targetEmployeeId: cur.id, detail: changes.length ? `${changes.length}개 항목 변경` : "변경 없음" });
+      toast("급여 정보를 저장했습니다");
+      mountRecords($("dRecords"), cur.emp).then(() => { if ($("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
+    } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
 }
 
@@ -396,6 +444,7 @@ async function uploadFixed(item, file) {
     for (const f of old) { try { await deleteObject(ref(storage, f.path)); } catch {} }   // 이전 버전 정리
     if (canViewKey(item.key)) cur.files[folder] = await listFolder(folder);
     drawFiles();
+    audit("file_upload", { targetEmployeeId: cur.id, detail: item.label });
     toast(`${item.label} 업로드 완료`);
   } catch (e) { console.error(e); toast("업로드 실패: " + errMsg(e), true); }
 }
@@ -409,11 +458,13 @@ async function deleteFixed(item) {
     cur.flags.uploaded = { ...(cur.flags.uploaded || {}), [item.key]: false };
     cur.files[folder] = await listFolder(folder);
     drawFiles(); toast("삭제했습니다");
+    audit("file_delete", { targetEmployeeId: cur.id, detail: item.label });
   } catch (e) { console.error(e); toast(errMsg(e), true); }
 }
 
 async function download(path, name) {
   try {
+    audit("file_download", { targetEmployeeId: cur.id, detail: name || path });
     const url = await getDownloadURL(ref(storage, path));
     const a = document.createElement("a");
     a.href = url; a.download = name || "file"; a.target = "_blank"; a.rel = "noopener";
@@ -434,7 +485,7 @@ function drawEval() {
 }
 async function deleteByPath(path, label) {
   if (!confirm(`"${label}" 을(를) 삭제할까요?\n되돌릴 수 없습니다.`)) return;
-  try { await deleteObject(ref(storage, path)); cur.files.sec = await listFolder("sec"); drawFiles(); toast("삭제했습니다"); }
+  try { await deleteObject(ref(storage, path)); cur.files.sec = await listFolder("sec"); drawFiles(); audit("file_delete", { targetEmployeeId: cur.id, detail: label }); toast("삭제했습니다"); }
   catch (e) { console.error(e); toast(errMsg(e), true); }
 }
 function bindEval() {
@@ -497,10 +548,17 @@ function addEtcDraft() {
 }
 
 // 직원 완전 삭제 시 하위 데이터/파일 정리 (최고관리자)
+export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues"];
 export async function deleteEmployeeData(empId) {
   for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation"]) {
     try { await deleteDoc(doc(db, "employees", empId, "private", n)); } catch (e) { console.warn("삭제 실패", n, e.code || e); }
   }
+  for (const sc of SUBCOLLECTIONS) {
+    try { const q = await getDocs(collection(db, "employees", empId, sc)); await Promise.all(q.docs.map((d) => deleteDoc(d.ref))); }
+    catch (e) { console.warn("삭제 실패", sc, e.code || e); }
+  }
+  try { const q = await getDocs(query(collection(db, "leaveRequests"), where("employeeId", "==", empId))); await Promise.all(q.docs.map((d) => deleteDoc(d.ref))); }
+  catch (e) { console.warn("휴가 기록 삭제 실패", e.code || e); }
   for (const folder of ["pub", "sec"]) {
     try {
       const res = await listAll(ref(storage, `hr/${empId}/${folder}`));
@@ -532,19 +590,16 @@ export function bindCertModal() {
   $("btnCertCancel").addEventListener("click", () => $("dlgCert").close());
   $("btnCertGo").addEventListener("click", generateCert);
 }
-function generateCert() {
-  const e = cur.emp, v = (id) => $(id).value.trim();
-  const isCareer = certType === "career";
-  const docTitle = isCareer ? "경력증명서" : "재직증명서";
-  const applyDate = $("certApplyDate").value || cur.pi.workStartDate || "";
-  const resignDate = cur.pi.resignDate || "";
-  const period = e.status === "resigned" && resignDate ? `${applyDate || "-"} ~ ${resignDate} (퇴직)` : `${applyDate || "-"} ~ 현재 (재직중)`;
-  const rrn = cur.front ? `${cur.front} - ●●●●●●●` : "(미등록)";
-  const company = v("certCompany"), stamp = COMPANY_INFO[company] ? STAMP_IMAGES[COMPANY_INFO[company].stampKey] : "";
+// 증명서 HTML (snap: 발급 시점 내용. 발급 이력에 저장돼 다시 인쇄할 수 있다)
+function buildCertHtml(snap) {
+  const isCareer = snap.type === "career", docTitle = isCareer ? "경력증명서" : "재직증명서";
+  const period = snap.resigned && snap.resignDate ? `${snap.applyDate || "-"} ~ ${snap.resignDate} (퇴직)` : `${snap.applyDate || "-"} ~ 현재 (재직중)`;
+  const stamp = COMPANY_INFO[snap.company] ? STAMP_IMAGES[COMPANY_INFO[snap.company].stampKey] : "";
   const row = (l, val) => val ? `<tr><td class="label">${l}</td><td>${esc(val)}</td></tr>` : "";
-  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${docTitle} - ${esc(e.name)}</title>
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${docTitle} - ${esc(snap.name)}</title>
 <style>
   body{font-family:"Malgun Gothic","Pretendard",sans-serif;padding:60px;color:#111}
+  .no{text-align:right;font-size:13px;color:#444;margin-bottom:10px}
   h1{text-align:center;font-size:28px;letter-spacing:20px;margin-bottom:60px}
   table{width:100%;border-collapse:collapse;margin-bottom:40px}
   td{border:1px solid #333;padding:12px 16px;font-size:15px}
@@ -557,19 +612,57 @@ function generateCert() {
   .stamp-slot img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;mix-blend-mode:multiply}
   @media print{body{padding:30px}}
 </style></head><body>
+  ${snap.no ? `<div class="no">발급번호 ${esc(snap.no)}</div>` : ""}
   <h1>${docTitle}</h1>
   <table>
-    ${row("성명", e.name)}${row("주민등록번호", rrn)}${row("직위/직책", v("certPosition"))}${row("담당업무", v("certDuties"))}${row("소속", v("certBranch"))}
-    ${row(isCareer ? "근무기간" : "재직기간", period)}${row("용도", v("certPurpose") || "기관제출용")}
+    ${row("성명", snap.name)}${row("주민등록번호", snap.rrn)}${row("직위/직책", snap.position)}${row("담당업무", snap.duties)}${row("소속", snap.branch)}
+    ${row(isCareer ? "근무기간" : "재직기간", period)}${row("용도", snap.purpose || "기관제출용")}
   </table>
   <div class="stmt">${isCareer ? "위 사람은 위와 같이 본 기관에서 근무하였음을 증명합니다." : "위 사람은 위와 같이 재직하고 있음을 증명합니다."}</div>
-  <div class="foot"><div class="date">${esc($("certIssueDate").value || todayStr())}</div>
-    ${company ? `<div>회사명: ${esc(company)}</div>` : ""}${v("certAddr") ? `<div>주소: ${esc(v("certAddr"))}</div>` : ""}
-    ${v("certCeo") ? `<div class="ceo-line">대표자: ${esc(v("certCeo"))}<span class="stamp-slot">(인)${stamp ? `<img src="${stamp}">` : ""}</span></div>` : ""}
+  <div class="foot"><div class="date">${esc(snap.issueDate || todayStr())}</div>
+    ${snap.company ? `<div>회사명: ${esc(snap.company)}</div>` : ""}${snap.addr ? `<div>주소: ${esc(snap.addr)}</div>` : ""}
+    ${snap.ceo ? `<div class="ceo-line">대표자: ${esc(snap.ceo)}<span class="stamp-slot">(인)${stamp ? `<img src="${stamp}">` : ""}</span></div>` : ""}
   </div>
   <script>window.onload=()=>window.print();<\/script></body></html>`;
+}
+// 발급번호: JP-연도-일련번호 (meta/counters 를 트랜잭션으로 증가)
+async function nextCertNo() {
+  const year = new Date().getFullYear(), key = "certIssue" + year;
+  const n = await runTransaction(db, async (tx) => {
+    const r = doc(db, "meta", "counters"), snap = await tx.get(r);
+    const v = (snap.exists() ? Number(snap.data()[key] || 0) : 0) + 1;
+    tx.set(r, { [key]: v }, { merge: true });
+    return v;
+  });
+  return `JP-${year}-${String(n).padStart(4, "0")}`;
+}
+async function generateCert() {
+  const e = cur.emp, v = (id) => $(id).value.trim();
+  const snap = {
+    type: certType, name: e.name, rrn: cur.front ? `${cur.front} - ●●●●●●●` : "(미등록)",
+    position: v("certPosition"), duties: v("certDuties"), branch: v("certBranch"), purpose: v("certPurpose") || "기관제출용",
+    applyDate: $("certApplyDate").value || cur.pi.workStartDate || "", resignDate: cur.pi.resignDate || "", resigned: e.status === "resigned",
+    issueDate: $("certIssueDate").value || todayStr(), company: v("certCompany"), ceo: v("certCeo"), addr: v("certAddr"),
+  };
+  const w = window.open("", "_blank");   // 팝업 차단을 피하려고 클릭 직후에 먼저 연다
+  if (!w) return toast("팝업이 차단됐습니다. 팝업을 허용한 뒤 다시 시도하세요.", true);
+  try {
+    snap.no = await nextCertNo();
+    await addDoc(collection(db, "employees", cur.id, "certIssues"), {
+      no: snap.no, type: snap.type, issuedDate: snap.issueDate, purpose: snap.purpose, companyName: snap.company, employeeName: e.name, snapshot: snap,
+      issuedBy: auth.currentUser?.uid || "", issuedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp(),
+    });
+    audit("cert_issue", { targetEmployeeId: cur.id, detail: `${snap.no} ${snap.type === "career" ? "경력" : "재직"}증명서` });
+    w.document.write(buildCertHtml(snap)); w.document.close();
+    $("dlgCert").close();
+    mountRecords($("dRecords"), cur.emp);
+  } catch (err) { console.error(err); w.close(); toast("발급번호를 만들지 못했습니다: " + errMsg(err), true); }
+}
+function reprintCert(issue) {
+  if (!issue?.snapshot) return toast("저장된 내용이 없어 다시 인쇄할 수 없습니다.", true);
   const w = window.open("", "_blank");
   if (!w) return toast("팝업이 차단됐습니다. 팝업을 허용한 뒤 다시 시도하세요.", true);
-  w.document.write(html); w.document.close();
-  $("dlgCert").close();
+  w.document.write(buildCertHtml(issue.snapshot)); w.document.close();
+  audit("cert_issue", { targetEmployeeId: cur.id, detail: `${issue.no} 다시 인쇄` });
 }
+initRecords({ reprint: reprintCert });

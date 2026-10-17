@@ -22,7 +22,13 @@ service firebase.storage {
     function isSuper() { return roleExists() && role().level == 'super'; }
     function isHR() { return roleExists() && role().level in ['super', 'hr']; }
     function isAdmin() { return roleExists() && role().level in ['admin', 'principal']; }
-    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId; }
+    // 등록 링크 권한은 직원 문서의 링크가 유효할 때만 본인으로 인정 (firestore.rules 와 같은 기준)
+    function selfTokenValid(empId) {
+      return !('selfToken' in role())
+        || (firestore.get(empPath(empId)).data.get('selfToken', '') == role().selfToken
+            && firestore.get(empPath(empId)).data.get('selfTokenExpires', request.time) >= request.time);
+    }
+    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId && selfTokenValid(empId); }
     // 직원 문서의 소속 지점 목록 (orgIds 가 없던 예전 문서는 orgId 하나로 취급)
     function orgsOf(d) { return d.get('orgIds', [d.get('orgId', '')]); }
     function adminOf(empId) {

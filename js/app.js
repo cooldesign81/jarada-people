@@ -8,19 +8,28 @@ import {
   query, where, limit, runTransaction, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg,
+  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, canManage, canApprove, esc, toast, errMsg,
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
-  tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles
+  tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
 import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
+import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
+import { initAdmin, renderAdmin } from "./admin.js";
+import { exportEmployees } from "./export.js";
+import { renderTodo } from "./todo.js";
+import { addAssignments, diffEmployee } from "./records.js";
+import { initCalendar, renderCalendar } from "./calendar.js";
 
 const NAV = [
   { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "hr", "admin", "principal"] },
+  { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
+  { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
+  { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
   { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
 ];
-const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Employees", "Orgs", "Me", "Detail"];
+const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Employees", "Orgs", "Admin", "Me", "Detail"];
 function showView(name) {
   VIEWS.forEach((v) => $("view" + v).classList.toggle("hidden", v !== name));
 }
@@ -150,9 +159,16 @@ async function resolveRole(user) {
 }
 
 // ---------- 데이터 ----------
+async function loadSettings() {
+  try { const s = await getDoc(doc(db, "settings", "app")); state.settings = s.exists() ? s.data() : {}; }
+  catch (e) { state.settings = {}; }
+}
+
 async function loadAll() {
+  await loadSettings();
   await loadOrgs();
   await loadEmployees();
+  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents()]);
 }
 
 async function loadOrgs() {
@@ -175,7 +191,7 @@ async function loadEmployees() {
   if (isHR()) {
     const qs = await getDocs(col);
     state.employees = qs.docs.map(toEmp);
-  } else if (isAdmin()) {
+  } else if (isMgr()) {
     const org = state.role.orgId;
     const [a, b] = await Promise.all([
       getDocs(query(col, where("orgId", "==", org))),
@@ -193,7 +209,8 @@ async function loadEmployees() {
       state.employees = [];
     }
   }
-  state.employees.sort((a, b) => a.id.localeCompare(b.id));
+  state.trash = state.employees.filter((e) => e.deleted);                 // 휴지통(소프트 삭제)
+  state.employees = state.employees.filter((e) => !e.deleted).sort((a, b) => a.id.localeCompare(b.id));
   state.me = state.employees.find((e) => e.id === state.role.employeeId) || null;
 }
 
@@ -212,6 +229,11 @@ function buildNav() {
   });
   nav.classList.remove("hidden");
   $("appSub").textContent = `${orgName(state.role.orgId)} · ${LEVELS[state.role.level] || state.role.level}`;
+}
+
+function updateBadges() {
+  const n = pendingCount();
+  document.querySelectorAll('.tab[data-view="leaves"]').forEach((t) => { t.innerHTML = `휴가${n ? ` <span class="tab-badge">${n}</span>` : ""}`; });
 }
 
 function route() {
@@ -234,12 +256,14 @@ function route() {
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
   showView(nav.view);
-  ({ dash: renderDash, employees: renderEmployees, orgs: renderOrgs, me: renderMe })[nav.id]();
+  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, employees: renderEmployees, orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
+  updateBadges();
 }
 window.addEventListener("hashchange", route);
 
 // ---------- 대시보드 ----------
 function renderDash() {
+  renderTodo($("dashTodo"));
   const emps = state.employees;
   const cnt = (s) => emps.filter((e) => e.status === s).length;
   $("kpiTotal").textContent    = emps.length;
@@ -292,6 +316,7 @@ function fillOrgSelect(sel, { all = false, onlyActive = false, ensure = "" } = {
   if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
 }
 
+let lastList = [];
 function renderEmployees() {
   const fo = $("fltOrg");
   fillOrgSelect(fo, { all: true });
@@ -304,6 +329,7 @@ function renderEmployees() {
     (!org || e.orgIds.includes(org)) && (!st || e.status === st) &&
     (!q || [e.name, e.email, e.id, e.position].some((v) => String(v || "").toLowerCase().includes(q))));
   $("empCount").textContent = `${list.length}명`;
+  lastList = list;
   $("tblEmp").innerHTML = list.length
     ? `<thead><tr><th>사번</th><th>이름</th><th>조직</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>이메일</th><th>연락처</th></tr></thead><tbody>` +
       list.map((e) => `<tr class="click" data-id="${esc(e.id)}">
@@ -320,6 +346,7 @@ function renderEmployees() {
 ["fltQ", "fltOrg", "fltStatus"].forEach((id) => $(id).addEventListener("input", renderEmployees));
 
 $("btnAddEmp").onclick   = () => openEmp(null);
+$("btnExportList").onclick = () => exportEmployees(lastList);
 $("btnEmpCancel").onclick = () => $("dlgEmp").close();
 $("formEmp").addEventListener("input", () => { $("empErr").textContent = ""; });
 
@@ -350,13 +377,16 @@ function openEmp(id) {
   $("fPosition").value = emp?.position || "";
   $("fPhone").value    = emp?.phone || "";
   $("fJoined").value   = emp ? (emp.joinedAt || "") : todayStr();
+  $("fBirth").value    = emp?.birthDate || "";
+  $("fProbation").value = emp?.probationEndDate || "";
+  $("fContractEnd").value = emp?.contractEndDate || "";
   $("fStatus").value   = emp?.status && STATUS[emp.status] ? emp.status : "active";
   $("fStatus").disabled = self || locked;
   $("fMemo").value     = emp?.memo || "";
-  ["fName", "fEmail", "fPosition", "fPhone", "fJoined", "fMemo"].forEach((i) => ($(i).disabled = locked));
+  ["fName", "fEmail", "fPosition", "fPhone", "fJoined", "fBirth", "fProbation", "fContractEnd", "fMemo"].forEach((i) => ($(i).disabled = locked));
   $("empErr").textContent = "";
   $("btnEmpSave").classList.toggle("hidden", locked);
-  $("btnEmpDelete").classList.toggle("hidden", !(emp && isSuper() && !self));
+  $("btnEmpDelete").classList.toggle("hidden", !(emp && isHR() && !self && !locked));
   $("dlgEmp").showModal();
   if (!locked) $("fName").focus();
 }
@@ -370,7 +400,7 @@ function validateEmp(d, emp) {
   if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
     return "지점 관리자는 소속 지점 직원만, 직원·실장·관리자·원장 권한으로 등록할 수 있습니다.";
   if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
-  const dup = state.employees.find((e) => e.email === d.email && e.id !== emp?.id);
+  const dup = [...state.employees, ...state.trash].find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
   return "";
 }
@@ -386,6 +416,9 @@ $("formEmp").addEventListener("submit", async (ev) => {
     position: $("fPosition").value.trim(),
     phone:    $("fPhone").value.trim(),
     joinedAt: $("fJoined").value,
+    birthDate: $("fBirth").value,
+    probationEndDate: $("fProbation").value,
+    contractEndDate: $("fContractEnd").value,
     status:   $("fStatus").value,
     memo:     $("fMemo").value.trim(),
   };
@@ -402,12 +435,16 @@ $("formEmp").addEventListener("submit", async (ev) => {
     if (!emp) {
       const id = await nextEmployeeId();
       await setDoc(doc(db, "employees", id), { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      audit("emp_create", { targetEmployeeId: id, detail: data.name });
       toast(`${data.name} 님을 등록했습니다 (${id})`);
     } else {
       await updateDoc(doc(db, "employees", emp.id), { ...data, updatedAt: serverTimestamp() });
       if (emp.level !== data.level || emp.orgId !== data.orgId || emp.status !== data.status) {
         await syncRoles(emp.id, data);
       }
+      audit("emp_update", { targetEmployeeId: emp.id, detail: data.name });
+      const changes = diffEmployee(emp, { ...emp, ...data }, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...emp, orgId: data.orgId }, changes);
       toast("저장했습니다");
     }
     $("dlgEmp").close();
@@ -423,15 +460,15 @@ $("formEmp").addEventListener("submit", async (ev) => {
 
 $("btnEmpDelete").onclick = async () => {
   const emp = state.editing;
-  if (!emp || !isSuper()) return;
-  const ok = confirm(`${emp.name} (${emp.id}) 직원 정보를 삭제할까요?\n삭제하면 이 계정의 로그인 권한도 함께 제거됩니다.\n기록을 남기려면 삭제 대신 상태를 ‘퇴직’으로 바꾸세요.`);
+  if (!emp || !isHR()) return;
+  const ok = confirm(`${emp.name} (${emp.id}) 직원을 휴지통으로 옮길까요?\n목록에서 사라지고 이 계정의 로그인 권한이 제거됩니다.\n관리 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.`);
   if (!ok) return;
   setEmpBusy(true);
   try {
-    await syncRoles(emp.id, { status: "resigned" }); // 연결된 roles 삭제
-    await deleteEmployeeData(emp.id);                 // 개인정보·서류 파일 정리
-    await deleteDoc(doc(db, "employees", emp.id));
-    toast("삭제했습니다");
+    await updateDoc(doc(db, "employees", emp.id), { deleted: true, deletedAt: serverTimestamp(), deletedBy: state.user?.uid || "", status: "resigned", updatedAt: serverTimestamp() });
+    await syncRoles(emp.id, { status: "resigned" });   // 연결된 roles 삭제
+    audit("emp_trash", { targetEmployeeId: emp.id, detail: emp.name });
+    toast("휴지통으로 옮겼습니다");
     $("dlgEmp").close();
     await loadEmployees();
     if ((location.hash || "").startsWith("#emp/")) location.hash = "#employees"; else route();
@@ -445,7 +482,7 @@ $("btnEmpDelete").onclick = async () => {
 
 // 사번 자동 부여: meta/counters.employee 를 트랜잭션으로 증가
 async function nextEmployeeId() {
-  const known = state.employees.reduce((m, e) => {
+  const known = [...state.employees, ...state.trash].reduce((m, e) => {
     const n = /^emp_(\d+)$/.exec(e.id);
     return n ? Math.max(m, parseInt(n[1], 10)) : m;
   }, 1);
@@ -478,6 +515,9 @@ const BULK_COLS = [
   { key: "joinedAt", label: "입사일", alias: ["입사일", "입사", "joined"] },
   { key: "level",    label: "권한",   alias: ["권한", "등급", "level"] },
   { key: "status",   label: "상태",   alias: ["상태", "재직상태", "status"] },
+  { key: "birthDate", label: "생년월일", alias: ["생년월일", "생일", "birth", "birthday"] },
+  { key: "probationEndDate", label: "수습 종료일", alias: ["수습종료일", "수습종료", "수습만료일"] },
+  { key: "contractEndDate",  label: "계약 만료일", alias: ["계약만료일", "계약종료일", "계약만료"] },
   { key: "address",          label: "주소",           alias: ["주소", "address"], pi: true },
   { key: "bankAccount",      label: "계좌번호",       alias: ["계좌번호", "계좌", "bank"], pi: true },
   { key: "guardianName",     label: "보호자 성명",    alias: ["보호자성명", "보호자이름", "보호자"], pi: true },
@@ -601,6 +641,14 @@ function parseBulk(text) {
     const jd = normDate(get("joinedAt"));
     if (jd === null) errors.push("입사일 형식 오류 (예: 2024-03-02)");
     d.joinedAt = jd || "";
+    const bd = normDate(get("birthDate"));
+    if (bd === null) errors.push("생년월일 형식 오류 (예: 1990-05-21)");
+    d.birthDate = bd || "";
+    for (const k of ["probationEndDate", "contractEndDate"]) {
+      const nd = normDate(get(k)); const lbl = BULK_COLS.find((c) => c.key === k).label;
+      if (nd === null) errors.push(`${lbl} 형식 오류`);
+      d[k] = nd || "";
+    }
     if (d.position.length > 30) errors.push("직책이 30자 초과");
     if (d.phone.length > 20) errors.push("전번이 20자 초과");
 
@@ -697,7 +745,7 @@ $("btnBulkTemplate").onclick = () => {
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const cols = BULK_COLS.filter((c) => isSuper() || !c.comp);
   const rows = [
-    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직",
+    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
       baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
@@ -714,8 +762,8 @@ $("btnBulkTemplate").onclick = () => {
 
 // 사번을 count개 한꺼번에 확보 (카운터를 트랜잭션으로 증가, 이미 쓰는 사번은 건너뜀)
 async function reserveEmployeeIds(count) {
-  const used = new Set(state.employees.map((e) => e.id));
-  const known = state.employees.reduce((m, e) => {
+  const used = new Set([...state.employees, ...state.trash].map((e) => e.id));
+  const known = [...state.employees, ...state.trash].reduce((m, e) => {
     const n = /^emp_(\d+)$/.exec(e.id);
     return n ? Math.max(m, parseInt(n[1], 10)) : m;
   }, 1);
@@ -763,6 +811,7 @@ $("btnBulkSave").onclick = async () => {
       await batch.commit();
       saved += Math.min(CHUNK, okRows.length - i);
     }
+    audit("bulk_import", { detail: `${saved}명` });
     toast(`${saved}명을 등록했습니다`);
     $("dlgBulk").close();
   } catch (e) {
@@ -912,3 +961,6 @@ initDetail({
   reload: loadEmployees,
 });
 bindCertModal();
+initLeave({ rerender: () => route() });
+initCalendar({});
+initAdmin({ reload: loadEmployees, rerender: () => route() });

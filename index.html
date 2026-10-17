@@ -60,6 +60,7 @@
   <!-- 대시보드 -->
   <section id="viewDash" class="hidden">
     <div class="page-head"><h1>대시보드</h1><span class="hint" id="dashHint"></span></div>
+    <div id="dashTodo"></div>
     <div class="kpis">
       <div class="kpi accent"><div class="label">전체 직원</div><div class="value" id="kpiTotal">–</div></div>
       <div class="kpi"><div class="label">재직</div><div class="value" id="kpiActive">–</div></div>
@@ -76,10 +77,28 @@
     </div>
   </section>
 
+  <!-- 달력 -->
+  <section id="viewCalendar" class="hidden">
+    <div class="page-head"><h1>달력</h1><div class="row-actions">
+      <button class="btn btn-secondary hidden" id="btnEventNew">+ 일정 추가</button>
+      <button class="btn btn-primary" id="btnCalLeave">휴가 신청</button></div></div>
+    <div class="cal-toolbar">
+      <div class="cal-nav"><button class="btn btn-secondary" id="calPrev" aria-label="이전 달">‹</button><strong id="calTitle"></strong><button class="btn btn-secondary" id="calNext" aria-label="다음 달">›</button><button class="btn btn-secondary" id="calToday">오늘</button></div>
+      <select id="calOrg" class="hidden"></select>
+      <div class="cal-filters" id="calFilters"></div>
+    </div>
+    <div class="card cal-card"><div id="calGrid"></div></div>
+    <div class="card"><h2>이번 달 일정</h2><div id="calAgenda"></div>
+      <p class="msg" style="margin-top:12px">공휴일은 참고용입니다(2026·2027년 포함). 새로 지정된 휴일은 ‘일정 추가 → 휴일’로 등록하세요. 생일은 양력 기준이며 직원 정보의 생년월일을 사용합니다.</p></div>
+  </section>
+
+  <!-- 휴가 -->
+  <section id="viewLeaves" class="hidden"><div class="page-head"><h1>휴가·연차</h1></div><div id="leavesRoot"></div></section>
+
   <!-- 직원 -->
   <section id="viewEmployees" class="hidden">
     <div class="page-head"><h1>직원</h1>
-      <div class="row-actions"><button class="btn btn-secondary" id="btnBulk">일괄 등록</button><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
+      <div class="row-actions"><button class="btn btn-secondary" id="btnExportList">내보내기</button><button class="btn btn-secondary" id="btnBulk">일괄 등록</button><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
     </div>
     <div class="toolbar">
       <input class="input" id="fltQ" type="search" placeholder="이름, 이메일, 사번, 직책 검색" autocomplete="off">
@@ -100,6 +119,9 @@
     <div class="page-head"><h1>조직</h1><button class="btn btn-primary hidden" id="btnAddOrg">+ 조직 추가</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblOrgs"></table></div></div>
   </section>
+
+  <!-- 관리 -->
+  <section id="viewAdmin" class="hidden"><div class="page-head"><h1>관리</h1></div><div class="subtabs" id="adminTabs"></div><div id="adminBody"></div></section>
 
   <!-- 직원 상세 (내 정보 포함) -->
   <section id="viewDetail" class="hidden"><div id="detailRoot"></div></section>
@@ -150,6 +172,21 @@
       <div class="field">
         <label for="fJoined">입사일</label>
         <input class="input" id="fJoined" type="date">
+        <span class="help">연차 계산 기준일입니다</span>
+      </div>
+      <div class="field">
+        <label for="fProbation">수습 종료일</label>
+        <input class="input" id="fProbation" type="date">
+      </div>
+      <div class="field">
+        <label for="fContractEnd">계약 만료일</label>
+        <input class="input" id="fContractEnd" type="date">
+        <span class="help">대시보드에서 만료 전에 알려 드립니다</span>
+      </div>
+      <div class="field">
+        <label for="fBirth">생년월일</label>
+        <input class="input" id="fBirth" type="date">
+        <span class="help">달력에 생일로 표시됩니다 (양력)</span>
       </div>
       <div class="field">
         <label for="fStatus">상태<span class="req">*</span></label>
@@ -167,11 +204,83 @@
       <div class="msg error dlg-err" id="empErr"></div>
     </div>
     <div class="dlg-foot">
-      <button type="button" class="btn btn-danger left hidden" id="btnEmpDelete">삭제</button>
+      <button type="button" class="btn btn-danger left hidden" id="btnEmpDelete">휴지통으로 이동</button>
       <button type="button" class="btn btn-secondary" id="btnEmpCancel">취소</button>
       <button type="submit" class="btn btn-primary" id="btnEmpSave">저장</button>
     </div>
   </form>
+</dialog>
+
+<!-- 휴가 신청 -->
+<dialog id="dlgLeave">
+  <div class="dlg-head"><h2>휴가 신청</h2></div>
+  <div class="dlg-body">
+    <div class="field full" id="lvEmpWrap"><label for="lvEmp">직원</label><select id="lvEmp"></select></div>
+    <div class="field"><label for="lvType">종류</label><select id="lvType"></select></div>
+    <div class="field"><label for="lvStart">시작일</label><input class="input" id="lvStart" type="date"></div>
+    <div class="field" id="lvEndWrap"><label for="lvEnd">종료일</label><input class="input" id="lvEnd" type="date"></div>
+    <div class="field full"><label for="lvReason">사유</label><textarea id="lvReason" maxlength="500" placeholder="선택 입력"></textarea></div>
+    <div class="field full"><div class="notice" id="lvInfo"></div></div>
+    <label class="check full hidden" id="lvApproveWrap"><input type="checkbox" id="lvApprove"> 바로 승인 처리 (관리자가 대신 등록)</label>
+    <div class="msg error dlg-err" id="lvErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnLvCancel">취소</button><button type="button" class="btn btn-primary" id="btnLvSave">신청</button></div>
+</dialog>
+
+<!-- 휴가 승인 -->
+<dialog id="dlgDecision">
+  <div class="dlg-head"><h2>휴가 처리</h2></div>
+  <div class="bulk-body"><div id="dcInfo"></div>
+    <div class="field"><label for="dcDays">인정 일수</label><input class="input" id="dcDays" type="number" min="0" max="365" step="0.5"><span class="help">주말·휴일을 뺀 일수로 자동 계산됩니다. 필요하면 고치세요.</span></div>
+    <div class="field"><label for="dcNote">처리 메모 (반려할 때는 사유 필수)</label><textarea id="dcNote" maxlength="200"></textarea></div>
+    <div class="msg error" id="dcErr"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnDcClose">닫기</button>
+    <button type="button" class="btn btn-danger hidden" id="btnDcCancelLeave">취소 처리</button>
+    <button type="button" class="btn btn-danger" id="btnDcReject">반려</button><button type="button" class="btn btn-primary" id="btnDcApprove">승인</button></div>
+</dialog>
+
+<!-- 연차 조정 -->
+<dialog id="dlgAdjust">
+  <div class="dlg-head"><h2>연차 조정</h2></div>
+  <div class="bulk-body"><p class="bulk-help" id="adInfo"></p>
+    <div class="field"><label for="adValue">조정 일수 (+ 더해 줌 / - 차감)</label><input class="input" id="adValue" type="number" step="0.5"><span class="help">포상 휴가나 이월 연차처럼 자동 계산에 없는 값을 반영합니다. 올해 잔여에 더해집니다.</span></div>
+    <div class="msg error" id="adErr"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnAdCancel">취소</button><button type="button" class="btn btn-primary" id="btnAdSave">저장</button></div>
+</dialog>
+
+<!-- 날짜 상세 -->
+<dialog id="dlgDay">
+  <div class="dlg-head"><h2 id="dayTitle"></h2></div>
+  <div class="bulk-body" id="dayList"></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnDayClose">닫기</button>
+    <button type="button" class="btn btn-secondary hidden" id="btnDayEvent">일정 추가</button><button type="button" class="btn btn-primary" id="btnDayLeave">휴가 신청</button></div>
+</dialog>
+
+<!-- 일정 추가/수정 -->
+<dialog id="dlgEvent">
+  <form onsubmit="return false">
+  <div class="dlg-head"><h2>일정</h2></div>
+  <div class="dlg-body">
+    <div class="field full"><label for="evTitle">제목<span class="req">*</span></label><input class="input" id="evTitle" maxlength="60"></div>
+    <div class="field"><label for="evKind">종류</label><select id="evKind"><option value="event">행사·일정</option><option value="training">교육</option><option value="holiday">휴일 (휴가 일수에서 제외)</option></select></div>
+    <div class="field"></div>
+    <div class="field"><label for="evStart">시작일</label><input class="input" id="evStart" type="date"></div>
+    <div class="field"><label for="evEnd">종료일</label><input class="input" id="evEnd" type="date"></div>
+    <div class="field full"><label>대상 지점</label><div class="chk-group" id="evOrgs"></div><span class="help" id="evOrgHelp"></span></div>
+    <div class="field full"><label for="evNote">메모</label><textarea id="evNote" maxlength="500"></textarea></div>
+    <div class="msg error dlg-err" id="evErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-danger left hidden" id="btnEvDelete">삭제</button>
+    <button type="button" class="btn btn-secondary" id="btnEvCancel">취소</button><button type="button" class="btn btn-primary" id="btnEvSave">저장</button></div>
+  </form>
+</dialog>
+
+<!-- 인사 기록 추가/수정 (발령, 자격증, 교육, 면담) -->
+<dialog id="dlgRec">
+  <div class="dlg-head"><h2 id="recTitle"></h2></div>
+  <div class="dlg-body" id="recFields"></div>
+  <div class="msg error" id="recErr" style="padding:0 20px"></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnRecCancel">취소</button><button type="button" class="btn btn-primary" id="btnRecSave">저장</button></div>
 </dialog>
 
 <!-- 증명서 발급 -->

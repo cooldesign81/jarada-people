@@ -84,8 +84,15 @@ service cloud.firestore {
       return isOrgAdmin() && me().orgId == orgId;
     }
 
+    // 등록 링크로 만든 권한(selfToken 이 있는 roles)은 직원 문서의 링크가 아직 유효할 때만 본인으로 인정한다.
+    // 링크를 폐기(selfToken 삭제)하거나 만료일이 지나면 이미 접속한 사람도 바로 막힌다.
+    function selfTokenValid(empId) {
+      return !('selfToken' in me())
+        || (get(empPath(empId)).data.get('selfToken', '') == me().selfToken
+            && get(empPath(empId)).data.get('selfTokenExpires', request.time) >= request.time);
+    }
     function isSelf(empId) {
-      return hasRole() && me().get('employeeId', '') == empId;
+      return hasRole() && me().get('employeeId', '') == empId && selfTokenValid(empId);
     }
 
     function empPath(id) {
@@ -98,8 +105,17 @@ service cloud.firestore {
     function orgsOf(d) {
       return d.get('orgIds', [d.get('orgId', '')]);
     }
+    function orgMgrOfEmp(id) {
+      return isOrgMgr() && exists(empPath(id)) && me().orgId in orgsOf(get(empPath(id)).data);
+    }
     function orgAdminOfEmp(id) {
       return isOrgAdmin() && exists(empPath(id)) && me().orgId in orgsOf(get(empPath(id)).data);
+    }
+
+    // 대표가 설정에서 ‘주민번호 뒷자리 수집 안 함’으로 바꾸면 새로 저장할 수 없다 (기존 값 삭제는 가능)
+    function rrnBackAllowed() {
+      return !exists(/databases/$(database)/documents/settings/app)
+        || get(/databases/$(database)/documents/settings/app).data.get('rrnBackEnabled', true) != false;
     }
 
     function validLevel(l) {
@@ -119,7 +135,12 @@ service cloud.firestore {
         && d.email is string && d.email == d.email.lower() && d.email.size() <= 254
         && d.orgIds is list && d.orgIds.size() >= 1 && d.orgId == d.orgIds[0] && orgExists(d.orgId)
         && validLevel(d.level)
-        && validStatus(d.status);
+        && validStatus(d.status)
+        && d.get('birthDate', '') is string
+        && (d.get('birthDate', '') == '' || d.get('birthDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        && d.get('annualAdjust', 0) is number && d.get('annualAdjust', 0) >= -100 && d.get('annualAdjust', 0) <= 100
+        && (d.get('probationEndDate', '') == '' || d.get('probationEndDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        && (d.get('contractEndDate', '') == '' || d.get('contractEndDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'));
     }
 
     function validOrg() {
@@ -154,6 +175,7 @@ service cloud.firestore {
         && exists(empPath(request.resource.data.employeeId))
         && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') != ''
         && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') == request.resource.data.selfToken
+        && get(empPath(request.resource.data.employeeId)).data.get('selfTokenExpires', request.time) >= request.time
         && get(empPath(request.resource.data.employeeId)).data.status != 'resigned';
 
       allow create, update, delete: if isSuper();
@@ -177,6 +199,13 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update: if isHR() && validOrg();
       allow delete: if isSuper();
+    }
+
+    // ---------- 앱 설정 (대표만 변경) ----------
+    //   rrnBackEnabled: 주민번호 뒷자리 수집 여부, linkDays: 등록 링크 기본 유효일
+    match /settings/{docId} {
+      allow read: if hasRole();
+      allow write: if isSuper();
     }
 
     // ---------- 사번 카운터 ----------
@@ -238,7 +267,7 @@ service cloud.firestore {
         allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
                               || (docId == 'flags' && ownerOrManager())
                               || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
-                              || (docId == 'residentBack' && (isSuper() || isSelf(empId)) && validRrnBack())
+                              || (docId == 'residentBack' && (isSuper() || isSelf(empId)) && validRrnBack() && rrnBackAllowed())
                               || (docId == 'compensation' && isSuper());
 
         // 삭제는 대표만 (직원 완전 삭제 시 정리용)
@@ -268,54 +297,102 @@ service cloud.firestore {
         allow read, write: if isSuper();
       }
 
-      // ---------- 발령 이력 ----------
+      // 아래 하위 기록들의 읽기 권한은 문서가 아니라 ‘부모 직원’ 기준이다 (목록 조회가 가능하도록).
+
+      // ---------- 발령·변경 이력 ----------
       match /assignments/{assignmentId} {
-        allow read: if isSelf(empId)
-                    || isHR()
-                    || isManagerOf(resource.data.orgId);
-        allow create, update: if isHR();
-        allow delete: if false;
+        function validAssignment() {
+          let d = request.resource.data;
+          return d.type in ['transfer', 'position', 'level', 'status', 'other']
+            && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && d.get('from', '') is string && d.get('from', '').size() <= 100
+            && d.get('to', '') is string && d.get('to', '').size() <= 100
+            && d.get('note', '') is string && d.get('note', '').size() <= 500;
+        }
+        allow read: if isSelf(empId) || isHR() || orgMgrOfEmp(empId);
+        allow create: if (isHR() || orgAdminOfEmp(empId)) && validAssignment();
+        allow update: if isHR() && validAssignment();
+        allow delete: if isSuper();
       }
 
       // ---------- 자격증 ----------
       match /certs/{certId} {
-        allow read: if isSelf(empId)
-                    || isEdu()
-                    || isManagerOf(resource.data.orgId);
-        allow create, update: if isEdu();
-        allow delete: if false;
+        function validCert() {
+          let d = request.resource.data;
+          return d.name is string && d.name.size() > 0 && d.name.size() <= 60
+            && d.get('number', '') is string && d.get('number', '').size() <= 60
+            && d.get('issuer', '') is string && d.get('issuer', '').size() <= 60
+            && (d.get('issuedDate', '') == '' || d.get('issuedDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+            && (d.get('expiresDate', '') == '' || d.get('expiresDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+            && d.get('note', '') is string && d.get('note', '').size() <= 300;
+        }
+        allow read: if isSelf(empId) || isEdu() || orgMgrOfEmp(empId);
+        allow create, update: if (isEdu() || orgAdminOfEmp(empId)) && validCert();
+        allow delete: if isEdu() || orgAdminOfEmp(empId);
       }
 
       // ---------- 교육 / 학회 이수 ----------
       // 규정상 학회보고서의 적용점은 교사가 직접 작성한다.
       // 따라서 확정(approved) 전까지는 본인이 쓰고 고칠 수 있다.
       match /enrollments/{enrollmentId} {
-        allow read: if isSelf(empId)
-                    || isEdu()
-                    || isManagerOf(resource.data.orgId);
-
-        allow create: if (isSelf(empId) || isEdu())
-                      && request.resource.data.status == 'draft';
-
-        allow update: if isEdu()
+        function validEnrollment() {
+          let d = request.resource.data;
+          return d.title is string && d.title.size() > 0 && d.title.size() <= 100
+            && d.kind in ['training', 'conference', 'other']
+            && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && d.get('hours', 0) is number && d.get('hours', 0) >= 0 && d.get('hours', 0) <= 1000
+            && d.status in ['draft', 'submitted', 'approved']
+            && d.get('report', '') is string && d.get('report', '').size() <= 3000;
+        }
+        allow read: if isSelf(empId) || isEdu() || orgMgrOfEmp(empId);
+        allow create: if (isSelf(empId) || isEdu() || orgAdminOfEmp(empId))
+                      && request.resource.data.status == 'draft' && validEnrollment();
+        allow update: if (isEdu() && validEnrollment())
                       || (isSelf(empId)
                           && resource.data.status != 'approved'
-                          && request.resource.data.status in ['draft', 'submitted']);
-
-        allow delete: if false;
+                          && request.resource.data.status in ['draft', 'submitted']
+                          && validEnrollment());
+        allow delete: if isEdu() || (isSelf(empId) && resource.data.status == 'draft');
       }
 
       // ---------- 면담 / 평가 ----------
       // visibility: 'shared'(직원 열람 가능) | 'manager'(관리자 전용) | 'hr'(본사 전용)
       match /reviews/{reviewId} {
+        function validReview() {
+          let d = request.resource.data;
+          return d.kind in ['interview', 'evaluation', 'other']
+            && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && d.title is string && d.title.size() > 0 && d.title.size() <= 100
+            && d.get('content', '') is string && d.get('content', '').size() <= 5000
+            && d.visibility in ['shared', 'manager', 'hr']
+            && d.get('score', 0) is number && d.get('score', 0) >= 0 && d.get('score', 0) <= 100;
+        }
         allow read: if isHR()
-                    || (isManagerOf(resource.data.orgId)
-                        && resource.data.visibility in ['shared', 'manager'])
+                    || (orgMgrOfEmp(empId) && resource.data.visibility in ['shared', 'manager'])
                     || (isSelf(empId) && resource.data.visibility == 'shared');
+        allow create: if (isHR() || orgMgrOfEmp(empId)) && validReview();
+        allow update: if (isHR() || (orgMgrOfEmp(empId) && resource.data.visibility in ['shared', 'manager'])) && validReview();
+        allow delete: if isHR() || (orgMgrOfEmp(empId) && resource.data.get('createdBy', '') == request.auth.uid);
+      }
 
-        allow create: if isHR() || isManagerOf(request.resource.data.orgId);
-        allow update: if isHR() || isManagerOf(resource.data.orgId);
-        allow delete: if false;
+      // ---------- 급여 변경 이력 (대표 전용) ----------
+      match /compHistory/{historyId} {
+        allow read, create: if isSuper();
+        allow update: if false;
+        allow delete: if isSuper();
+      }
+
+      // ---------- 증명서 발급 이력 ----------
+      match /certIssues/{issueId} {
+        function validIssue() {
+          let d = request.resource.data;
+          return d.no is string && d.no.matches('^JP-[0-9]{4}-[0-9]+$')
+            && d.type in ['current', 'career']
+            && d.issuedDate is string && d.issuedDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+        }
+        allow read: if isHR() || orgAdminOfEmp(empId);
+        allow create: if (isHR() || orgAdminOfEmp(empId)) && validIssue();
+        allow delete: if isSuper();
       }
 
       // ---------- 문서 메타 (실제 파일은 Storage) ----------
@@ -347,21 +424,71 @@ service cloud.firestore {
     }
 
     // ---------- 휴가 ----------
-    // 승인함에서 원별로 모아 봐야 하므로 최상위에 둔다.
+    // 승인함에서 지점별로 모아 봐야 하므로 최상위에 둔다.
+    // 직원 본인이 신청(submitted)하고, 지점 관리자·본사가 승인/반려한다. 본인 신청은 본인이 승인할 수 없다(대표 제외).
     match /leaveRequests/{requestId} {
+      function leaveMgr(d) { return isOrgMgr() && (d.orgId == me().orgId || me().orgId in d.orgIds); }
+      function validLeave() {
+        let d = request.resource.data;
+        return d.employeeId is string && exists(empPath(d.employeeId))
+          && d.employeeName is string && d.employeeName.size() <= 40
+          && d.orgId == get(empPath(d.employeeId)).data.orgId
+          && d.orgIds is list && d.orgIds == orgsOf(get(empPath(d.employeeId)).data)
+          && d.type in ['annual', 'half_am', 'half_pm', 'sick', 'family', 'official', 'childcare', 'other']
+          && d.startDate is string && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && d.endDate is string && d.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && d.endDate >= d.startDate
+          && d.days is number && d.days >= 0 && d.days <= 365
+          && d.get('reason', '') is string && d.get('reason', '').size() <= 500;
+      }
+
       allow read: if isHR()
                   || isSelf(resource.data.employeeId)
-                  || isManagerOf(resource.data.orgId);
+                  || leaveMgr(resource.data);
 
       allow create: if isSelf(request.resource.data.employeeId)
-                    && request.resource.data.status == 'submitted';
+                    && request.resource.data.status == 'submitted'
+                    && validLeave();
+      // 관리자가 직원 대신 등록 (바로 승인 가능)
+      allow create: if (isHR() || orgAdminOfEmp(request.resource.data.employeeId))
+                    && request.resource.data.status in ['submitted', 'approved']
+                    && validLeave();
 
-      allow update: if isHR()
-                    || isManagerOf(resource.data.orgId)
-                    || (isSelf(resource.data.employeeId)
-                        && resource.data.status == 'submitted');
+      // 승인·반려·취소 처리
+      allow update: if (isHR() || leaveMgr(resource.data))
+                    && (resource.data.employeeId != me().get('employeeId', '') || isSuper())
+                    && request.resource.data.status in ['submitted', 'approved', 'rejected', 'cancelled']
+                    && request.resource.data.days is number && request.resource.data.days >= 0 && request.resource.data.days <= 365
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'days', 'decisionNote', 'decidedBy', 'decidedByName', 'decidedAt', 'updatedAt']);
 
-      allow delete: if false;
+      // 본인: 승인 전에는 고치거나 취소할 수 있다
+      allow update: if isSelf(resource.data.employeeId)
+                    && resource.data.status == 'submitted'
+                    && request.resource.data.status in ['submitted', 'cancelled']
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'type', 'startDate', 'endDate', 'days', 'reason', 'updatedAt'])
+                    && validLeave();
+
+      allow delete: if isSuper();
+    }
+
+    // ---------- 달력 일정 (휴일·행사·교육) ----------
+    // orgIds 가 비어 있으면 전체 지점. 지점 관리자는 자기 지점 일정만 다룬다.
+    match /calendarEvents/{eventId} {
+      function validEvent() {
+        let d = request.resource.data;
+        return d.title is string && d.title.size() > 0 && d.title.size() <= 60
+          && d.kind in ['holiday', 'event', 'training']
+          && d.startDate is string && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && d.endDate is string && d.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && d.endDate >= d.startDate
+          && d.orgIds is list && d.orgIds.size() <= 20;
+      }
+      allow read: if hasRole();
+      allow create, update: if isHR() && validEvent();
+      allow create: if isOrgAdmin() && validEvent() && request.resource.data.orgIds == [me().orgId];
+      allow update: if isOrgAdmin() && validEvent()
+                    && resource.data.orgIds == [me().orgId] && request.resource.data.orgIds == [me().orgId];
+      allow delete: if isHR() || (isOrgAdmin() && resource.data.orgIds == [me().orgId]);
     }
 
     // ---------- 교육과정 마스터 ----------
