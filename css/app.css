@@ -264,6 +264,11 @@ dialog.wide{ width:min(920px, calc(100vw - 32px)); }
 .notice{ background:#FFF8E5; border:1px solid #F3E2A6; border-radius:var(--r-btn); padding:12px 14px; font-size:13px; }
 body.self-mode .tape{ display:block; }
 
+.add-pay{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+.add-row{ display:grid; grid-template-columns:84px minmax(0,1fr) 170px auto; gap:8px; align-items:center; }
+.add-tag{ font-size:13px; font-weight:600; color:var(--ink); }
+.add-row .input{ width:100%; }
+
 @media (max-width:640px){
   .dlg-body{ grid-template-columns:1fr; }
   .field.full{ grid-column:auto; }
@@ -278,4 +283,9 @@ body.self-mode .tape{ display:block; }
   .grid-fields .field, .grid-fields .field.half{ grid-column:auto; }
   .grid-3, .grid-2{ grid-template-columns:1fr; }
   .rrn-row .input{ width:120px; }
+}
+@media (max-width:640px){
+  .add-row{ grid-template-columns:1fr auto; }
+  .add-row .add-tag{ grid-column:1 / -1; }
+  .add-row .input:first-of-type{ grid-column:1 / -1; }
 }

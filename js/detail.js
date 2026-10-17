@@ -186,11 +186,21 @@ function draw() {
   drawFiles();
 }
 
+// 추가급여 1~3: 항목명(직접 입력) + 금액. 예전 단일 ‘추가급여’ 값은 추가급여1 로 이어받음
+function addRow(n, c) {
+  const legacy = n === 1 && !("additionalSalary1" in c) ? c.additionalSalary : undefined;
+  const amount = c["additionalSalary" + n] ?? legacy ?? "";
+  return `<div class="add-row"><span class="add-tag">추가급여${n}</span>
+    <input class="input" id="cAddLabel${n}" maxlength="30" placeholder="항목명 (예: ${["자기 계발비", "차량 지원금", "직책 수당"][n - 1]})" value="${esc(c["additionalLabel" + n] || "")}">
+    <input class="input" id="cAdd${n}" type="number" min="0" placeholder="0" value="${esc(amount)}"><span class="help">원</span></div>`;
+}
+
 function compHtml() {
   const c = cur.comp;
   const num = (id, label, v) => `<div class="field"><label>${label}</label><input class="input" id="${id}" type="number" min="0" placeholder="0" value="${esc(v ?? "")}"><span class="help">원</span></div>`;
   return `<div class="card"><h3 class="sec-title">급여 정보 (최고관리자 전용)</h3>
-    <div class="grid-3">${num("cBase", "기본급", c.baseSalary)}${num("cMeal", "식대", c.mealAllowance)}${num("cAdd", "추가급여", c.additionalSalary)}</div>
+    <div class="grid-2">${num("cBase", "기본급", c.baseSalary)}${num("cMeal", "식대", c.mealAllowance)}</div>
+    <div class="add-pay">${[1, 2, 3].map((n) => addRow(n, c)).join("")}</div>
     <div class="grid-2">
       <div class="field"><label>인센티브 - 초과 기준</label><input class="input" id="cIncTh" placeholder="예: 5명 초과" value="${esc(c.incentiveThreshold || "")}"></div>
       ${num("cIncAmt", "인센티브 - 금액", c.incentiveAmount)}</div>
@@ -309,7 +319,10 @@ function bindComp() {
   $("cBtnSave").addEventListener("click", async () => {
     const v = (id) => $(id).value.trim();
     const payload = {
-      baseSalary: v("cBase"), mealAllowance: v("cMeal"), additionalSalary: v("cAdd"),
+      baseSalary: v("cBase"), mealAllowance: v("cMeal"),
+      additionalSalary1: v("cAdd1"), additionalLabel1: v("cAddLabel1"),
+      additionalSalary2: v("cAdd2"), additionalLabel2: v("cAddLabel2"),
+      additionalSalary3: v("cAdd3"), additionalLabel3: v("cAddLabel3"),
       incentiveThreshold: v("cIncTh"), incentiveAmount: v("cIncAmt"), otherSalary: v("cOther"), memo: v("cMemo"),
       severanceSettlements: cur.severance.map((s) => ({ year: String(s.year ?? ""), month: String(s.month ?? ""), day: String(s.day ?? ""), amount: String(s.amount ?? "") })),
       updatedAt: serverTimestamp(), updatedBy: who(),
