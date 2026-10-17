@@ -11,6 +11,7 @@ import {
   statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles, audit, tsMillis, revokeLinkRoles
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
+import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
 import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
 import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
 
@@ -205,7 +206,9 @@ function compHtml() {
       <button class="btn btn-secondary" id="cBtnSev" type="button" style="margin-top:6px;align-self:flex-start">+ 추가</button></div>
     <div class="field"><label>메모</label><textarea id="cMemo" rows="5" placeholder="메모">${esc(c.memo || "")}</textarea></div>
     <div id="cHist"></div>
-    <button class="btn btn-primary" id="cBtnSave" style="margin-top:8px">급여 정보 저장</button></div>`;
+    <div class="notice" id="cSevEst" style="margin:10px 0">${severanceLine(cur.emp, c, cur.pi.resignDate)}</div>
+    <div class="row-actions"><button class="btn btn-primary" id="cBtnSave">급여 정보 저장</button>
+      <button class="btn btn-secondary" id="cBtnPayslip" type="button">급여명세서</button><button class="btn btn-secondary" id="cBtnContract" type="button">근로계약서 초안</button></div></div>`;
 }
 
 // ---------- 상단: 지점/링크/증명서 ----------
@@ -350,8 +353,11 @@ function drawSev() {
     cur.severance.splice(Number(b.dataset.sevDel), 1); drawSev();
   }));
 }
+function payCtx() { return { emp: cur.emp, comp: cur.comp, pi: cur.pi, branch: orgNames(cur.emp.orgIds), audit: (action, detail) => audit(action, { targetEmployeeId: cur.id, detail }) }; }
 function bindComp() {
   drawSev();
+  $("cBtnPayslip").addEventListener("click", () => openPayslip(payCtx()));
+  $("cBtnContract").addEventListener("click", () => openContract(payCtx()));
   $("cBtnSev").addEventListener("click", () => { cur.severance.push({ year: "", month: "", day: "", amount: "" }); drawSev(); });
   $("cBtnSave").addEventListener("click", async () => {
     const v = (id) => $(id).value.trim();
@@ -374,6 +380,7 @@ function bindComp() {
       Object.assign(cur.comp, payload);
       await addCompHistory(cur.id, changes);
       audit("comp_save", { targetEmployeeId: cur.id, detail: changes.length ? `${changes.length}개 항목 변경` : "변경 없음" });
+      $("cSevEst").innerHTML = severanceLine(cur.emp, cur.comp, cur.pi.resignDate);
       toast("급여 정보를 저장했습니다");
       mountRecords($("dRecords"), cur.emp).then(() => { if ($("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
     } catch (e) { console.error(e); toast(errMsg(e), true); }
@@ -583,6 +590,7 @@ function openCert(type) {
   $("dlgCert").showModal();
 }
 export function bindCertModal() {
+  bindPayroll();
   $("certCompany").addEventListener("change", () => {
     const info = COMPANY_INFO[$("certCompany").value];
     if (info) { $("certCeo").value = info.ceo; $("certAddr").value = info.address; }

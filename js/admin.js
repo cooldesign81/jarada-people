@@ -7,7 +7,8 @@ import {
 import { $, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
 import { AUDIT_ACTIONS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
 import { today, diffDays } from "./dates.js";
-import { exportEmployees, backupAll } from "./export.js";
+import { exportEmployees, backupAll, downloadText } from "./export.js";
+import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
 
 let ctx = { reload: async () => {}, rerender: () => {} };
@@ -15,6 +16,7 @@ export function initAdmin(c) { ctx = { ...ctx, ...c }; }
 const TABS = [
   { id: "export", label: "내보내기·백업", ok: () => canManage() },
   { id: "status", label: "현황 점검",     ok: () => isHR() },
+  { id: "labor",  label: "인건비",         ok: () => isSuper() },
   { id: "audit",  label: "감사 로그",     ok: () => isHR() },
   { id: "settings", label: "설정",        ok: () => isSuper() },
   { id: "trash",  label: "휴지통",        ok: () => isHR() },
@@ -27,7 +29,7 @@ export async function renderAdmin() {
   $("adminTabs").innerHTML = tabs.map((t) => `<button class="subtab ${t.id === adm.tab ? "active" : ""}" data-t="${t.id}">${t.label}${t.id === "trash" && state.trash.length ? ` <span class="tab-badge" style="background:#767676">${state.trash.length}</span>` : ""}</button>`).join("");
   $("adminTabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { adm.tab = b.dataset.t; renderAdmin(); }));
   const body = $("adminBody");
-  ({ status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
+  ({ labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
 }
 
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------
@@ -71,6 +73,40 @@ function renderStatus(body) {
       }));
     }
     rows.sort((a, b) => a.e.name.localeCompare(b.e.name, "ko")); st.rows = rows; st.busy = false; renderStatus(body);
+  };
+}
+
+// ---------- 인건비 (대표 전용): 지점별 월 고정급 합계 ----------
+const lb = { rows: null, busy: false };
+function renderLabor(body) {
+  body.innerHTML = `<div class="card"><h2>지점별 인건비</h2>
+    <p>재직·휴직 중인 직원의 급여 정보(기본급·식대·추가급여)를 더해 지점별 월 고정 인건비를 보여줍니다. 직원 수만큼 읽기가 발생합니다. 인센티브·기타 급여·4대보험 사업주 부담분은 포함하지 않습니다. 직원은 대표 지점 기준으로 한 곳에만 집계됩니다.</p>
+    <button class="btn btn-primary" id="btnLabor">${lb.rows ? "다시 계산" : "계산하기"}</button> <span class="sub" id="laborProg"></span></div><div id="laborOut"></div>`;
+  const draw = () => {
+    if (!lb.rows) return;
+    const byOrg = new Map(); for (const r of lb.rows) { const o = byOrg.get(r.orgId) || { n: 0, total: 0, noComp: 0 }; o.n++; o.total += r.total; if (!r.total) o.noComp++; byOrg.set(r.orgId, o); }
+    const all = [...byOrg.values()].reduce((a, o) => ({ n: a.n + o.n, total: a.total + o.total }), { n: 0, total: 0 });
+    $("laborOut").innerHTML = `<div class="card flush"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>지점</th><th class="num">인원</th><th class="num">월 고정 인건비</th><th class="num">1인 평균</th><th class="num">연 환산</th></tr></thead><tbody>${[...byOrg].map(([id, o]) => `<tr><td class="strong">${esc(orgNames([id]))}</td><td class="num">${o.n}${o.noComp ? ` <span class="sub">(급여 미입력 ${o.noComp})</span>` : ""}</td><td class="num">${won(o.total)}</td><td class="num">${o.n - o.noComp ? won(o.total / (o.n - o.noComp)) : "—"}</td><td class="num">${won(o.total * 12)}</td></tr>`).join("")}</tbody><tfoot><tr><td>합계</td><td class="num">${all.n}</td><td class="num">${won(all.total)}</td><td></td><td class="num">${won(all.total * 12)}</td></tr></tfoot></table></div></div>
+      <div class="card"><button class="btn btn-secondary" id="btnLaborCsv">직원별 CSV 내려받기</button></div>`;
+    $("btnLaborCsv").onclick = () => {
+      const esc2 = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const lines = [["사번", "이름", "지점", "직책", "월 고정급"].map(esc2).join(",")].concat(lb.rows.map((r) => [r.e.id, r.e.name, orgNames([r.orgId]), r.e.position || "", r.total].map(esc2).join(",")));
+      downloadText(`자라다_인건비_${today().replaceAll("-", "")}.csv`, "\ufeff" + lines.join("\r\n"), "text/csv");
+      audit("export", { detail: "인건비 CSV" });
+    };
+  };
+  draw();
+  $("btnLabor").onclick = async () => {
+    if (lb.busy) return; lb.busy = true; $("btnLabor").disabled = true;
+    const list = state.employees.filter((e) => e.status !== "resigned"), rows = []; let i = 0;
+    for (let k = 0; k < list.length; k += 8) {
+      await Promise.all(list.slice(k, k + 8).map(async (e) => {
+        let total = 0;
+        try { const d = await getDoc(doc(db, "employees", e.id, "private", "compensation")); if (d.exists()) total = fixedItems(d.data()).total; } catch {}
+        rows.push({ e, orgId: e.orgId || e.orgIds[0], total }); $("laborProg").textContent = `${++i} / ${list.length}`;
+      }));
+    }
+    rows.sort((a, b) => a.e.id.localeCompare(b.e.id)); lb.rows = rows; lb.busy = false; audit("labor_view", { detail: `${rows.length}명` }); renderLabor(body);
   };
 }
 

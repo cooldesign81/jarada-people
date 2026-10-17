@@ -340,6 +340,51 @@
   </div>
 </dialog>
 
+<!-- 급여명세서 (대표 전용) -->
+<dialog id="dlgPayslip">
+  <div class="dlg-head"><h2>급여명세서 만들기</h2></div>
+  <div class="dlg-body">
+    <div class="field"><label for="psMonth">귀속 월</label><input class="input" id="psMonth" type="month"></div>
+    <div class="field"><label for="psPayDate">지급일</label><input class="input" id="psPayDate" type="date"></div>
+    <div class="field full"><label>지급 내역 (직원 상세의 급여 정보 기준)</label><div id="psPays"></div></div>
+    <div class="field"><label for="psExtraLabel">이번 달 추가 지급 항목</label><input class="input" id="psExtraLabel" maxlength="30" placeholder="예: 상여금"></div>
+    <div class="field"><label for="psExtra">금액</label><input class="input" id="psExtra" type="number" min="0"></div>
+    <div class="field full"><label>공제 내역 (직접 입력 — 자동 계산하지 않습니다)</label></div>
+    <div class="field"><label for="psPension">국민연금</label><input class="input" id="psPension" type="number" min="0"></div>
+    <div class="field"><label for="psHealth">건강보험</label><input class="input" id="psHealth" type="number" min="0"></div>
+    <div class="field"><label for="psCare">장기요양보험</label><input class="input" id="psCare" type="number" min="0"></div>
+    <div class="field"><label for="psEmp">고용보험</label><input class="input" id="psEmp" type="number" min="0"></div>
+    <div class="field"><label for="psTax">소득세</label><input class="input" id="psTax" type="number" min="0"></div>
+    <div class="field"><label for="psLocal">지방소득세</label><input class="input" id="psLocal" type="number" min="0"></div>
+    <div class="field"><label for="psOtherDed">기타 공제</label><input class="input" id="psOtherDed" type="number" min="0"></div>
+    <div class="field"><label for="psCompany">회사명 (하단 표시)</label><select id="psCompany"><option value="">(표시 안 함)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
+    <div class="msg error dlg-err" id="psErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnPsCancel">취소</button><button type="button" class="btn btn-primary" id="btnPsGo">인쇄용으로 열기</button></div>
+</dialog>
+
+<!-- 근로계약서 초안 (대표 전용) -->
+<dialog id="dlgContract">
+  <div class="dlg-head"><h2>근로계약서 초안</h2></div>
+  <div class="dlg-body">
+    <div class="field"><label for="ctStart">계약 시작일</label><input class="input" id="ctStart" type="date"></div>
+    <div class="field"><label for="ctEnd">계약 종료일 (없으면 비움)</label><input class="input" id="ctEnd" type="date"></div>
+    <div class="field"><label for="ctProb">수습 종료일 (있으면)</label><input class="input" id="ctProb" type="date"></div>
+    <div class="field"><label for="ctSign">계약 체결일</label><input class="input" id="ctSign" type="date"></div>
+    <div class="field full"><label for="ctDuties">담당 업무</label><input class="input" id="ctDuties" maxlength="100"></div>
+    <div class="field"><label for="ctWorkStart">근무 시작 시각</label><input class="input" id="ctWorkStart" value="09:00"></div>
+    <div class="field"><label for="ctWorkEnd">근무 종료 시각</label><input class="input" id="ctWorkEnd" value="18:00"></div>
+    <div class="field"><label for="ctBreak">휴게시간 (분)</label><input class="input" id="ctBreak" type="number" value="60"></div>
+    <div class="field"><label for="ctWorkDays">근무일</label><input class="input" id="ctWorkDays" value="주 5일 (월~금)"></div>
+    <div class="field"><label for="ctHoliday">주휴일</label><input class="input" id="ctHoliday" value="일요일"></div>
+    <div class="field"><label for="ctPayDay">임금 지급일</label><input class="input" id="ctPayDay" value="매월 25일"></div>
+    <div class="field"><label for="ctPayMethod">지급 방법</label><input class="input" id="ctPayMethod" value="계좌이체"></div>
+    <div class="field"><label for="ctCompany">사업주(회사)</label><select id="ctCompany"><option value="">(직접 기재)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
+    <div class="field full"><label for="ctExtra">특약·기타 사항</label><textarea id="ctExtra" rows="3" maxlength="1000"></textarea></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnCtCancel">취소</button><button type="button" class="btn btn-primary" id="btnCtGo">인쇄용으로 열기</button></div>
+</dialog>
+
 <!-- 직원 일괄 등록 -->
 <dialog id="dlgBulk" class="wide">
   <div class="dlg-head"><h2>직원 일괄 등록</h2><span class="id" id="bulkLimit">한 번에 최대 500명</span></div>
