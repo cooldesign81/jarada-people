@@ -4,8 +4,8 @@ import { ref, listAll } from "https://www.gstatic.com/firebasejs/11.0.2/firebase
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, orderBy, limit, serverTimestamp, deleteField
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
-import { AUDIT_ACTIONS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
+import { $, state, can, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
+import { AUDIT_ACTIONS, PERMS, PERM_LEVELS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
 import { today, diffDays } from "./dates.js";
 import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
@@ -16,10 +16,11 @@ export function initAdmin(c) { ctx = { ...ctx, ...c }; }
 const TABS = [
   { id: "export", label: "내보내기·백업", ok: () => canManage() },
   { id: "status", label: "현황 점검",     ok: () => isHR() },
-  { id: "labor",  label: "인건비",         ok: () => isSuper() },
-  { id: "audit",  label: "감사 로그",     ok: () => isHR() },
+  { id: "labor",  label: "인건비",         ok: () => can("comp") },
+  { id: "audit",  label: "감사 로그",     ok: () => can("audit") },
+  { id: "perms",  label: "권한 설정",      ok: () => isSuper() },
   { id: "settings", label: "설정",        ok: () => isSuper() },
-  { id: "trash",  label: "휴지통",        ok: () => isHR() },
+  { id: "trash",  label: "휴지통",        ok: () => can("trash") },
 ];
 const adm = { tab: "" };
 
@@ -29,7 +30,7 @@ export async function renderAdmin() {
   $("adminTabs").innerHTML = tabs.map((t) => `<button class="subtab ${t.id === adm.tab ? "active" : ""}" data-t="${t.id}">${t.label}${t.id === "trash" && state.trash.length ? ` <span class="tab-badge" style="background:#767676">${state.trash.length}</span>` : ""}</button>`).join("");
   $("adminTabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { adm.tab = b.dataset.t; renderAdmin(); }));
   const body = $("adminBody");
-  ({ labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
+  ({ perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
 }
 
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------
@@ -44,7 +45,7 @@ function renderStatus(body) {
   const docs = [...PUBLIC_DOCS, ...SECRET_DOCS];
   body.innerHTML = `<div class="card"><h2>서류·자격 점검</h2>
     <p>재직 중인 직원의 필수 서류 제출 여부와 자격증 만료일을 한 번에 확인합니다. 직원 수만큼 읽기가 발생하므로 필요할 때만 실행하세요. 필수 서류는 ‘설정’ 탭에서 바꿉니다.</p>
-    <p class="sub">필수 서류: ${req.map((k) => esc(docs.find((d) => d.key === k)?.label || k)).join(", ") || "없음"}${isSuper() ? "" : " · 비공개서류는 최고관리자만 확인할 수 있어 제외됩니다."}</p>
+    <p class="sub">필수 서류: ${req.map((k) => esc(docs.find((d) => d.key === k)?.label || k)).join(", ") || "없음"}${can("secDocs") ? "" : " · 비공개서류는 열람 권한이 없어 제외됩니다."}</p>
     <button class="btn btn-primary" id="btnScan">${st.rows ? "다시 점검" : "점검 시작"}</button> <span class="sub" id="scanProg"></span></div>
     <div id="scanOut"></div>`;
   const out = $("scanOut");
@@ -64,7 +65,7 @@ function renderStatus(body) {
     };
     for (let k = 0; k < list.length; k += 5) {
       await Promise.all(list.slice(k, k + 5).map(async (e) => {
-        const [pub, sec, certs] = await Promise.all([scanDocs(e, "pub"), isSuper() ? scanDocs(e, "sec") : Promise.resolve(null), certsOf(e)]);
+        const [pub, sec, certs] = await Promise.all([scanDocs(e, "pub"), can("secDocs") ? scanDocs(e, "sec") : Promise.resolve(null), certsOf(e)]);
         const missing = req.filter((key) => {
           const isPub = PUBLIC_DOCS.some((d) => d.key === key); const got = isPub ? pub : sec;
           if (!got) return false; return !got.has(key);
@@ -117,7 +118,7 @@ function renderExport(body) {
       <p>엑셀에서 바로 열립니다. 이름·이메일·소속 지점·권한·상태·직책·전번·입사일·생년월일은 항상 포함됩니다. 주민등록번호는 내보내지 않습니다.</p>
       <div class="chk-group" style="margin-bottom:12px">
         ${isHR() ? `<label class="chk"><input type="checkbox" id="xpPersonal"> 개인정보 포함 (주소·계좌·보호자·날짜)</label>` : ""}
-        ${isSuper() ? `<label class="chk"><input type="checkbox" id="xpComp"> 급여 포함</label>` : ""}
+        ${can("comp") ? `<label class="chk"><input type="checkbox" id="xpComp"> 급여 포함</label>` : ""}
       </div>
       <div class="row-actions"><button class="btn btn-primary" id="btnXp">내보내기 (${state.employees.length}명)</button><span class="msg" id="xpMsg" style="margin:0"></span></div></div>
     ${isSuper() ? `<div class="card"><h2>전체 백업 (JSON)</h2>
@@ -161,6 +162,40 @@ async function renderAudit(body) {
   bind("auAction", "action"); bind("auFrom", "from"); bind("auTo", "to");
   $("auQ").addEventListener("change", (e) => { au.q = e.target.value.trim(); renderAudit(body); });
   $("auReload").onclick = () => { au.loaded = false; renderAudit(body); };
+}
+
+// ---------- 권한 설정 (최고관리자 전용): 등급별로 기능을 켜고 끈다 ----------
+function renderPerms(body) {
+  const cur = (p) => (Array.isArray(state.perms?.[p.key]) ? state.perms[p.key] : p.def);
+  body.innerHTML = `<div class="card"><h2>등급별 권한 설정</h2>
+    <p>체크한 등급이 해당 기능을 쓸 수 있습니다. <b>최고관리자는 항상 모든 권한</b>을 가지며 바꿀 수 없습니다. 대표이사는 <b>전체 지점</b>, 원장·부원장·실장·팀장은 <b>소속 지점</b>에 대해서만 적용됩니다. 회색 ―는 그 등급에는 줄 수 없는 항목입니다.</p>
+    <div class="tbl-wrap"><table class="tbl perm-tbl"><thead><tr><th>기능</th><th class="c">최고관리자</th>${PERM_LEVELS.map(([, n]) => `<th class="c">${n}</th>`).join("")}</tr></thead><tbody>
+    ${PERMS.map((p) => `<tr><td><b>${esc(p.label)}</b><div class="sub">${esc(p.desc)}</div></td><td class="c">✔</td>${PERM_LEVELS.map(([k]) => p.levels.includes(k)
+      ? `<td class="c"><input type="checkbox" data-perm="${p.key}" value="${k}" ${cur(p).includes(k) ? "checked" : ""} aria-label="${esc(p.label)} — ${k}"></td>` : `<td class="c sub">―</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>
+    <div class="notice" style="margin-top:12px">급여·주민번호 뒷자리·비공개서류를 다른 등급에 열어 주면 그 사람이 개인정보를 볼 수 있게 됩니다. 꼭 필요한 경우에만 켜세요. 변경 내용은 감사 로그에 남고, 저장하면 보안 규칙에도 바로 적용됩니다.</div>
+    <div class="row-actions" style="margin-top:12px"><button class="btn btn-primary" id="btnPermSave">저장</button> <button class="btn btn-secondary" id="btnPermReset">기본값으로 되돌리기</button></div></div>
+    <div class="card"><h2>설정할 수 없는 고정 규칙</h2><ul class="plain">
+      <li>직원 <b>완전 삭제</b>, 권한 문서(roles) 관리, 설정·권한 설정·전체 백업은 최고관리자만 합니다.</li>
+      <li>직원 본인은 자기 정보·휴가·교육 기록을 쓸 수 있고, 다른 사원의 정보는 볼 수 없습니다.</li>
+      <li>자기 휴가는 본인이 승인할 수 없습니다 (최고관리자 제외).</li>
+      <li>사원은 어떤 관리 기능도 받을 수 없고, 최고관리자 등급은 최고관리자만 줄 수 있습니다.</li></ul></div>`;
+  const read = () => Object.fromEntries(PERMS.map((p) => [p.key, [...body.querySelectorAll(`input[data-perm="${p.key}"]:checked`)].map((c) => c.value)]));
+  $("btnPermSave").onclick = async () => {
+    const data = read();
+    const risky = ["comp", "rrnBack", "secDocs"].filter((k) => data[k].length && !(state.perms?.[k] || []).length);
+    if (risky.length && !confirm(`${risky.map((k) => PERMS.find((p) => p.key === k).label).join(", ")} 권한을 대표이사에게 엽니다. 개인정보를 볼 수 있게 됩니다. 계속할까요?`)) return;
+    try {
+      await setDoc(doc(db, "settings", "permissions"), { ...data, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.email || "" });
+      state.perms = data; audit("perms_change", { detail: PERMS.map((p) => `${p.key}:${data[p.key].join("/") || "-"}`).join(" ") });
+      toast("저장했습니다"); ctx.rerender();
+    } catch (e) { console.error(e); toast(errMsg(e), true); }
+  };
+  $("btnPermReset").onclick = async () => {
+    if (!confirm("모든 항목을 기본값으로 되돌립니다. 계속할까요?")) return;
+    try { await deleteDoc(doc(db, "settings", "permissions")); state.perms = {}; audit("perms_change", { detail: "기본값으로 되돌림" }); toast("기본값으로 되돌렸습니다"); renderPerms(body); }
+    catch (e) { console.error(e); toast(errMsg(e), true); }
+  };
 }
 
 // ---------- 설정 ----------

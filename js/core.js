@@ -1,5 +1,6 @@
 // 공용 상태·유틸 (app.js / detail.js 가 함께 사용)
 import { db, auth } from "./firebase.js";
+import { PERMS } from "./schema.js";
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
@@ -14,7 +15,7 @@ export const ORG_TYPES = { hq: "본사", branch: "지점" };
 export const state = {
   user: null, role: null,
   orgs: [], employees: [], me: null,
-  leaves: [], events: [], settings: {}, trash: [],
+  leaves: [], events: [], settings: {}, trash: [], perms: {},
   selfMode: false,            // 등록 링크(익명 로그인)로 들어온 경우
   editing: null, editingOrg: null,
   noRoleReason: "",
@@ -25,6 +26,13 @@ export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level
 export const canManage = () => isHR() || isAdmin();
 export const isMgr     = () => ["admin", "principal", "manager", "lead"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
 export const canApprove = () => isHR() || isMgr();
+// 관리 → 권한 설정에서 정한 기능 권한 (최고관리자는 항상 true). 규칙(firestore.rules)이 실제로 막고, 이 값은 화면 표시용
+export function can(cap) {
+  if (isSuper()) return true;
+  const def = PERMS.find((p) => p.key === cap); if (!def) return false;
+  const lv = state.role?.level;
+  return def.levels.includes(lv) && (Array.isArray(state.perms?.[cap]) ? state.perms[cap] : def.def).includes(lv);
+}
 
 export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>

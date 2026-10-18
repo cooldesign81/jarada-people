@@ -7,7 +7,7 @@ import {
   ref, uploadBytes, listAll, getMetadata, getDownloadURL, deleteObject
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 import {
-  $, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, orgName,
+  $, state, can, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, orgName,
   statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles, audit, tsMillis, revokeLinkRoles
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
@@ -31,11 +31,11 @@ const cur = {
 // ---------- 권한 ----------
 const isOwnPage = () => !!cur.emp && state.role?.employeeId === cur.id;
 const mgrView   = () => canManage() && !state.selfMode;      // 관리 버튼 표시
-const canSeeBack = () => isSuper();
+const canSeeBack = () => can("rrnBack");
 const backOff = () => state.settings?.rrnBackEnabled === false;     // 설정에서 뒷자리 수집을 껐는지
 const canSeeFront = () => isOwnPage() || canManage();
-const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : isSuper());
-const canUploadKey = (key) => isSuper() || isOwnPage() || (PUB_KEYS.includes(key) && (isHR() || isAdmin()));
+const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : can("secDocs"));
+const canUploadKey = (key) => isOwnPage() || (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : can("secDocs"));
 
 // ---------- 유틸 ----------
 const get = async (...path) => {
@@ -88,7 +88,7 @@ export async function renderDetail(empId) {
     get(...priv("personalInfo")), get(...priv("flags")),
     canSeeFront() ? get(...priv("residentFront")) : null,
     canSeeBack() ? get(...priv("residentBack")) : null,
-    isSuper() ? get(...priv("compensation")) : null,
+    can("comp") ? get(...priv("compensation")) : null,
   ]);
   if (token !== cur.token) return;
   Object.assign(cur, {
@@ -100,7 +100,7 @@ export async function renderDetail(empId) {
   const seen = [back && "주민번호 뒷자리", comp && "급여"].filter(Boolean);
   if (seen.length && !isOwnPage()) audit("view_sensitive", { targetEmployeeId: empId, detail: seen.join(", ") });
   if (isHR() || isAdmin()) {
-    const [pub, sec] = await Promise.all([listFolder("pub"), isSuper() ? listFolder("sec") : []]);
+    const [pub, sec] = await Promise.all([listFolder("pub"), can("secDocs") ? listFolder("sec") : []]);
     if (token !== cur.token) return;
     cur.files = { pub, sec }; cur.filesLoaded = true;
     drawFiles();
@@ -119,8 +119,8 @@ function draw() {
         <div class="name-row"><div class="avatar avatar-lg" id="dAvatar">${esc((e.name || "?").slice(0, 1))}</div>
           <div><h2 class="emp-name">${esc(e.name)}</h2>${canPhoto() ? `<div class="photo-actions"><button class="btn btn-secondary btn-sm" id="dBtnPhoto" type="button">사진 변경</button> <button class="btn btn-secondary btn-sm hidden" id="dBtnPhotoDel" type="button">사진 삭제</button><input type="file" id="dPhotoInput" accept="image/*" class="hidden"></div>` : ""}</div></div>
         ${mgr ? `<div class="row-actions">
-          <button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button>
-          ${isHR() && !isOwnPage() && !(cur.emp.level === "super" && !isSuper()) ? `<button class="btn btn-danger" id="dBtnTrash">삭제</button>` : ""}
+          ${can("empWrite") ? `<button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button>` : ""}
+          ${can("trash") && can("empWrite") && isHR() && !isOwnPage() && !(cur.emp.level === "super" && !isSuper()) ? `<button class="btn btn-danger" id="dBtnTrash">삭제</button>` : ""}
           <button class="btn btn-secondary" id="dBtnLink">등록 링크 복사</button>
           <button class="btn btn-secondary" id="dBtnCert" data-type="current">재직증명서 발급</button>
           <button class="btn btn-secondary" id="dBtnCareer" data-type="career">경력증명서 발급</button>
@@ -160,12 +160,12 @@ function draw() {
       <button class="btn btn-primary" id="dBtnPi" style="margin-top:12px">개인정보 저장</button>
     </div>
 
-    ${isSuper() ? compHtml() : ""}
+    ${can("comp") ? compHtml() : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
     <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
     <div class="card"><h3 class="sec-title">비공개서류 (주민등록등본·통장사본·사업자등록확인서·고용보험 관련서류)</h3><div id="dSec"></div></div>
-    ${isSuper() ? `
+    ${can("secDocs") ? `
     <div class="card"><h3 class="sec-title">인사 평가 파일</h3>
       <div class="dropzone" id="dEvalZone"><div class="dz-title">📎 여러 파일을 한번에 끌어다 놓거나 클릭해서 선택</div><div class="sub">(여러 개 선택 가능)</div>
         <input type="file" id="dEvalInput" multiple hidden></div>
@@ -176,8 +176,8 @@ function draw() {
   renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
   rrnStatus();
   bindHead(); bindRrn(); bindPi();
-  if (isSuper()) bindComp();
-  if (isSuper()) bindEval();
+  if (can("comp")) bindComp();
+  if (can("secDocs")) bindEval();
   drawFiles();
   if (!state.selfMode && $("dRecords")) {
     const tk = cur.token;
@@ -478,7 +478,7 @@ function drawFiles() {
     slot.querySelector("[data-dl]")?.addEventListener("click", (e) => download(e.currentTarget.dataset.dl, e.currentTarget.dataset.name));
     slot.querySelector("[data-del-key]")?.addEventListener("click", () => deleteFixed(item));
   }
-  if (isSuper()) { drawEval(); drawEtc(); }
+  if (can("secDocs")) { drawEval(); drawEtc(); }
 }
 
 async function uploadFixed(item, file) {

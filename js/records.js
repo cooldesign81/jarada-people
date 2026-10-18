@@ -3,7 +3,7 @@ import { db, auth } from "./firebase.js";
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, isSuper, isHR, isAdmin, isMgr, esc, toast, errMsg, orgNames, audit, tsMillis } from "./core.js";
+import { $, state, can as cap, isSuper, isHR, isAdmin, isMgr, esc, toast, errMsg, orgNames, audit, tsMillis } from "./core.js";
 import { isYmd, today, diffDays, fmtKo } from "./dates.js";
 
 const isEdu = () => ["super", "hr", "edu"].includes(state.role?.level);
@@ -63,7 +63,7 @@ export async function mountRecords(root, emp) {
   const revQ = isHR() ? null : (isMgr() ? query(col("reviews"), where("visibility", "in", ["shared", "manager"])) : query(col("reviews"), where("visibility", "==", "shared")));
   const [assignments, certs, enrollments, reviews, certIssues, compHistory] = await Promise.all([
     load("assignments"), load("certs"), load("enrollments"), load("reviews", revQ),
-    (isHR() || isAdmin()) ? load("certIssues") : [], isSuper() ? load("compHistory") : [],
+    (isHR() || isAdmin()) ? load("certIssues") : [], cap("comp") ? load("compHistory") : [],
   ]);
   if (token !== S.token) return;
   S.data = { assignments: assignments.sort(byDate("date")), certs: certs.sort(byDate("expiresDate")), enrollments: enrollments.sort(byDate("date")),

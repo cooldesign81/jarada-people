@@ -401,3 +401,9 @@ th.sortable:hover{ color:var(--brand-orange); }
 .name-row{ display:flex; gap:14px; align-items:center; }
 .avatar-lg{ width:64px; height:64px; font-size:26px; }
 .photo-actions{ margin-top:6px; display:flex; gap:6px; }
+
+/* 권한 설정 표 */
+.perm-tbl th.c, .perm-tbl td.c{ text-align:center; white-space:nowrap; }
+.perm-tbl td:first-child{ min-width:240px; white-space:normal; }
+.perm-tbl input[type=checkbox]{ width:18px; height:18px; }
+ul.plain{ margin:0; padding-left:18px; line-height:1.8; }

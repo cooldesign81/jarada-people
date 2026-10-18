@@ -76,6 +76,16 @@ const S = (uid) => env.authenticatedContext(uid, CL[uid]).storage();
   await t("photo: admin(banpo) reads", true, () => adm.ref(PH).getDownloadURL());
   await t("photo: other staff cannot read", false, () => oth.ref(PH).getDownloadURL());
   await t("photo: self cannot read other's photo", false, async () => { await env.withSecurityRulesDisabled((c) => c.storage().ref("hr/emp_0005/pub/photo__0__profile.jpg").put(new Uint8Array([1]), { contentType: "image/jpeg" })); return stf.ref("hr/emp_0005/pub/photo__0__profile.jpg").getDownloadURL(); });
+
+  // 비공개서류: 대표이사에게는 권한 설정으로 열어 준 경우에만 (sec 클레임 = settings/permissions 의 secDocs 에 hr 포함)
+  const hrSec = env.authenticatedContext("u_hr", { lvl: "hr", org: "hq", eid: "emp_h", sec: true }).storage();
+  await t("secDocs off: hr cannot list sec", false, () => hr.ref("hr/emp_0003/sec").listAll());
+  await t("secDocs off: hr cannot upload sec", false, () => put(hr, "hr/emp_0003/sec/eval__9__e.xlsx"));
+  await t("secDocs on: hr lists sec", true, () => hrSec.ref("hr/emp_0003/sec").listAll());
+  await t("secDocs on: hr uploads eval", true, () => put(hrSec, "hr/emp_0003/sec/eval__9__e.xlsx"));
+  await t("secDocs on: hr reads sec file", true, () => hrSec.ref("hr/emp_0003/sec/eval__9__e.xlsx").getDownloadURL());
+  await t("secDocs on: hr deletes sec file", true, () => hrSec.ref("hr/emp_0003/sec/eval__9__e.xlsx").delete());
+  await t("secDocs on: branch admin still denied", false, () => adm.ref("hr/emp_0003/sec").listAll());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

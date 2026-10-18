@@ -22,6 +22,12 @@ service firebase.storage {
     function role() { return firestore.get(rolePath()).data; }
     function isSuper() { return roleExists() && role().level == 'super'; }
     function isHR() { return roleExists() && role().level in ['super', 'hr']; }
+    // 관리 → 권한 설정(settings/permissions)에서 대표이사에게 비공개서류를 허용했는지 (최고관리자는 항상 허용)
+    function secAllowed() {
+      return isSuper() || (roleExists() && role().level == 'hr'
+        && firestore.exists(/databases/(default)/documents/settings/permissions)
+        && 'hr' in firestore.get(/databases/(default)/documents/settings/permissions).data.get('secDocs', []));
+    }
     function isAdmin() { return roleExists() && role().level in ['admin', 'principal']; }
     // 등록 링크 권한은 직원 문서의 링크가 유효할 때만 본인으로 인정 (firestore.rules 와 같은 기준)
     function selfTokenValid(empId) {
@@ -51,9 +57,9 @@ service firebase.storage {
     }
 
     match /hr/{empId}/sec/{file} {
-      allow read, delete: if isSuper();
+      allow read, delete: if secAllowed();
       allow create: if small() && (
-        (isSuper() && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc|eval|etc)__[0-9]+__.*'))
+        (secAllowed() && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc|eval|etc)__[0-9]+__.*'))
         || (isSelf(empId) && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc)__[0-9]+__.*'))
       );
     }

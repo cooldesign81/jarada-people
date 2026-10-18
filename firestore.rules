@@ -80,6 +80,22 @@ service cloud.firestore {
       return isOrgMgr() && me().orgId == orgId;
     }
 
+    // ---------- 등급별 권한 설정 (관리 → 권한 설정, settings/permissions) ----------
+    // 문서가 없거나 항목이 없으면 기본값(def)을 쓴다. 최고관리자는 항상 허용.
+    // capAll: 전체 지점을 다루는 대표이사(hr) / capBranch: 소속 지점만 다루는 등급(levels 안에서 설정에 든 경우)
+    function permPath() {
+      return /databases/$(database)/documents/settings/permissions;
+    }
+    function permList(cap, def) {
+      return exists(permPath()) ? get(permPath()).data.get(cap, def) : def;
+    }
+    function capAll(cap, def) {
+      return isSuper() || (hasRole() && me().level == 'hr' && 'hr' in permList(cap, def));
+    }
+    function capBranch(cap, def, levels) {
+      return hasRole() && me().level in levels && me().level in permList(cap, def);
+    }
+
     function isPrincipalOf(orgId) {
       return isOrgAdmin() && me().orgId == orgId;
     }
@@ -217,6 +233,10 @@ service cloud.firestore {
     // 이름 / 사번 / 소속 / 직군 / 직급 / 입사일 / 재직상태 / 사진
     // 민감정보는 절대 이 문서에 넣지 않는다.
     match /employees/{empId} {
+      // 휴지통 표시(deleted 등)를 바꾸는 수정인가
+      function trashFieldsChanged() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasAny(['deleted', 'deletedAt', 'deletedBy']);
+      }
       // 읽기: 본사 / 소속 지점 관리자 / 본인(권한 연결 후, 또는 이메일 일치)
       allow read: if signedIn() && (
         isHR()
@@ -227,15 +247,18 @@ service cloud.firestore {
 
       // 대표: 모든 등급 부여 가능 / 본사 인사: 최고관리자 등급만 제외
       allow create, update: if isSuper() && validEmployee();
-      allow create: if isHR() && validEmployee() && request.resource.data.level != 'super';
-      allow update: if isHR() && validEmployee()
-        && resource.data.level != 'super' && request.resource.data.level != 'super';
+      // (관리 → 권한 설정에서 대표이사·원장·부원장의 ‘직원 등록·수정’, 대표이사의 ‘삭제’를 끌 수 있다)
+      allow create: if capAll('empWrite', ['hr', 'principal', 'admin']) && validEmployee() && request.resource.data.level != 'super';
+      allow update: if capAll('empWrite', ['hr', 'principal', 'admin']) && validEmployee()
+        && resource.data.level != 'super' && request.resource.data.level != 'super'
+        && (!trashFieldsChanged() || capAll('trash', ['hr']));
 
       // 지점 관리자: 소속 지점 안에서만, 본사 등급은 생성/수정 불가, 지점 목록은 바꿀 수 없음
-      allow create: if isOrgAdmin() && validEmployee()
+      allow create: if capBranch('empWrite', ['hr', 'principal', 'admin'], ['principal', 'admin']) && validEmployee()
         && request.resource.data.orgIds == [me().orgId]
         && orgLevel(request.resource.data.level);
-      allow update: if isOrgAdmin() && validEmployee()
+      allow update: if capBranch('empWrite', ['hr', 'principal', 'admin'], ['principal', 'admin']) && validEmployee()
+        && !trashFieldsChanged()
         && me().orgId in orgsOf(resource.data)
         && request.resource.data.orgIds == orgsOf(resource.data)
         && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
@@ -261,14 +284,14 @@ service cloud.firestore {
         function validRrnBack()  { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{7}$'); }
 
         allow read: if (docId in ['personalInfo', 'flags', 'residentFront'] && ownerOrManager())
-                    || (docId == 'residentBack' && isSuper())
-                    || (docId == 'compensation' && isSuper());
+                    || (docId == 'residentBack' && capAll('rrnBack', []))
+                    || (docId == 'compensation' && capAll('comp', []));
 
         allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
                               || (docId == 'flags' && ownerOrManager())
                               || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
-                              || (docId == 'residentBack' && (isSuper() || isSelf(empId)) && validRrnBack() && rrnBackAllowed())
-                              || (docId == 'compensation' && isSuper());
+                              || (docId == 'residentBack' && (capAll('rrnBack', []) || isSelf(empId)) && validRrnBack() && rrnBackAllowed())
+                              || (docId == 'compensation' && capAll('comp', []));
 
         // 삭제는 대표만 (직원 완전 삭제 시 정리용)
         allow delete: if isSuper();
@@ -377,7 +400,7 @@ service cloud.firestore {
 
       // ---------- 급여 변경 이력 (대표 전용) ----------
       match /compHistory/{historyId} {
-        allow read, create: if isSuper();
+        allow read, create: if capAll('comp', []);
         allow update: if false;
         allow delete: if isSuper();
       }
@@ -454,7 +477,8 @@ service cloud.firestore {
                     && validLeave();
 
       // 승인·반려·취소 처리
-      allow update: if (isHR() || leaveMgr(resource.data))
+      allow update: if (capAll('leaveApprove', ['hr', 'principal', 'admin', 'manager', 'lead'])
+                        || (leaveMgr(resource.data) && me().level in permList('leaveApprove', ['hr', 'principal', 'admin', 'manager', 'lead'])))
                     && (resource.data.employeeId != me().get('employeeId', '') || isSuper())
                     && request.resource.data.status in ['submitted', 'approved', 'rejected', 'cancelled']
                     && request.resource.data.days is number && request.resource.data.days >= 0 && request.resource.data.days <= 365
@@ -504,12 +528,12 @@ service cloud.firestore {
           && d.get('pinned', false) is bool;
       }
       allow read: if hasRole() && (isHR() || resource.data.scope == 'all' || me().orgId in resource.data.orgIds);
-      allow create: if (isHR() || (isOrgAdmin() && request.resource.data.scope == 'org' && request.resource.data.orgIds == [me().orgId]))
+      allow create: if (capAll('noticeWrite', ['hr', 'principal', 'admin']) || (capBranch('noticeWrite', ['hr', 'principal', 'admin'], ['principal', 'admin']) && request.resource.data.scope == 'org' && request.resource.data.orgIds == [me().orgId]))
                     && validNotice() && request.resource.data.createdBy == request.auth.uid;
-      allow update: if (isHR() || (isOrgAdmin() && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]
+      allow update: if (capAll('noticeWrite', ['hr', 'principal', 'admin']) || (capBranch('noticeWrite', ['hr', 'principal', 'admin'], ['principal', 'admin']) && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]
                                    && request.resource.data.scope == 'org' && request.resource.data.orgIds == [me().orgId]))
                     && validNotice() && request.resource.data.createdBy == resource.data.createdBy;
-      allow delete: if isHR() || (isOrgAdmin() && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]);
+      allow delete: if capAll('noticeWrite', ['hr', 'principal', 'admin']) || (capBranch('noticeWrite', ['hr', 'principal', 'admin'], ['principal', 'admin']) && resource.data.scope == 'org' && resource.data.orgIds == [me().orgId]);
     }
 
     // 사용자별 읽은 공지 목록. 본인만 쓰고, 읽음 현황은 본사 인사 / 같은 지점 관리자가 본다
@@ -532,7 +556,7 @@ service cloud.firestore {
     // ---------- 감사로그 ----------
     // 생성만 가능. 수정·삭제는 누구도 할 수 없다.
     match /auditLogs/{logId} {
-      allow read: if isHR();
+      allow read: if capAll('audit', ['hr']);
       allow create: if signedIn()
                     && request.resource.data.actorUid == request.auth.uid
                     && request.resource.data.at == request.time;
