@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>자라다 People</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#FECD3F">
+<link rel="icon" type="image/png" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 <link rel="stylesheet" href="./css/app.css">
 </head>
@@ -60,12 +64,14 @@
   <!-- 대시보드 -->
   <section id="viewDash" class="hidden">
     <div class="page-head"><h1>대시보드</h1><span class="hint" id="dashHint"></span></div>
+    <div id="dashTodo"></div>
     <div class="kpis">
       <div class="kpi accent"><div class="label">전체 직원</div><div class="value" id="kpiTotal">–</div></div>
       <div class="kpi"><div class="label">재직</div><div class="value" id="kpiActive">–</div></div>
       <div class="kpi"><div class="label">휴직</div><div class="value" id="kpiLeave">–</div></div>
       <div class="kpi"><div class="label">퇴직</div><div class="value" id="kpiResigned">–</div></div>
     </div>
+    <div id="dashCharts"></div>
     <div class="card flush">
       <div class="card-head"><h2>조직별 인원</h2></div>
       <div class="tbl-wrap"><table class="tbl" id="tblOrgStats"></table></div>
@@ -76,10 +82,28 @@
     </div>
   </section>
 
+  <!-- 달력 -->
+  <section id="viewCalendar" class="hidden">
+    <div class="page-head"><h1>달력</h1><div class="row-actions">
+      <button class="btn btn-secondary hidden" id="btnEventNew">+ 일정 추가</button>
+      <button class="btn btn-primary" id="btnCalLeave">휴가 신청</button></div></div>
+    <div class="cal-toolbar">
+      <div class="cal-nav"><button class="btn btn-secondary" id="calPrev" aria-label="이전 달">‹</button><strong id="calTitle"></strong><button class="btn btn-secondary" id="calNext" aria-label="다음 달">›</button><button class="btn btn-secondary" id="calToday">오늘</button></div>
+      <select id="calOrg" class="hidden"></select>
+      <div class="cal-filters" id="calFilters"></div>
+    </div>
+    <div class="card cal-card"><div id="calGrid"></div></div>
+    <div class="card"><h2>이번 달 일정</h2><div id="calAgenda"></div>
+      <p class="msg" style="margin-top:12px">공휴일은 참고용입니다(2026·2027년 포함). 새로 지정된 휴일은 ‘일정 추가 → 휴일’로 등록하세요. 생일은 양력 기준이며 직원 정보의 생년월일을 사용합니다.</p></div>
+  </section>
+
+  <!-- 휴가 -->
+  <section id="viewLeaves" class="hidden"><div class="page-head"><h1>휴가·연차</h1></div><div id="leavesRoot"></div></section>
+
   <!-- 직원 -->
   <section id="viewEmployees" class="hidden">
     <div class="page-head"><h1>직원</h1>
-      <div class="row-actions"><button class="btn btn-secondary" id="btnBulk">일괄 등록</button><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
+      <div class="row-actions"><button class="btn btn-secondary" id="btnExportList">내보내기</button><button class="btn btn-secondary" id="btnBulk">일괄 등록</button><button class="btn btn-primary" id="btnAddEmp">+ 직원 등록</button></div>
     </div>
     <div class="toolbar">
       <input class="input" id="fltQ" type="search" placeholder="이름, 이메일, 사번, 직책 검색" autocomplete="off">
@@ -90,16 +114,31 @@
         <option value="leave">휴직</option>
         <option value="resigned">퇴직</option>
       </select>
-      <span class="hint" id="empCount" style="font-size:13px;color:var(--text-sub)"></span>
+      <span class="hint" id="empCount" style="font-size:13px;color:var(--text-sub)"></span><button class="btn btn-secondary btn-sm" id="btnListCols">표시 항목</button>
     </div>
+    <div class="bulk-bar hidden" id="empBulkBar"><strong id="bulkCount"></strong>
+      <select id="bulkStatus"><option value="active">재직</option><option value="leave">휴직</option><option value="resigned">퇴직</option></select><button class="btn btn-secondary btn-sm" id="bulkStatusGo">상태 변경</button>
+      <select id="bulkOrg"></select><button class="btn btn-secondary btn-sm" id="bulkOrgGo">지점 추가</button><button class="btn btn-secondary btn-sm" id="bulkOrgMove">이 지점으로 이동</button>
+      <button class="btn btn-secondary btn-sm" id="bulkClear">선택 해제</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblEmp"></table></div></div>
+    <div class="pager" id="empPager"></div>
   </section>
 
   <!-- 조직 -->
   <section id="viewOrgs" class="hidden">
     <div class="page-head"><h1>조직</h1><button class="btn btn-primary hidden" id="btnAddOrg">+ 조직 추가</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblOrgs"></table></div></div>
+    <div class="card"><h2>조직도</h2><div id="orgChart"></div></div>
   </section>
+
+  <!-- 공지 -->
+  <section id="viewNotices" class="hidden">
+    <div class="page-head"><h1>공지사항</h1><button class="btn btn-primary hidden" id="btnNoticeNew">+ 공지 작성</button></div>
+    <div id="noticeBody"></div>
+  </section>
+
+  <!-- 관리 -->
+  <section id="viewAdmin" class="hidden"><div class="page-head"><h1>관리</h1></div><div class="subtabs" id="adminTabs"></div><div id="adminBody"></div></section>
 
   <!-- 직원 상세 (내 정보 포함) -->
   <section id="viewDetail" class="hidden"><div id="detailRoot"></div></section>
@@ -150,6 +189,21 @@
       <div class="field">
         <label for="fJoined">입사일</label>
         <input class="input" id="fJoined" type="date">
+        <span class="help">연차 계산 기준일입니다</span>
+      </div>
+      <div class="field">
+        <label for="fProbation">수습 종료일</label>
+        <input class="input" id="fProbation" type="date">
+      </div>
+      <div class="field">
+        <label for="fContractEnd">계약 만료일</label>
+        <input class="input" id="fContractEnd" type="date">
+        <span class="help">대시보드에서 만료 전에 알려 드립니다</span>
+      </div>
+      <div class="field">
+        <label for="fBirth">생년월일</label>
+        <input class="input" id="fBirth" type="date">
+        <span class="help">달력에 생일로 표시됩니다 (양력)</span>
       </div>
       <div class="field">
         <label for="fStatus">상태<span class="req">*</span></label>
@@ -167,11 +221,106 @@
       <div class="msg error dlg-err" id="empErr"></div>
     </div>
     <div class="dlg-foot">
-      <button type="button" class="btn btn-danger left hidden" id="btnEmpDelete">삭제</button>
+      <button type="button" class="btn btn-danger left hidden" id="btnEmpDelete">휴지통으로 이동</button>
       <button type="button" class="btn btn-secondary" id="btnEmpCancel">취소</button>
       <button type="submit" class="btn btn-primary" id="btnEmpSave">저장</button>
     </div>
   </form>
+</dialog>
+
+<!-- 휴가 신청 -->
+<dialog id="dlgLeave">
+  <div class="dlg-head"><h2>휴가 신청</h2></div>
+  <div class="dlg-body">
+    <div class="field full" id="lvEmpWrap"><label for="lvEmp">직원</label><select id="lvEmp"></select></div>
+    <div class="field"><label for="lvType">종류</label><select id="lvType"></select></div>
+    <div class="field"><label for="lvStart">시작일</label><input class="input" id="lvStart" type="date"></div>
+    <div class="field" id="lvEndWrap"><label for="lvEnd">종료일</label><input class="input" id="lvEnd" type="date"></div>
+    <div class="field full"><label for="lvReason">사유</label><textarea id="lvReason" maxlength="500" placeholder="선택 입력"></textarea></div>
+    <div class="field full"><div class="notice" id="lvInfo"></div></div>
+    <label class="check full hidden" id="lvApproveWrap"><input type="checkbox" id="lvApprove"> 바로 승인 처리 (관리자가 대신 등록)</label>
+    <div class="msg error dlg-err" id="lvErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnLvCancel">취소</button><button type="button" class="btn btn-primary" id="btnLvSave">신청</button></div>
+</dialog>
+
+<!-- 휴가 승인 -->
+<dialog id="dlgDecision">
+  <div class="dlg-head"><h2>휴가 처리</h2></div>
+  <div class="bulk-body"><div id="dcInfo"></div>
+    <div class="field"><label for="dcDays">인정 일수</label><input class="input" id="dcDays" type="number" min="0" max="365" step="0.5"><span class="help">주말·휴일을 뺀 일수로 자동 계산됩니다. 필요하면 고치세요.</span></div>
+    <div class="field"><label for="dcNote">처리 메모 (반려할 때는 사유 필수)</label><textarea id="dcNote" maxlength="200"></textarea></div>
+    <div class="msg error" id="dcErr"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnDcClose">닫기</button>
+    <button type="button" class="btn btn-danger hidden" id="btnDcCancelLeave">취소 처리</button>
+    <button type="button" class="btn btn-danger" id="btnDcReject">반려</button><button type="button" class="btn btn-primary" id="btnDcApprove">승인</button></div>
+</dialog>
+
+<!-- 연차 조정 -->
+<dialog id="dlgAdjust">
+  <div class="dlg-head"><h2>연차 조정</h2></div>
+  <div class="bulk-body"><p class="bulk-help" id="adInfo"></p>
+    <div class="field"><label for="adValue">조정 일수 (+ 더해 줌 / - 차감)</label><input class="input" id="adValue" type="number" step="0.5"><span class="help">포상 휴가나 이월 연차처럼 자동 계산에 없는 값을 반영합니다. 올해 잔여에 더해집니다.</span></div>
+    <div class="msg error" id="adErr"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnAdCancel">취소</button><button type="button" class="btn btn-primary" id="btnAdSave">저장</button></div>
+</dialog>
+
+<!-- 날짜 상세 -->
+<dialog id="dlgDay">
+  <div class="dlg-head"><h2 id="dayTitle"></h2></div>
+  <div class="bulk-body" id="dayList"></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnDayClose">닫기</button>
+    <button type="button" class="btn btn-secondary hidden" id="btnDayEvent">일정 추가</button><button type="button" class="btn btn-primary" id="btnDayLeave">휴가 신청</button></div>
+</dialog>
+
+<!-- 일정 추가/수정 -->
+<dialog id="dlgEvent">
+  <form onsubmit="return false">
+  <div class="dlg-head"><h2>일정</h2></div>
+  <div class="dlg-body">
+    <div class="field full"><label for="evTitle">제목<span class="req">*</span></label><input class="input" id="evTitle" maxlength="60"></div>
+    <div class="field"><label for="evKind">종류</label><select id="evKind"><option value="event">행사·일정</option><option value="training">교육</option><option value="holiday">휴일 (휴가 일수에서 제외)</option></select></div>
+    <div class="field"></div>
+    <div class="field"><label for="evStart">시작일</label><input class="input" id="evStart" type="date"></div>
+    <div class="field"><label for="evEnd">종료일</label><input class="input" id="evEnd" type="date"></div>
+    <div class="field full"><label>대상 지점</label><div class="chk-group" id="evOrgs"></div><span class="help" id="evOrgHelp"></span></div>
+    <div class="field full"><label for="evNote">메모</label><textarea id="evNote" maxlength="500"></textarea></div>
+    <div class="msg error dlg-err" id="evErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-danger left hidden" id="btnEvDelete">삭제</button>
+    <button type="button" class="btn btn-secondary" id="btnEvCancel">취소</button><button type="button" class="btn btn-primary" id="btnEvSave">저장</button></div>
+  </form>
+</dialog>
+
+<!-- 공지 작성 -->
+<dialog id="dlgNotice">
+  <form onsubmit="return false">
+  <div class="dlg-head"><h2 id="ntDlgTitle">공지 작성</h2></div>
+  <div class="dlg-body">
+    <div class="field full"><label for="ntTitle">제목<span class="req">*</span></label><input class="input" id="ntTitle" maxlength="80"></div>
+    <div class="field full"><label for="ntBody">내용<span class="req">*</span></label><textarea id="ntBody" rows="8" maxlength="5000"></textarea></div>
+    <div class="field"><label for="ntScope">대상</label><select id="ntScope"></select></div>
+    <div class="field"><label>&nbsp;</label><label class="chk"><input type="checkbox" id="ntPinned"> 상단에 고정</label></div>
+    <div class="field full" id="ntOrgWrap"><label>대상 지점</label><div class="chk-group" id="ntOrgs"></div></div>
+    <div class="msg error dlg-err" id="ntErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnNtCancel">취소</button><button type="button" class="btn btn-primary" id="btnNtSave">저장</button></div>
+  </form>
+</dialog>
+
+<!-- 목록 표시 항목 -->
+<dialog id="dlgCols">
+  <div class="dlg-head"><h2>목록에 표시할 항목</h2></div>
+  <div class="dlg-body"><div class="chk-group" id="colList"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-primary" id="btnColsDone">확인</button></div>
+</dialog>
+
+<!-- 인사 기록 추가/수정 (발령, 자격증, 교육, 면담) -->
+<dialog id="dlgRec">
+  <div class="dlg-head"><h2 id="recTitle"></h2></div>
+  <div class="dlg-body" id="recFields"></div>
+  <div class="msg error" id="recErr" style="padding:0 20px"></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnRecCancel">취소</button><button type="button" class="btn btn-primary" id="btnRecSave">저장</button></div>
 </dialog>
 
 <!-- 증명서 발급 -->
@@ -195,18 +344,64 @@
   </div>
 </dialog>
 
+<!-- 급여명세서 (대표 전용) -->
+<dialog id="dlgPayslip">
+  <div class="dlg-head"><h2>급여명세서 만들기</h2></div>
+  <div class="dlg-body">
+    <div class="field"><label for="psMonth">귀속 월</label><input class="input" id="psMonth" type="month"></div>
+    <div class="field"><label for="psPayDate">지급일</label><input class="input" id="psPayDate" type="date"></div>
+    <div class="field full"><label>지급 내역 (직원 상세의 급여 정보 기준)</label><div id="psPays"></div></div>
+    <div class="field"><label for="psExtraLabel">이번 달 추가 지급 항목</label><input class="input" id="psExtraLabel" maxlength="30" placeholder="예: 상여금"></div>
+    <div class="field"><label for="psExtra">금액</label><input class="input" id="psExtra" type="number" min="0"></div>
+    <div class="field full"><label>공제 내역 (직접 입력 — 자동 계산하지 않습니다)</label></div>
+    <div class="field"><label for="psPension">국민연금</label><input class="input" id="psPension" type="number" min="0"></div>
+    <div class="field"><label for="psHealth">건강보험</label><input class="input" id="psHealth" type="number" min="0"></div>
+    <div class="field"><label for="psCare">장기요양보험</label><input class="input" id="psCare" type="number" min="0"></div>
+    <div class="field"><label for="psEmp">고용보험</label><input class="input" id="psEmp" type="number" min="0"></div>
+    <div class="field"><label for="psTax">소득세</label><input class="input" id="psTax" type="number" min="0"></div>
+    <div class="field"><label for="psLocal">지방소득세</label><input class="input" id="psLocal" type="number" min="0"></div>
+    <div class="field"><label for="psOtherDed">기타 공제</label><input class="input" id="psOtherDed" type="number" min="0"></div>
+    <div class="field"><label for="psCompany">회사명 (하단 표시)</label><select id="psCompany"><option value="">(표시 안 함)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
+    <div class="msg error dlg-err" id="psErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnPsCancel">취소</button><button type="button" class="btn btn-primary" id="btnPsGo">인쇄용으로 열기</button></div>
+</dialog>
+
+<!-- 근로계약서 초안 (대표 전용) -->
+<dialog id="dlgContract">
+  <div class="dlg-head"><h2>근로계약서 초안</h2></div>
+  <div class="dlg-body">
+    <div class="field"><label for="ctStart">계약 시작일</label><input class="input" id="ctStart" type="date"></div>
+    <div class="field"><label for="ctEnd">계약 종료일 (없으면 비움)</label><input class="input" id="ctEnd" type="date"></div>
+    <div class="field"><label for="ctProb">수습 종료일 (있으면)</label><input class="input" id="ctProb" type="date"></div>
+    <div class="field"><label for="ctSign">계약 체결일</label><input class="input" id="ctSign" type="date"></div>
+    <div class="field full"><label for="ctDuties">담당 업무</label><input class="input" id="ctDuties" maxlength="100"></div>
+    <div class="field"><label for="ctWorkStart">근무 시작 시각</label><input class="input" id="ctWorkStart" value="09:00"></div>
+    <div class="field"><label for="ctWorkEnd">근무 종료 시각</label><input class="input" id="ctWorkEnd" value="18:00"></div>
+    <div class="field"><label for="ctBreak">휴게시간 (분)</label><input class="input" id="ctBreak" type="number" value="60"></div>
+    <div class="field"><label for="ctWorkDays">근무일</label><input class="input" id="ctWorkDays" value="주 5일 (월~금)"></div>
+    <div class="field"><label for="ctHoliday">주휴일</label><input class="input" id="ctHoliday" value="일요일"></div>
+    <div class="field"><label for="ctPayDay">임금 지급일</label><input class="input" id="ctPayDay" value="매월 25일"></div>
+    <div class="field"><label for="ctPayMethod">지급 방법</label><input class="input" id="ctPayMethod" value="계좌이체"></div>
+    <div class="field"><label for="ctCompany">사업주(회사)</label><select id="ctCompany"><option value="">(직접 기재)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
+    <div class="field full"><label for="ctExtra">특약·기타 사항</label><textarea id="ctExtra" rows="3" maxlength="1000"></textarea></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnCtCancel">취소</button><button type="button" class="btn btn-primary" id="btnCtGo">인쇄용으로 열기</button></div>
+</dialog>
+
 <!-- 직원 일괄 등록 -->
 <dialog id="dlgBulk" class="wide">
   <div class="dlg-head"><h2>직원 일괄 등록</h2><span class="id" id="bulkLimit">한 번에 최대 500명</span></div>
   <div class="bulk-body">
     <p class="bulk-help">엑셀·구글시트에서 표를 <strong>복사해 아래 칸에 붙여넣거나</strong>, CSV 파일을 올리세요. <strong>‘양식 내려받기’</strong>의 제목 줄 그대로 쓰면 열 순서가 달라도 자동으로 맞춥니다. 이름과 이메일만 필수입니다. 급여 열(기본급·식대·추가급여1~3·인센티브 등)은 <strong>최고관리자만</strong> 넣을 수 있고, 주민등록번호·서류는 일괄 등록되지 않습니다(직원 상세에서 입력).</p>
     <div class="bulk-tools">
-      <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,text/csv,text/plain">
+      <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,text/plain">
       <button type="button" class="btn btn-secondary" id="btnBulkTemplate">양식 내려받기</button>
       <span class="spacer"></span>
       <label for="bulkOrg" class="bulk-org-label">지점 칸이 비었을 때</label>
       <select id="bulkOrg"></select>
     </div>
+    <label class="chk hidden" id="bulkUpdateWrap" style="margin:6px 0"><input type="checkbox" id="bulkUpdate"> 이미 등록된 이메일은 <strong>기존 직원 정보를 수정</strong>한다 (비워 둔 칸은 그대로 둠)</label>
     <textarea id="bulkText" class="mono" rows="6" spellcheck="false" placeholder="이름&#9;이메일&#9;소속 지점&#9;직책&#9;전번&#9;입사일&#9;권한&#9;상태&#10;홍길동&#9;hong@gmail.com&#9;평촌원/반포원&#9;교사&#9;010-1234-5678&#9;2024-03-02&#9;직원&#9;재직"></textarea>
     <div class="msg error" id="bulkErr"></div>
     <div class="bulk-summary" id="bulkSummary"></div>
@@ -257,5 +452,8 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script type="module" src="./js/app.js"></script>
+<script>
+if ("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+</script>
 </body>
 </html>

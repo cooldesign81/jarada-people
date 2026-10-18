@@ -1,7 +1,7 @@
 // 공용 상태·유틸 (app.js / detail.js 가 함께 사용)
-import { db } from "./firebase.js";
+import { db, auth } from "./firebase.js";
 import {
-  collection, doc, getDocs, updateDoc, deleteDoc, query, where
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 export const $ = (id) => document.getElementById(id);
@@ -14,6 +14,7 @@ export const ORG_TYPES = { hq: "본사", branch: "지점" };
 export const state = {
   user: null, role: null,
   orgs: [], employees: [], me: null,
+  leaves: [], events: [], settings: {}, trash: [],
   selfMode: false,            // 등록 링크(익명 로그인)로 들어온 경우
   editing: null, editingOrg: null,
   noRoleReason: "",
@@ -22,6 +23,8 @@ export const isSuper   = () => state.role?.level === "super";
 export const isHR      = () => ["super", "hr"].includes(state.role?.level);          // 모든 지점 관리
 export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level);   // 소속 지점 관리
 export const canManage = () => isHR() || isAdmin();
+export const isMgr     = () => ["admin", "principal", "manager"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
+export const canApprove = () => isHR() || isMgr();
 
 export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -95,4 +98,25 @@ export async function syncRoles(employeeId, data) {
     if (d.data().selfToken) return null;
     return updateDoc(d.ref, { level: data.level, orgId: data.orgId });
   }));
+}
+
+// 열람·수정 기록 (auditLogs). 실패해도 화면 동작에는 영향 없음
+export async function audit(action, extra = {}) {
+  try {
+    const u = auth.currentUser;
+    if (!u) return;
+    await addDoc(collection(db, "auditLogs"), {
+      actorUid: u.uid, actorEmail: u.email || "", actorName: state.me?.name || (u.isAnonymous ? "등록 링크" : ""),
+      actorLevel: state.role?.level || "", action, at: serverTimestamp(), ...extra,
+    });
+  } catch (e) { console.warn("감사 기록 실패", action, e.code || e); }
+}
+
+// 등록 링크로 만들어진 권한(selfToken)을 모두 삭제 (최고관리자·본사 인사만 가능)
+export async function revokeLinkRoles(employeeId) {
+  if (!isHR()) return;
+  try {
+    const qs = await getDocs(query(collection(db, "roles"), where("employeeId", "==", employeeId)));
+    await Promise.all(qs.docs.filter((d) => d.data().selfToken).map((d) => deleteDoc(d.ref)));
+  } catch (e) { console.warn("링크 권한 정리 실패", e.code || e); }
 }

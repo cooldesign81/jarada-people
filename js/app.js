@@ -8,19 +8,31 @@ import {
   query, where, limit, runTransaction, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg,
+  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, canManage, canApprove, esc, toast, errMsg,
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
-  tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles
+  tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
 import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
+import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
+import { initAdmin, renderAdmin } from "./admin.js";
+import { exportEmployees } from "./export.js";
+import { renderTodo } from "./todo.js";
+import { renderCharts, renderOrgChart } from "./charts.js";
+import { initNotices, loadNotices, renderNotices, unreadCount } from "./notices.js";
+import { addAssignments, diffEmployee } from "./records.js";
+import { initCalendar, renderCalendar } from "./calendar.js";
 
 const NAV = [
   { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "hr", "admin", "principal"] },
+  { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
+  { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
+  { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
+  { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
   { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
 ];
-const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Employees", "Orgs", "Me", "Detail"];
+const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Employees", "Orgs", "Admin", "Me", "Detail"];
 function showView(name) {
   VIEWS.forEach((v) => $("view" + v).classList.toggle("hidden", v !== name));
 }
@@ -150,9 +162,16 @@ async function resolveRole(user) {
 }
 
 // ---------- 데이터 ----------
+async function loadSettings() {
+  try { const s = await getDoc(doc(db, "settings", "app")); state.settings = s.exists() ? s.data() : {}; }
+  catch (e) { state.settings = {}; }
+}
+
 async function loadAll() {
+  await loadSettings();
   await loadOrgs();
   await loadEmployees();
+  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents(), loadNotices()]);
 }
 
 async function loadOrgs() {
@@ -175,7 +194,7 @@ async function loadEmployees() {
   if (isHR()) {
     const qs = await getDocs(col);
     state.employees = qs.docs.map(toEmp);
-  } else if (isAdmin()) {
+  } else if (isMgr()) {
     const org = state.role.orgId;
     const [a, b] = await Promise.all([
       getDocs(query(col, where("orgId", "==", org))),
@@ -193,7 +212,8 @@ async function loadEmployees() {
       state.employees = [];
     }
   }
-  state.employees.sort((a, b) => a.id.localeCompare(b.id));
+  state.trash = state.employees.filter((e) => e.deleted);                 // 휴지통(소프트 삭제)
+  state.employees = state.employees.filter((e) => !e.deleted).sort((a, b) => a.id.localeCompare(b.id));
   state.me = state.employees.find((e) => e.id === state.role.employeeId) || null;
 }
 
@@ -212,6 +232,13 @@ function buildNav() {
   });
   nav.classList.remove("hidden");
   $("appSub").textContent = `${orgName(state.role.orgId)} · ${LEVELS[state.role.level] || state.role.level}`;
+}
+
+function updateBadges() {
+  const n = pendingCount();
+  document.querySelectorAll('.tab[data-view="leaves"]').forEach((t) => { t.innerHTML = `휴가${n ? ` <span class="tab-badge">${n}</span>` : ""}`; });
+  const u = unreadCount();
+  document.querySelectorAll('.tab[data-view="notices"]').forEach((t) => { t.innerHTML = `공지${u ? ` <span class="tab-badge">${u}</span>` : ""}`; });
 }
 
 function route() {
@@ -234,18 +261,21 @@ function route() {
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
   showView(nav.view);
-  ({ dash: renderDash, employees: renderEmployees, orgs: renderOrgs, me: renderMe })[nav.id]();
+  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
+  updateBadges();
 }
 window.addEventListener("hashchange", route);
 
 // ---------- 대시보드 ----------
 function renderDash() {
+  renderTodo($("dashTodo"));
   const emps = state.employees;
   const cnt = (s) => emps.filter((e) => e.status === s).length;
   $("kpiTotal").textContent    = emps.length;
   $("kpiActive").textContent   = cnt("active");
   $("kpiLeave").textContent    = cnt("leave");
   $("kpiResigned").textContent = cnt("resigned");
+  renderCharts($("dashCharts"), emps.filter((e) => !e.deleted), isHR() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId), isHR());
   $("dashHint").textContent = isHR() ? "전체 조직 기준" : `${orgName(state.role.orgId)} 기준`;
 
   const orgs = isHR() ? state.orgs : state.orgs.filter((o) => o.id === state.role.orgId);
@@ -292,7 +322,32 @@ function fillOrgSelect(sel, { all = false, onlyActive = false, ensure = "" } = {
   if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
 }
 
-function renderEmployees() {
+let lastList = [];
+// 목록 보기 설정: 정렬·열·쪽·선택 (열 설정은 이 브라우저에만 저장)
+const LIST_COLS = [
+  { k: "id", l: "사번", on: true, cls: "mono", v: (e) => esc(e.id), s: (e) => e.id },
+  { k: "name", l: "이름", fixed: true, cls: "strong", v: (e) => esc(e.name), s: (e) => e.name },
+  { k: "orgs", l: "조직", fixed: true, v: (e) => branchTags(e.orgIds), s: (e) => orgNames(e.orgIds) },
+  { k: "position", l: "직책", on: true, v: (e) => esc(e.position || "—"), s: (e) => e.position || "" },
+  { k: "level", l: "권한", on: true, v: (e) => levelBadge(e.level), s: (e) => e.level },
+  { k: "status", l: "상태", fixed: true, v: (e) => statusBadge(e.status), s: (e) => e.status },
+  { k: "joinedAt", l: "입사일", on: true, cls: "sub", v: (e) => esc(fmtDate(e.joinedAt)), s: (e) => e.joinedAt || "" },
+  { k: "email", l: "이메일", on: true, cls: "sub", v: (e) => esc(e.email || "—"), s: (e) => e.email || "" },
+  { k: "phone", l: "연락처", on: true, cls: "sub", v: (e) => esc(e.phone || "—"), s: (e) => e.phone || "" },
+  { k: "birthDate", l: "생년월일", cls: "sub", v: (e) => esc(fmtDate(e.birthDate)), s: (e) => e.birthDate || "" },
+  { k: "contractEndDate", l: "계약 만료일", cls: "sub", v: (e) => esc(fmtDate(e.contractEndDate)), s: (e) => e.contractEndDate || "" },
+  { k: "probationEndDate", l: "수습 종료일", cls: "sub", v: (e) => esc(fmtDate(e.probationEndDate)), s: (e) => e.probationEndDate || "" },
+];
+const PAGE_SIZE = 50;
+const lv = { sort: { k: "", dir: 1 }, page: 1, sel: new Set(), cols: null };
+function listCols() {
+  if (!lv.cols) {
+    let saved = null; try { saved = JSON.parse(localStorage.getItem("jarada.listCols") || "null"); } catch {}
+    lv.cols = new Set(LIST_COLS.filter((c) => c.fixed || (saved ? saved.includes(c.k) : c.on)).map((c) => c.k));
+  }
+  return LIST_COLS.filter((c) => lv.cols.has(c.k));
+}
+function renderEmployees(keepPage) {
   const fo = $("fltOrg");
   fillOrgSelect(fo, { all: true });
   fo.disabled = !isHR();
@@ -303,23 +358,82 @@ function renderEmployees() {
   const list = state.employees.filter((e) =>
     (!org || e.orgIds.includes(org)) && (!st || e.status === st) &&
     (!q || [e.name, e.email, e.id, e.position].some((v) => String(v || "").toLowerCase().includes(q))));
+  const col = LIST_COLS.find((c) => c.k === lv.sort.k);
+  if (col) list.sort((a, b) => String(col.s(a)).localeCompare(String(col.s(b)), "ko") * lv.sort.dir || a.id.localeCompare(b.id));
+  lastList = list;
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (!keepPage) lv.page = 1;
+  lv.page = Math.min(Math.max(1, lv.page), pages);
+  const view = list.slice((lv.page - 1) * PAGE_SIZE, lv.page * PAGE_SIZE);
+  const cols = listCols(), bulk = isHR();
   $("empCount").textContent = `${list.length}명`;
   $("tblEmp").innerHTML = list.length
-    ? `<thead><tr><th>사번</th><th>이름</th><th>조직</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>이메일</th><th>연락처</th></tr></thead><tbody>` +
-      list.map((e) => `<tr class="click" data-id="${esc(e.id)}">
-          <td class="mono">${esc(e.id)}</td><td class="strong">${esc(e.name)}</td>
-          <td>${branchTags(e.orgIds)}</td><td>${esc(e.position || "—")}</td>
-          <td>${levelBadge(e.level)}</td><td>${statusBadge(e.status)}</td>
-          <td class="sub">${esc(fmtDate(e.joinedAt))}</td><td class="sub">${esc(e.email || "—")}</td>
-          <td class="sub">${esc(e.phone || "—")}</td></tr>`).join("") + `</tbody>`
+    ? `<thead><tr>${bulk ? `<th style="width:34px"><input type="checkbox" id="selAll" title="이 쪽 전체 선택" ${view.length && view.every((e) => lv.sel.has(e.id)) ? "checked" : ""}></th>` : ""}${cols.map((c) =>
+        `<th class="sortable" data-sort="${c.k}">${c.l}${lv.sort.k === c.k ? (lv.sort.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>` +
+      view.map((e) => `<tr class="click" data-id="${esc(e.id)}">${bulk ? `<td><input type="checkbox" data-sel="${esc(e.id)}" ${lv.sel.has(e.id) ? "checked" : ""}></td>` : ""}${cols.map((c) => `<td class="${c.cls || ""}">${c.v(e)}</td>`).join("")}</tr>`).join("") + `</tbody>`
     : `<tbody><tr><td class="empty"><strong>직원이 없습니다</strong>${
         state.employees.length ? "검색 조건을 바꿔보세요." : "오른쪽 위 ‘직원 등록’으로 첫 직원을 등록하세요."
       }</td></tr></tbody>`;
-  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => { location.hash = "#emp/" + tr.dataset.id; }));
+  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = (ev) => { if (ev.target.closest("input")) return; location.hash = "#emp/" + tr.dataset.id; }));
+  $("tblEmp").querySelectorAll("[data-sort]").forEach((th) => (th.onclick = () => {
+    lv.sort = lv.sort.k === th.dataset.sort ? { k: th.dataset.sort, dir: -lv.sort.dir } : { k: th.dataset.sort, dir: 1 }; renderEmployees();
+  }));
+  $("tblEmp").querySelectorAll("[data-sel]").forEach((cb) => (cb.onchange = () => { cb.checked ? lv.sel.add(cb.dataset.sel) : lv.sel.delete(cb.dataset.sel); renderBulkBar(); }));
+  const all = $("selAll"); if (all) all.onchange = () => { view.forEach((e) => (all.checked ? lv.sel.add(e.id) : lv.sel.delete(e.id))); renderEmployees(true); };
+  $("empPager").innerHTML = pages > 1 ? `<button class="btn btn-secondary btn-sm" id="pgPrev" ${lv.page <= 1 ? "disabled" : ""}>이전</button><span>${lv.page} / ${pages}쪽</span><button class="btn btn-secondary btn-sm" id="pgNext" ${lv.page >= pages ? "disabled" : ""}>다음</button>` : "";
+  if (pages > 1) { $("pgPrev").onclick = () => { lv.page--; renderEmployees(true); }; $("pgNext").onclick = () => { lv.page++; renderEmployees(true); }; }
+  renderBulkBar();
 }
-["fltQ", "fltOrg", "fltStatus"].forEach((id) => $(id).addEventListener("input", renderEmployees));
+function renderBulkBar() {
+  const bar = $("empBulkBar"); const ids = [...lv.sel].filter((id) => state.employees.some((e) => e.id === id));
+  lv.sel = new Set(ids);
+  if (!isHR() || !ids.length) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  $("bulkCount").textContent = `${ids.length}명 선택`;
+  fillOrgSelect($("bulkOrg"), { onlyActive: true });
+}
+$("bulkClear").onclick = () => { lv.sel.clear(); renderEmployees(true); };
+$("bulkStatusGo").onclick = () => bulkChange({ status: $("bulkStatus").value }, `상태를 ‘${STATUS[$("bulkStatus").value]}’(으)로 바꿉니다.`);
+$("bulkOrgGo").onclick = () => bulkChange({ addOrg: $("bulkOrg").value }, `‘${orgName($("bulkOrg").value)}’ 지점을 소속에 추가합니다.`);
+$("bulkOrgMove").onclick = () => bulkChange({ moveOrg: $("bulkOrg").value }, `소속을 ‘${orgName($("bulkOrg").value)}’ 한 곳으로 바꿉니다.`);
+async function bulkChange(op, desc) {
+  const targets = state.employees.filter((e) => lv.sel.has(e.id));
+  if (!targets.length || !isHR()) return;
+  if (op.status === "resigned" && !confirm("퇴직으로 바꾸면 이 직원들의 로그인 권한이 제거됩니다.")) return;
+  if (!confirm(`${targets.length}명에 대해 ${desc} 계속할까요?`)) return;
+  let ok = 0, fail = 0;
+  for (const e of targets) {
+    try {
+      const patch = { updatedAt: serverTimestamp() }; const after = { ...e };
+      if (op.status) { patch.status = op.status; after.status = op.status; }
+      if (op.addOrg && !e.orgIds.includes(op.addOrg)) { after.orgIds = [...e.orgIds, op.addOrg]; }
+      if (op.moveOrg) { after.orgIds = [op.moveOrg]; after.orgId = op.moveOrg; }
+      if (after.orgIds !== e.orgIds) { patch.orgIds = after.orgIds; patch.orgId = after.orgIds[0]; after.orgId = after.orgIds[0]; }
+      if (Object.keys(patch).length === 1) continue;
+      await updateDoc(doc(db, "employees", e.id), patch);
+      if (e.orgId !== after.orgId || e.status !== after.status) await syncRoles(e.id, after);
+      const changes = diffEmployee(e, after, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...e, orgId: after.orgId }, changes);
+      ok++;
+    } catch (err) { console.warn(err); fail++; }
+  }
+  audit("emp_bulk_change", { detail: `${desc} 성공 ${ok} · 실패 ${fail}` });
+  toast(`${ok}명 변경${fail ? `, ${fail}명 실패` : ""}`, !!fail);
+  lv.sel.clear(); await loadEmployees(); renderEmployees(true);
+}
+$("btnListCols").onclick = () => {
+  $("colList").innerHTML = LIST_COLS.map((c) => `<label class="chk"><input type="checkbox" value="${c.k}" ${lv.cols.has(c.k) ? "checked" : ""} ${c.fixed ? "disabled" : ""}> ${c.l}</label>`).join("");
+  $("dlgCols").showModal();
+};
+$("btnColsDone").onclick = () => {
+  lv.cols = new Set(LIST_COLS.filter((c) => c.fixed || $("colList").querySelector(`input[value="${c.k}"]`).checked).map((c) => c.k));
+  try { localStorage.setItem("jarada.listCols", JSON.stringify([...lv.cols])); } catch {}
+  $("dlgCols").close(); renderEmployees(true);
+};
+["fltQ", "fltOrg", "fltStatus"].forEach((id) => $(id).addEventListener("input", () => renderEmployees()));
 
 $("btnAddEmp").onclick   = () => openEmp(null);
+$("btnExportList").onclick = () => exportEmployees(lastList);
 $("btnEmpCancel").onclick = () => $("dlgEmp").close();
 $("formEmp").addEventListener("input", () => { $("empErr").textContent = ""; });
 
@@ -350,13 +464,16 @@ function openEmp(id) {
   $("fPosition").value = emp?.position || "";
   $("fPhone").value    = emp?.phone || "";
   $("fJoined").value   = emp ? (emp.joinedAt || "") : todayStr();
+  $("fBirth").value    = emp?.birthDate || "";
+  $("fProbation").value = emp?.probationEndDate || "";
+  $("fContractEnd").value = emp?.contractEndDate || "";
   $("fStatus").value   = emp?.status && STATUS[emp.status] ? emp.status : "active";
   $("fStatus").disabled = self || locked;
   $("fMemo").value     = emp?.memo || "";
-  ["fName", "fEmail", "fPosition", "fPhone", "fJoined", "fMemo"].forEach((i) => ($(i).disabled = locked));
+  ["fName", "fEmail", "fPosition", "fPhone", "fJoined", "fBirth", "fProbation", "fContractEnd", "fMemo"].forEach((i) => ($(i).disabled = locked));
   $("empErr").textContent = "";
   $("btnEmpSave").classList.toggle("hidden", locked);
-  $("btnEmpDelete").classList.toggle("hidden", !(emp && isSuper() && !self));
+  $("btnEmpDelete").classList.toggle("hidden", !(emp && isHR() && !self && !locked));
   $("dlgEmp").showModal();
   if (!locked) $("fName").focus();
 }
@@ -370,7 +487,7 @@ function validateEmp(d, emp) {
   if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
     return "지점 관리자는 소속 지점 직원만, 직원·실장·관리자·원장 권한으로 등록할 수 있습니다.";
   if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
-  const dup = state.employees.find((e) => e.email === d.email && e.id !== emp?.id);
+  const dup = [...state.employees, ...state.trash].find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
   return "";
 }
@@ -386,6 +503,9 @@ $("formEmp").addEventListener("submit", async (ev) => {
     position: $("fPosition").value.trim(),
     phone:    $("fPhone").value.trim(),
     joinedAt: $("fJoined").value,
+    birthDate: $("fBirth").value,
+    probationEndDate: $("fProbation").value,
+    contractEndDate: $("fContractEnd").value,
     status:   $("fStatus").value,
     memo:     $("fMemo").value.trim(),
   };
@@ -402,12 +522,16 @@ $("formEmp").addEventListener("submit", async (ev) => {
     if (!emp) {
       const id = await nextEmployeeId();
       await setDoc(doc(db, "employees", id), { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      audit("emp_create", { targetEmployeeId: id, detail: data.name });
       toast(`${data.name} 님을 등록했습니다 (${id})`);
     } else {
       await updateDoc(doc(db, "employees", emp.id), { ...data, updatedAt: serverTimestamp() });
       if (emp.level !== data.level || emp.orgId !== data.orgId || emp.status !== data.status) {
         await syncRoles(emp.id, data);
       }
+      audit("emp_update", { targetEmployeeId: emp.id, detail: data.name });
+      const changes = diffEmployee(emp, { ...emp, ...data }, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...emp, orgId: data.orgId }, changes);
       toast("저장했습니다");
     }
     $("dlgEmp").close();
@@ -423,15 +547,15 @@ $("formEmp").addEventListener("submit", async (ev) => {
 
 $("btnEmpDelete").onclick = async () => {
   const emp = state.editing;
-  if (!emp || !isSuper()) return;
-  const ok = confirm(`${emp.name} (${emp.id}) 직원 정보를 삭제할까요?\n삭제하면 이 계정의 로그인 권한도 함께 제거됩니다.\n기록을 남기려면 삭제 대신 상태를 ‘퇴직’으로 바꾸세요.`);
+  if (!emp || !isHR()) return;
+  const ok = confirm(`${emp.name} (${emp.id}) 직원을 휴지통으로 옮길까요?\n목록에서 사라지고 이 계정의 로그인 권한이 제거됩니다.\n관리 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.`);
   if (!ok) return;
   setEmpBusy(true);
   try {
-    await syncRoles(emp.id, { status: "resigned" }); // 연결된 roles 삭제
-    await deleteEmployeeData(emp.id);                 // 개인정보·서류 파일 정리
-    await deleteDoc(doc(db, "employees", emp.id));
-    toast("삭제했습니다");
+    await updateDoc(doc(db, "employees", emp.id), { deleted: true, deletedAt: serverTimestamp(), deletedBy: state.user?.uid || "", status: "resigned", updatedAt: serverTimestamp() });
+    await syncRoles(emp.id, { status: "resigned" });   // 연결된 roles 삭제
+    audit("emp_trash", { targetEmployeeId: emp.id, detail: emp.name });
+    toast("휴지통으로 옮겼습니다");
     $("dlgEmp").close();
     await loadEmployees();
     if ((location.hash || "").startsWith("#emp/")) location.hash = "#employees"; else route();
@@ -445,7 +569,7 @@ $("btnEmpDelete").onclick = async () => {
 
 // 사번 자동 부여: meta/counters.employee 를 트랜잭션으로 증가
 async function nextEmployeeId() {
-  const known = state.employees.reduce((m, e) => {
+  const known = [...state.employees, ...state.trash].reduce((m, e) => {
     const n = /^emp_(\d+)$/.exec(e.id);
     return n ? Math.max(m, parseInt(n[1], 10)) : m;
   }, 1);
@@ -478,6 +602,9 @@ const BULK_COLS = [
   { key: "joinedAt", label: "입사일", alias: ["입사일", "입사", "joined"] },
   { key: "level",    label: "권한",   alias: ["권한", "등급", "level"] },
   { key: "status",   label: "상태",   alias: ["상태", "재직상태", "status"] },
+  { key: "birthDate", label: "생년월일", alias: ["생년월일", "생일", "birth", "birthday"] },
+  { key: "probationEndDate", label: "수습 종료일", alias: ["수습종료일", "수습종료", "수습만료일"] },
+  { key: "contractEndDate",  label: "계약 만료일", alias: ["계약만료일", "계약종료일", "계약만료"] },
   { key: "address",          label: "주소",           alias: ["주소", "address"], pi: true },
   { key: "bankAccount",      label: "계좌번호",       alias: ["계좌번호", "계좌", "bank"], pi: true },
   { key: "guardianName",     label: "보호자 성명",    alias: ["보호자성명", "보호자이름", "보호자"], pi: true },
@@ -563,6 +690,7 @@ function parseBulk(text) {
   const seen = new Map(); // 이메일 -> 먼저 나온 행 번호
   const existing = new Map(state.employees.map((e) => [e.email, e]));
   const findOrg = (t) => state.orgs.find((o) => nrm(o.id) === nrm(t) || nrm(o.name) === nrm(t));
+  const upsert = isHR() && $("bulkUpdate").checked;
   const rows = body.map((cells, idx) => {
     const line = idx + (hasHeader ? 2 : 1);
     const get = (k) => (k in colIdx ? (cells[colIdx[k]] ?? "").trim() : "");
@@ -574,7 +702,7 @@ function parseBulk(text) {
     if (!d.name) errors.push("이름 없음");
     else if (d.name.length > 40) errors.push("이름이 40자 초과");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) errors.push("이메일 형식 오류");
-    else if (existing.has(d.email)) errors.push(`이미 등록된 이메일 (${existing.get(d.email).id})`);
+    else if (existing.has(d.email) && !upsert) errors.push(`이미 등록된 이메일 (${existing.get(d.email).id}) — 기존 직원 수정을 켜면 갱신됩니다`);
     else if (seen.has(d.email)) errors.push(`${seen.get(d.email)}행과 이메일 중복`);
     if (d.email && !seen.has(d.email)) seen.set(d.email, line);
 
@@ -601,6 +729,14 @@ function parseBulk(text) {
     const jd = normDate(get("joinedAt"));
     if (jd === null) errors.push("입사일 형식 오류 (예: 2024-03-02)");
     d.joinedAt = jd || "";
+    const bd = normDate(get("birthDate"));
+    if (bd === null) errors.push("생년월일 형식 오류 (예: 1990-05-21)");
+    d.birthDate = bd || "";
+    for (const k of ["probationEndDate", "contractEndDate"]) {
+      const nd = normDate(get(k)); const lbl = BULK_COLS.find((c) => c.key === k).label;
+      if (nd === null) errors.push(`${lbl} 형식 오류`);
+      d[k] = nd || "";
+    }
     if (d.position.length > 30) errors.push("직책이 30자 초과");
     if (d.phone.length > 20) errors.push("전번이 20자 초과");
 
@@ -628,6 +764,17 @@ function parseBulk(text) {
       if (v) comp[c.key] = v;
     }
     if (Object.keys(comp).length && !isSuper()) errors.push("급여 정보는 최고관리자만 등록할 수 있습니다");
+    // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
+    const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
+    if (ex) {
+      const patch = {};
+      for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate"]) if (get(k)) patch[k] = d[k];
+      if (lvRaw) patch.level = d.level;
+      if (stRaw) patch.status = d.status;
+      if (names.length) { patch.orgIds = d.orgIds; patch.orgId = d.orgId; }
+      if (ex.level === "super" && !isSuper()) errors.push("최고관리자 계정은 수정할 수 없습니다");
+      return { line, data: patch, pi, comp, errors: errors.filter((x) => !/소속 지점 미지정|이름 없음/.test(x)), update: ex, full: { ...ex, ...patch } };
+    }
     return { line, data: d, pi, comp, errors };
   });
   return { rows, fatal: "" };
@@ -640,23 +787,23 @@ function renderBulk() {
   const okRows = rows.filter((r) => !r.errors.length);
   const bad = rows.length - okRows.length;
   $("bulkSummary").innerHTML = rows.length
-    ? `총 ${rows.length}행 · <span class="ok">등록 가능 ${okRows.length}명</span>` + (bad ? ` · <span class="bad">오류 ${bad}행 (건너뜀)</span>` : "")
+    ? `총 ${rows.length}행 · <span class="ok">등록 가능 ${okRows.filter((r) => !r.update).length}명</span>` + (okRows.some((r) => r.update) ? ` · <span class="ok">기존 직원 수정 ${okRows.filter((r) => r.update).length}명</span>` : "") + (bad ? ` · <span class="bad">오류 ${bad}행 (건너뜀)</span>` : "")
     : "";
   $("bulkPreviewWrap").classList.toggle("hidden", !rows.length);
   $("bulkPreview").innerHTML = rows.length
     ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>결과</th></tr></thead><tbody>` +
       rows.map((r) => {
-        const d = r.data, ok = !r.errors.length;
+        const d = r.update ? r.full : r.data, ok = !r.errors.length;
         return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}</td><td>${esc(d.email)}</td>
           <td>${esc(d.orgIds.length ? orgNames(d.orgIds) : "—")}</td><td>${esc(d.position || "—")}</td>
           <td>${d.level ? levelBadge(d.level) : "—"}</td><td>${d.status ? statusBadge(d.status) : "—"}</td>
           <td class="sub">${esc(d.joinedAt || "—")}</td><td class="sub">${Object.keys(r.pi).length ? Object.keys(r.pi).length + "개 항목" : "—"}</td>
           <td class="sub">${Object.keys(r.comp).length ? Object.keys(r.comp).length + "개 항목" : "—"}</td>
-          <td class="res ${ok ? "ok" : "bad"}">${ok ? "정상" : esc(r.errors.join(" · "))}</td></tr>`;
+          <td class="res ${ok ? "ok" : "bad"}">${ok ? (r.update ? `수정 (${esc(r.update.id)})` : "정상") : esc(r.errors.join(" · "))}</td></tr>`;
       }).join("") + `</tbody>`
     : "";
   const b = $("btnBulkSave");
-  b.textContent = okRows.length ? `정상 ${okRows.length}명 등록` : "등록";
+  b.textContent = okRows.length ? `정상 ${okRows.length}명 ${okRows.every((r) => r.update) ? "수정" : "등록"}` : "등록";
   b.disabled = bulk.busy || okRows.length === 0;
 }
 
@@ -667,14 +814,39 @@ function openBulk() {
   sel.value = state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (sel.options[0]?.value || "");
   sel.disabled = isAdmin();
   $("bulkText").value = ""; $("bulkFile").value = "";
+  $("bulkUpdate").checked = false; $("bulkUpdateWrap").classList.toggle("hidden", !isHR());
   bulk.rows = []; bulk.busy = false;
   renderBulk();
   $("dlgBulk").showModal();
   $("bulkText").focus();
 }
 
+// 엑셀(.xlsx/.xls) 파일은 SheetJS 를 그때 불러와 첫 시트를 탭으로 구분한 글로 바꾼다
+let sheetJs = null;
+function loadSheetJs() {
+  if (globalThis.XLSX) return Promise.resolve(globalThis.XLSX);
+  return (sheetJs ||= new Promise((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    sc.onload = () => resolve(globalThis.XLSX); sc.onerror = () => { sheetJs = null; reject(new Error("엑셀 읽기 도구를 불러오지 못했습니다. 인터넷 연결을 확인하거나 CSV 로 저장해 올려주세요.")); };
+    document.head.appendChild(sc);
+  }));
+}
+async function readSheetFile(file) {
+  const X = await loadSheetJs();
+  const wb = X.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) throw new Error("시트가 비어 있습니다.");
+  // 날짜 칸은 Date 로 읽혀 오므로 직접 yyyy-mm-dd 로 바꾼다 (시간대 어긋남을 피하려고 12시간을 더한 뒤 UTC 날짜를 쓴다)
+  const cell = (v) => {
+    if (v instanceof Date) { const d = new Date(v.getTime() + 12 * 3600 * 1000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`; }
+    return String(v ?? "").replace(/[\t\r\n]+/g, " ").trim();
+  };
+  return X.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false, defval: "" }).map((r) => r.map(cell).join("\t")).join("\n");
+}
 // UTF-8 우선, 실패하면 한국어 엑셀 CSV(EUC-KR/CP949)로 해석
 async function readTextFile(file) {
+  if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) return readSheetFile(file);
   const buf = await file.arrayBuffer();
   try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); }
   catch { return new TextDecoder("euc-kr").decode(buf); }
@@ -685,6 +857,7 @@ $("btnBulkCancel").onclick = () => { if (!bulk.busy) $("dlgBulk").close(); };
 $("dlgBulk").addEventListener("cancel", (e) => { if (bulk.busy) e.preventDefault(); });
 $("bulkText").addEventListener("input", renderBulk);
 $("bulkOrg").addEventListener("change", renderBulk);
+$("bulkUpdate").addEventListener("change", renderBulk);
 $("bulkFile").addEventListener("change", async (ev) => {
   const f = ev.target.files[0];
   if (!f) return;
@@ -697,7 +870,7 @@ $("btnBulkTemplate").onclick = () => {
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const cols = BULK_COLS.filter((c) => isSuper() || !c.comp);
   const rows = [
-    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직",
+    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
       baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
@@ -714,8 +887,8 @@ $("btnBulkTemplate").onclick = () => {
 
 // 사번을 count개 한꺼번에 확보 (카운터를 트랜잭션으로 증가, 이미 쓰는 사번은 건너뜀)
 async function reserveEmployeeIds(count) {
-  const used = new Set(state.employees.map((e) => e.id));
-  const known = state.employees.reduce((m, e) => {
+  const used = new Set([...state.employees, ...state.trash].map((e) => e.id));
+  const known = [...state.employees, ...state.trash].reduce((m, e) => {
     const n = /^emp_(\d+)$/.exec(e.id);
     return n ? Math.max(m, parseInt(n[1], 10)) : m;
   }, 1);
@@ -735,8 +908,10 @@ async function reserveEmployeeIds(count) {
 }
 
 $("btnBulkSave").onclick = async () => {
-  const okRows = bulk.rows.filter((r) => !r.errors.length);
-  if (!okRows.length || bulk.busy) return;
+  const allOk = bulk.rows.filter((r) => !r.errors.length);
+  const updRows = allOk.filter((r) => r.update), okRows = allOk.filter((r) => !r.update);
+  if (!allOk.length || bulk.busy) return;
+  if (updRows.length && !confirm(`기존 직원 ${updRows.length}명의 정보를 파일 내용으로 덮어씁니다 (비워 둔 칸은 그대로 둡니다). 계속할까요?`)) return;
   bulk.busy = true;
   const btn = $("btnBulkSave");
   btn.disabled = true; $("btnBulkCancel").disabled = true;
@@ -744,7 +919,7 @@ $("btnBulkSave").onclick = async () => {
   let saved = 0;
   try {
     btn.textContent = "사번 확보 중…";
-    const ids = await reserveEmployeeIds(okRows.length);
+    const ids = okRows.length ? await reserveEmployeeIds(okRows.length) : [];
     const CHUNK = 130;   // 직원 1명당 문서 최대 3개(직원 + 개인정보 + 급여) → 배치당 최대 390건
     for (let i = 0; i < okRows.length; i += CHUNK) {
       btn.textContent = `등록 중… ${saved}/${okRows.length}`;
@@ -763,7 +938,21 @@ $("btnBulkSave").onclick = async () => {
       await batch.commit();
       saved += Math.min(CHUNK, okRows.length - i);
     }
-    toast(`${saved}명을 등록했습니다`);
+    let updated = 0;
+    for (const r of updRows) {
+      btn.textContent = `수정 중… ${updated}/${updRows.length}`;
+      const ex = r.update, id = ex.id;
+      if (Object.keys(r.data).length) await updateDoc(doc(db, "employees", id), { ...r.data, updatedAt: serverTimestamp() });
+      if (Object.keys(r.pi).length) await setDoc(doc(db, "employees", id, "private", "personalInfo"), { ...r.pi, updatedAt: serverTimestamp() }, { merge: true });
+      if (Object.keys(r.comp).length) await setDoc(doc(db, "employees", id, "private", "compensation"), { ...r.comp, updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" }, { merge: true });
+      const after = { ...ex, ...r.data };
+      if (ex.level !== after.level || ex.orgId !== after.orgId || ex.status !== after.status) await syncRoles(id, after);
+      const changes = diffEmployee(ex, after, STATUS, LEVELS);
+      if (changes.length) await addAssignments({ ...ex, orgId: after.orgId }, changes);
+      updated++;
+    }
+    audit("bulk_import", { detail: `등록 ${saved}명${updated ? ` · 수정 ${updated}명` : ""}` });
+    toast(`${saved ? `${saved}명을 등록` : ""}${saved && updated ? ", " : ""}${updated ? `${updated}명을 수정` : ""}했습니다`);
     $("dlgBulk").close();
   } catch (e) {
     console.error(e);
@@ -780,6 +969,7 @@ $("btnBulkSave").onclick = async () => {
 // ---------- 조직 ----------
 function renderOrgs() {
   $("btnAddOrg").classList.toggle("hidden", !isHR());
+  renderOrgChart($("orgChart"));
   const rows = state.orgs.map((o) => {
     const mine = isHR() || o.id === state.role.orgId;
     const active = state.employees.filter((e) => e.orgIds.includes(o.id) && e.status === "active").length;
@@ -912,3 +1102,7 @@ initDetail({
   reload: loadEmployees,
 });
 bindCertModal();
+initLeave({ rerender: () => route() });
+initCalendar({});
+initNotices({ onRead: () => updateBadges() });
+initAdmin({ reload: loadEmployees, rerender: () => route() });

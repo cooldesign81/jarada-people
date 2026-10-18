@@ -5,6 +5,7 @@ rules_version = '2';
 //
 // 파일 위치
 //   hr/{직원사번}/pub/{키}__{시각}__{원본이름}   공개서류: resume, portfolio, criminalRecord, diploma
+//   hr/{직원사번}/pub/photo__0__profile.jpg      프로필 사진 (본인도 보고 바꿀 수 있음)
 //   hr/{직원사번}/sec/{키}__{시각}__{원본이름}   비공개서류: residentCopy, bankbookCopy, businessRegistration, employmentInsuranceDoc
 //                                                인사평가(eval), 기타(etc)
 //
@@ -22,7 +23,13 @@ service firebase.storage {
     function isSuper() { return roleExists() && role().level == 'super'; }
     function isHR() { return roleExists() && role().level in ['super', 'hr']; }
     function isAdmin() { return roleExists() && role().level in ['admin', 'principal']; }
-    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId; }
+    // 등록 링크 권한은 직원 문서의 링크가 유효할 때만 본인으로 인정 (firestore.rules 와 같은 기준)
+    function selfTokenValid(empId) {
+      return !('selfToken' in role())
+        || (firestore.get(empPath(empId)).data.get('selfToken', '') == role().selfToken
+            && firestore.get(empPath(empId)).data.get('selfTokenExpires', request.time) >= request.time);
+    }
+    function isSelf(empId) { return roleExists() && role().get('employeeId', '') == empId && selfTokenValid(empId); }
     // 직원 문서의 소속 지점 목록 (orgIds 가 없던 예전 문서는 orgId 하나로 취급)
     function orgsOf(d) { return d.get('orgIds', [d.get('orgId', '')]); }
     function adminOf(empId) {
@@ -32,9 +39,14 @@ service firebase.storage {
     function small() { return request.resource.size < 30 * 1024 * 1024; }
 
     match /hr/{empId}/pub/{file} {
-      allow read, delete: if isHR() || adminOf(empId);
+      allow read: if isHR() || adminOf(empId) || (isSelf(empId) && file == 'photo__0__profile.jpg');
+      allow delete: if isHR() || adminOf(empId) || (isSelf(empId) && file == 'photo__0__profile.jpg');
       allow create: if small()
         && file.matches('(resume|portfolio|criminalRecord|diploma)__[0-9]+__.*')
+        && (isHR() || adminOf(empId) || isSelf(empId));
+      // 프로필 사진: 이름이 정해져 있어 다시 올리면 덮어쓴다 (5MB 이하 이미지)
+      allow create, update: if file == 'photo__0__profile.jpg'
+        && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')
         && (isHR() || adminOf(empId) || isSelf(empId));
     }
 
