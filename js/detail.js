@@ -11,6 +11,7 @@ import {
   statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles, audit, tsMillis, revokeLinkRoles
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
+import { mountEmployeeSlips } from "./payslips.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
 import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
 import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
@@ -161,6 +162,7 @@ function draw() {
     </div>
 
     ${can("comp") ? compHtml() : ""}
+    ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여·인센티브 명세서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>명세서 올리기</a></div><div id="dSlips"></div></div>` : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
     <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
@@ -176,7 +178,7 @@ function draw() {
   renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
   rrnStatus();
   bindHead(); bindRrn(); bindPi();
-  if (can("comp")) bindComp();
+  if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
   if (can("secDocs")) bindEval();
   drawFiles();
   if (!state.selfMode && $("dRecords")) {
@@ -597,7 +599,7 @@ function addEtcDraft() {
 }
 
 // 직원 완전 삭제 시 하위 데이터/파일 정리 (최고관리자)
-export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues"];
+export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips"];
 export async function deleteEmployeeData(empId) {
   for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation"]) {
     try { await deleteDoc(doc(db, "employees", empId, "private", n)); } catch (e) { console.warn("삭제 실패", n, e.code || e); }
@@ -608,7 +610,7 @@ export async function deleteEmployeeData(empId) {
   }
   try { const q = await getDocs(query(collection(db, "leaveRequests"), where("employeeId", "==", empId))); await Promise.all(q.docs.map((d) => deleteDoc(d.ref))); }
   catch (e) { console.warn("휴가 기록 삭제 실패", e.code || e); }
-  for (const folder of ["pub", "sec"]) {
+  for (const folder of ["pub", "sec", "pay"]) {
     try {
       const res = await listAll(ref(storage, `hr/${empId}/${folder}`));
       for (const it of res.items) { try { await deleteObject(it); } catch {} }

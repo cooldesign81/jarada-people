@@ -111,6 +111,11 @@ service cloud.firestore {
       return hasRole() && me().get('employeeId', '') == empId && selfTokenValid(empId);
     }
 
+    // 본인 계정(구글 로그인)만. 등록 링크(selfToken)로 들어온 사람은 제외 — 링크를 아는 것만으로 급여 명세서를 보면 안 된다
+    function isSelfAccount(empId) {
+      return isSelf(empId) && !('selfToken' in me());
+    }
+
     function empPath(id) {
       return /databases/$(database)/documents/employees/$(id);
     }
@@ -403,6 +408,27 @@ service cloud.firestore {
         allow read, create: if capAll('comp', []);
         allow update: if false;
         allow delete: if isSuper();
+      }
+
+      // ---------- 급여·인센티브 명세서 (파일은 Storage hr/{사번}/pay/) ----------
+      // 올리고 지우는 것은 ‘급여 정보’ 권한(기본: 최고관리자)이 있는 사람, 읽는 것은 그 직원 본인(구글 계정)과 같은 권한자.
+      // 본인은 처음 열람한 시각(viewedAt)만 남길 수 있다.
+      match /payslips/{slipId} {
+        function validSlip() {
+          let d = request.resource.data;
+          return d.type in ['salary', 'incentive']
+            && d.month is string && d.month.matches('^[0-9]{4}-[0-9]{2}$')
+            && d.path is string && d.path.size() <= 300 && d.path.matches('^hr/[^/]+/pay/.*')
+            && d.fileName is string && d.fileName.size() <= 200
+            && d.size is number && d.size > 0 && d.size <= 10 * 1024 * 1024
+            && d.contentType is string && (d.contentType == 'application/pdf' || d.contentType.matches('^image/.*'));
+        }
+        allow read: if isSelfAccount(empId) || capAll('comp', []);
+        allow create: if capAll('comp', []) && validSlip();
+        allow update: if isSelfAccount(empId) && !('viewedAt' in resource.data)
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedAt'])
+                      && request.resource.data.viewedAt == request.time;
+        allow delete: if capAll('comp', []);
       }
 
       // ---------- 증명서 발급 이력 ----------

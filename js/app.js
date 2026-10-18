@@ -18,6 +18,7 @@ import { initAdmin, renderAdmin } from "./admin.js";
 import { exportEmployees } from "./export.js";
 import { renderTodo } from "./todo.js";
 import { renderCharts, renderOrgChart } from "./charts.js";
+import { initPayslips, loadMyPayslips, renderMyPayslips, unseenSlips } from "./payslips.js";
 import { initNotices, loadNotices, renderNotices, unreadCount } from "./notices.js";
 import { addAssignments, diffEmployee } from "./records.js";
 import { initCalendar, renderCalendar } from "./calendar.js";
@@ -27,12 +28,13 @@ const NAV = [
   { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
   { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
   { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
+  { id: "payslips",  label: "내 명세서", view: "Payslips",  levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
   { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
   { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
 ];
-const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Employees", "Orgs", "Admin", "Me", "Detail"];
+const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Payslips", "Employees", "Orgs", "Admin", "Me", "Detail"];
 function showView(name) {
   VIEWS.forEach((v) => $("view" + v).classList.toggle("hidden", v !== name));
 }
@@ -173,7 +175,7 @@ async function loadAll() {
   await loadSettings();
   await loadOrgs();
   await loadEmployees();
-  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents(), loadNotices()]);
+  await Promise.all([loadLeaves().catch((e) => console.warn("휴가 불러오기 실패", e.code || e)), loadEvents(), loadNotices(), loadMyPayslips()]);
 }
 
 async function loadOrgs() {
@@ -239,6 +241,8 @@ function buildNav() {
 function updateBadges() {
   const n = pendingCount();
   document.querySelectorAll('.tab[data-view="leaves"]').forEach((t) => { t.innerHTML = `휴가${n ? ` <span class="tab-badge">${n}</span>` : ""}`; });
+  const sl = unseenSlips();
+  document.querySelectorAll('.tab[data-view="payslips"]').forEach((t) => { t.innerHTML = `내 명세서${sl ? ` <span class="tab-badge">${sl}</span>` : ""}`; });
   const u = unreadCount();
   document.querySelectorAll('.tab[data-view="notices"]').forEach((t) => { t.innerHTML = `공지${u ? ` <span class="tab-badge">${u}</span>` : ""}`; });
 }
@@ -282,7 +286,7 @@ function route() {
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
   showView(nav.view);
-  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
+  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, payslips: renderMyPayslips, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
   updateBadges();
 }
 window.addEventListener("hashchange", route);
@@ -1150,4 +1154,5 @@ bindCertModal();
 initLeave({ rerender: () => route() });
 initCalendar({});
 initNotices({ onRead: () => updateBadges() });
+initPayslips({ onSeen: () => updateBadges() });
 initAdmin({ reload: loadEmployees, rerender: () => route() });

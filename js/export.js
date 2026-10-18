@@ -63,7 +63,7 @@ export async function backupAll(onStep) {
     await pool(emps, 6, async (e) => {
       const rec = { ...e, private: {} };
       for (const n of subs) { const d = await readPrivate(e.id, n); if (Object.keys(d).length) rec.private[n] = d; }
-      for (const sc of ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues"]) {
+      for (const sc of ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips"]) {
         try { const q = await getDocs(collection(db, "employees", e.id, sc)); if (q.size) rec[sc] = q.docs.map((d) => { const x = { id: d.id, ...d.data() }; if (x.snapshot?.rrn) x.snapshot = { ...x.snapshot, rrn: "" }; return x; }); } catch {}
       }
       out.employees.push(rec);
