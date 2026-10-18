@@ -975,6 +975,45 @@ const buf = (s) => Buffer.from(s);
     await ctx.close();
   }
 
+
+  // ================= V. 직원 삭제(휴지통) 버튼 =================
+  {
+    const NOW = "2026-11-04T10:00:00+09:00";
+    const st = J(snapStore);
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
+    await page.goto(BASE + "/index.html#emp/emp_0003"); await page.waitForSelector("#dBtnTrash");
+    await page.click("#dBtnTrash"); await page.waitForTimeout(600);
+    const e3 = await S(page, "employees/emp_0003");
+    ok("V detail delete -> trash", e3.deleted === true && e3.status === "resigned" && !Object.values(await page.evaluate(() => globalThis.__mockStore.roles)).some((r) => r.employeeId === "emp_0003"));
+    ok("V returns to list without the employee", (await page.evaluate(() => location.hash)) === "#employees" && !(await page.$$eval("#tblEmp tbody tr", (r) => r.map((x) => x.dataset.id))).includes("emp_0003"));
+    await page.fill("#fltQ", "최팀장"); await page.waitForTimeout(100); await page.check("#selAll"); await page.waitForTimeout(100);
+    ok("V bulk trash button visible", await vis(page, "#bulkTrash"));
+    await page.click("#bulkTrash"); await page.waitForTimeout(600);
+    ok("V bulk delete -> trash", (await S(page, "employees/emp_0002")).deleted === true);
+    await page.evaluate(() => (location.hash = "#emp/emp_0001")); await page.waitForSelector(".emp-name");
+    ok("V no delete button on own page", (await count(page, "#dBtnTrash")) === 0);
+    ok("V no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 계정이 엉뚱한 직원에 연결된 경우 경고 + 다시 연결
+    const sl = J(snapStore); sl.roles.u9 = { level: "super", orgId: "hq", employeeId: "emp_0001" };
+    const l = await newPage(browser, { user: { uid: "u9", email: "choi@jarada.kr" }, store: sl, files: {}, now: NOW });
+    await l.page.goto(BASE + "/index.html#dash"); await l.page.waitForTimeout(1200); await l.page.waitForSelector("#linkWarn:not(.hidden)");
+    ok("V link warning names both employees", (await l.page.textContent("#linkWarn")).includes("emp_0001") && (await l.page.textContent("#linkWarn")).includes("emp_0002") && (await l.page.textContent("#linkWarn")).includes("choi@jarada.kr"));
+    await l.page.click("#btnRelink"); await l.page.waitForTimeout(500);
+    const rr = await S(l.page, "roles/u9");
+    ok("V relink updates roles", rr.employeeId === "emp_0002" && rr.level === "super", JSON.stringify(rr));
+    await l.ctx.close();
+    const ok0 = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {}, now: NOW });
+    await ok0.page.goto(BASE + "/index.html#dash"); await ok0.page.waitForTimeout(500);
+    ok("V no warning when linked correctly", !(await vis(ok0.page, "#linkWarn")));
+    await ok0.ctx.close();
+    const sa = J(snapStore); sa.roles.u4 = { level: "admin", orgId: "banpo", employeeId: "emp_0004" };
+    const a = await newPage(browser, { user: { uid: "u4", email: "park@jarada.kr" }, store: sa, files: {}, now: NOW });
+    await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector(".emp-name");
+    ok("V branch admin has no delete button", (await count(a.page, "#dBtnTrash")) === 0);
+    await a.ctx.close();
+  }
+
   // ================= F. setup.html / 로그인 화면 =================
   {
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore) });
