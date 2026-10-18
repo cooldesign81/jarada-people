@@ -3,7 +3,7 @@
   "private": true,
   "description": "자라다 People 자동 테스트 (규칙·계산·화면). 앱 자체는 빌드가 없고, 이 폴더는 배포에 쓰이지 않습니다.",
   "scripts": {
-    "test:unit": "node unit/leave.test.mjs && node unit/payroll.test.mjs && node unit/payslip-match.test.mjs && node unit/paylock.test.mjs",
+    "test:unit": "node unit/leave.test.mjs && node unit/payroll.test.mjs && node unit/payslip-match.test.mjs && node unit/paylock.test.mjs && node unit/rrn.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore,storage --project demo-jarada \"node rules/firestore.rules.test.cjs && node rules/storage.rules.test.cjs\"",
     "test:e2e": "node e2e/e2e.test.cjs",
     "test": "npm run test:unit && npm run test:rules && npm run test:e2e"

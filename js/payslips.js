@@ -92,6 +92,15 @@ async function removeSlip(empId, s) {
   await deleteDoc(doc(db, "employees", empId, "payslips", s.id));
 }
 
+// 파일 하나를 올린다. 같은 직원·종류·월의 이전 파일은 올린 뒤 지운다(교체)
+async function putSlip(empId, type, month, file) {
+  const old = (await getDocs(slipsOf(empId))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type && x.month === month);
+  const path = `hr/${empId}/pay/${type}__${month}__${Date.now()}__${file.name.replace(/[\\/]/g, "_")}`, contentType = contentTypeOf(file);
+  await uploadBytes(ref(storage, path), file, { contentType, customMetadata: { uploadedBy: auth.currentUser?.email || "" } });
+  await addDoc(slipsOf(empId), { type, month, path, fileName: file.name, size: file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
+  for (const x of old) { try { await removeSlip(empId, x); } catch (e) { console.warn("이전 파일 정리 실패", e.code || e); } }
+}
+
 // ---------- 관리 → 급여 배포 ----------
 // 종류와 월은 올릴 때 직접 고른다 (파일 이름에는 직원 이름만 있으면 된다). 한 번에 올리는 파일은 모두 같은 종류·월이다.
 const D = { rows: [], busy: false };
@@ -162,11 +171,7 @@ export function renderDistribute(body) {
     const one = async (r) => {
       r.state = "busy"; draw();
       try {
-        const old = (await getDocs(slipsOf(r.empId))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type && x.month === month);
-        const path = `hr/${r.empId}/pay/${type}__${month}__${Date.now()}__${r.file.name.replace(/[\\/]/g, "_")}`, contentType = contentTypeOf(r.file);
-        await uploadBytes(ref(storage, path), r.file, { contentType, customMetadata: { uploadedBy: auth.currentUser?.email || "" } });
-        await addDoc(slipsOf(r.empId), { type, month, path, fileName: r.file.name, size: r.file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
-        for (const x of old) { try { await removeSlip(r.empId, x); } catch (e) { console.warn("이전 파일 정리 실패", e.code || e); } }
+        await putSlip(r.empId, type, month, r.file);
         r.state = "done"; ok++;
       } catch (e) { console.error(e); r.state = "fail"; r.failMsg = errMsg(e); fail++; }
     };
@@ -185,9 +190,57 @@ export function renderDistribute(body) {
       rows.push({ e, slips });
     }));
     rows.sort((a, b) => a.e.name.localeCompare(b.e.name, "ko"));
-    const cell = (r, t) => { const x = r.slips.filter((y) => y.type === t).sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt))[0]; return x ? `<span class="badge s-active">배포</span> <span class="sub">${x.viewedAt ? "열람 " + esc(fmtDT(x.viewedAt)) : "미열람"}</span>` : `<span class="sub">—</span>`; };
-    const got = rows.filter((r) => r.slips.length).length;
-    $("dsStat").innerHTML = `<p style="margin:10px 0">${monthLabel(month)}: 받은 직원 <b>${got}</b> / ${rows.length}명</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>${SLIP_TYPES.salary}</th><th>${SLIP_TYPES.incentive}</th></tr></thead><tbody>${rows.map((r) => `<tr><td><a href="#emp/${esc(r.e.id)}">${esc(r.e.name)}</a></td><td class="sub">${esc(orgNames(r.e.orgIds))}</td><td>${cell(r, "salary")}</td><td>${cell(r, "incentive")}</td></tr>`).join("")}</tbody></table></div>`;
+    const cell = (r, t) => {
+      const x = r.slips.filter((y) => y.type === t).sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt))[0];
+      if (!x) return `<span class="sub">—</span>`;
+      const k = `data-sid="${esc(x.id)}" data-semp="${esc(r.e.id)}"`;
+      return `<span class="badge s-active">배포</span> <span class="sub">${x.viewedAt ? "열람 " + esc(fmtDT(x.viewedAt)) : "미열람"}</span>
+        <div class="slip-acts"><button class="btn btn-secondary btn-sm" ${k} data-sact="view">보기</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="edit">종류·월 수정</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="replace">파일 교체</button> <button class="btn btn-danger btn-sm" ${k} data-sact="del">삭제</button></div>`;
+    };
+    const got = rows.filter((r) => r.slips.length).length, count = (t) => rows.filter((r) => r.slips.some((x) => x.type === t)).length;
+    $("dsStat").innerHTML = `<p style="margin:10px 0">${monthLabel(month)}: 받은 직원 <b>${got}</b> / ${rows.length}명</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>${SLIP_TYPES.salary}</th><th>${SLIP_TYPES.incentive}</th></tr></thead><tbody>${rows.map((r) => `<tr><td><a href="#emp/${esc(r.e.id)}">${esc(r.e.name)}</a></td><td class="sub">${esc(orgNames(r.e.orgIds))}</td><td>${cell(r, "salary")}</td><td>${cell(r, "incentive")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="row-actions" style="margin-top:12px">${Object.entries(SLIP_TYPES).map(([k, v]) => count(k) ? `<button class="btn btn-danger btn-sm" data-delall="${k}">${monthLabel(month)} ${v} 전체 삭제 (${count(k)}건)</button>` : "").join(" ")}</div>`;
+    const find = (b) => { const r = rows.find((x) => x.e.id === b.dataset.semp); return { emp: r.e, s: r.slips.find((x) => x.id === b.dataset.sid) }; };
+    $("dsStat").querySelectorAll("[data-sact]").forEach((b) => (b.onclick = async () => {
+      const { emp, s } = find(b), act = b.dataset.sact;
+      if (act === "view") return openSlip(s, emp.id, { mine: false });
+      if (act === "del") {
+        if (!confirm(`${emp.name} 님의 ${monthLabel(s.month)} ${SLIP_TYPES[s.type]}(${s.fileName})를 삭제할까요? 직원도 더 이상 볼 수 없습니다.`)) return;
+        try { await removeSlip(emp.id, s); audit("payslip_delete", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]}` }); toast("삭제했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
+      } else if (act === "replace") {
+        const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic";
+        inp.onchange = async () => {
+          const f = inp.files?.[0]; if (!f) return; const bad = isAllowedFile(f); if (bad) return toast(bad, true);
+          if (!confirm(`${emp.name} 님의 ${monthLabel(s.month)} ${SLIP_TYPES[s.type]}를 ‘${f.name}’(으)로 바꿉니다. 직원은 새 파일을 보게 됩니다.`)) return;
+          try { await putSlip(emp.id, s.type, s.month, f); audit("payslip_upload", { targetEmployeeId: emp.id, detail: `${monthLabel(s.month)} ${SLIP_TYPES[s.type]} 교체` }); toast("교체했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
+        };
+        window.__slipReplaceInput = inp; inp.click();
+      } else openEdit(emp, s);
+    }));
+    $("dsStat").querySelectorAll("[data-delall]").forEach((b) => (b.onclick = async () => {
+      const t = b.dataset.delall, targets = rows.flatMap((r) => r.slips.filter((x) => x.type === t).map((x) => ({ emp: r.e, s: x })));
+      if (!confirm(`${monthLabel(month)} ${SLIP_TYPES[t]} ${targets.length}건을 모두 삭제합니다. 직원들은 더 이상 볼 수 없고 되돌릴 수 없습니다. 계속할까요?`)) return;
+      if (!confirm(`정말 ${targets.length}건을 삭제할까요?`)) return;
+      let ok = 0; for (const x of targets) { try { await removeSlip(x.emp.id, x.s); ok++; } catch (e) { console.warn(e.code || e); } }
+      audit("payslip_delete", { detail: `${monthLabel(month)} ${SLIP_TYPES[t]} 전체 ${ok}/${targets.length}건` }); toast(`${ok}건을 삭제했습니다`, ok !== targets.length); loadStatus();
+    }));
+  }
+  // 종류·월 바로잡기 (예: 10월로 잘못 올린 것을 11월로)
+  function openEdit(emp, s) {
+    $("seInfo").textContent = `${emp.name} · ${s.fileName}`;
+    $("seType").innerHTML = Object.entries(SLIP_TYPES).map(([k, v]) => `<option value="${k}" ${k === s.type ? "selected" : ""}>${v}</option>`).join("");
+    $("seMonth").value = s.month; $("seErr").textContent = "";
+    $("btnSeCancel").onclick = () => $("dlgSlipEdit").close();
+    $("btnSeSave").onclick = async () => {
+      const type = $("seType").value, month = $("seMonth").value;
+      if (!isMonth(month)) return ($("seErr").textContent = "월을 선택하세요.");
+      if (type === s.type && month === s.month) return $("dlgSlipEdit").close();
+      let others = []; try { others = (await getDocs(slipsOf(emp.id))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch {}
+      if (others.some((x) => x.id !== s.id && x.type === type && x.month === month)) return ($("seErr").textContent = `이미 ${monthLabel(month)} ${SLIP_TYPES[type]}가 있습니다. 그 파일을 먼저 삭제하거나 교체하세요.`);
+      try { await updateDoc(doc(db, "employees", emp.id, "payslips", s.id), { type, month, updatedAt: serverTimestamp() }); audit("payslip_edit", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]} → ${month} ${SLIP_TYPES[type]}` }); $("dlgSlipEdit").close(); toast("수정했습니다"); loadStatus(); }
+      catch (e) { console.error(e); $("seErr").textContent = errMsg(e); }
+    };
+    $("dlgSlipEdit").showModal();
   }
   draw();
 }

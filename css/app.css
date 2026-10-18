@@ -411,3 +411,4 @@ ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
 /* 명세서 */
 .slip-row{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--line, #E9ECEF); }
 .slip-row:first-of-type{ border-top:0; }
+.slip-acts{ display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }

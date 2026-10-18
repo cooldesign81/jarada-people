@@ -13,6 +13,7 @@ import {
   tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
 import { CORPS, corpName, corpFromText } from "./company.js";
+import { birthFromRrn } from "./rrn.js";
 import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
 import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
 import { initAdmin, renderAdmin } from "./admin.js";
@@ -833,11 +834,15 @@ function parseBulk(text) {
       if (b && !(can("rrnBack") && state.settings?.rrnBackEnabled !== false)) { errors.push(state.settings?.rrnBackEnabled === false ? "주민번호 뒷자리 수집이 꺼져 있습니다 (관리 → 설정)" : "주민번호 뒷자리를 저장할 권한이 없습니다 (뒷자리 칸을 비우세요)"); b = ""; }
       if (!errors.some((x) => x.startsWith("주민"))) { rrn.front = f; rrn.back = b; }
     }
+    // 생년월일 칸이 비어 있으면 주민번호로 채운다 (뒷자리가 있으면 정확, 없으면 나이로 추정)
+    const rrnBirth = rrn.front ? birthFromRrn(rrn.front, rrn.back[0] || "") : "";
+    if (!d.birthDate && rrnBirth) d.birthDate = rrnBirth;
     // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
     const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
     if (ex) {
       const patch = {};
       for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate", "corp"]) if (get(k)) patch[k] = d[k];
+      if (!get("birthDate") && !ex.birthDate && rrnBirth) patch.birthDate = rrnBirth;
       if (lvRaw) patch.level = d.level;
       if (stRaw) patch.status = d.status;
       if (names.length) { patch.orgIds = d.orgIds; patch.orgId = d.orgId; }
