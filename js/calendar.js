@@ -5,6 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { $, state, isHR, isAdmin, canManage, canApprove, esc, toast, errMsg, orgName, renderOrgChecks, readOrgChecks, audit } from "./core.js";
 import { addDays, daysInMonth, dow, eachDay, fmtKo, isYmd, pad, today, weekdayKo, parse } from "./dates.js";
+import { isCompanyLeave, appliedLeaves, openCompanyLeaveDialog, revokeCompanyLeave } from "./companyleave.js";
 import { LEAVE_TYPES, LEAVE_STATUS, holidaysFor, loadEvents, openLeaveDialog, openDecision, canDecide } from "./leave.js";
 
 const CATS = {
@@ -23,7 +24,11 @@ function buildEvents(from, to) {
   const out = new Map(); const add = (d, e) => { if (d < from || d > to) return; if (!out.has(d)) out.set(d, []); out.get(d).push(e); };
   const y1 = Number(from.slice(0, 4)), y2 = Number(to.slice(0, 4));
   const hol = holidaysFor(y1, y2);
-  for (const [d, name] of hol) add(d, { cat: "holiday", title: name, sub: "휴일", builtin: true });
+  // 내가 등록한 ‘휴일’ 일정은 수정할 수 있게 일정 번호를 붙이고, 내장 공휴일만 ‘참고용’으로 표시한다
+  for (const [d, name] of hol) {
+    const mine = state.events.find((ev) => ev.kind === "holiday" && ev.startDate <= d && d <= (ev.endDate || ev.startDate));
+    add(d, mine ? { cat: "holiday", title: mine.title || name, sub: "휴일", eventId: mine.id } : { cat: "holiday", title: name, sub: "휴일", builtin: true });
+  }
   // 생일 (매년 반복). 2/29 생일은 평년에 2/28
   for (const e of state.employees) {
     if (e.status === "resigned" || !isYmd(e.birthDate) || !inOrg(e.orgIds)) continue;
@@ -35,7 +40,7 @@ function buildEvents(from, to) {
   }
   // 휴가·연차 (승인 + 승인 대기). 주말·휴일은 건너뜀
   for (const l of state.leaves) {
-    if (!["approved", "submitted"].includes(l.status) || !inOrg(l.orgIds)) continue;
+    if (!["approved", "submitted"].includes(l.status) || !inOrg(l.orgIds) || l.source === "company") continue;   // 회사 지정 휴가는 아래 일정 한 줄로만 보여 준다
     if (l.endDate < from || l.startDate > to) continue;
     const t = LEAVE_TYPES[l.type] || { label: l.type, cat: "leave" };
     for (const d of eachDay(l.startDate < from ? from : l.startDate, l.endDate > to ? to : l.endDate)) {
@@ -49,7 +54,8 @@ function buildEvents(from, to) {
     if (cal.org && ev.orgIds?.length && !ev.orgIds.includes(cal.org)) continue;
     const end = ev.endDate && ev.endDate >= ev.startDate ? ev.endDate : ev.startDate;
     if (end < from || ev.startDate > to) continue;
-    for (const d of eachDay(ev.startDate < from ? from : ev.startDate, end > to ? to : end)) add(d, { cat: "event", title: ev.title, sub: ev.kind === "training" ? "교육" : "일정", eventId: ev.id });
+    const cl = isCompanyLeave(ev);
+    for (const d of eachDay(ev.startDate < from ? from : ev.startDate, end > to ? to : end)) { if (cl && (dow(d) === 0 || dow(d) === 6 || hol.has(d))) continue; add(d, { cat: cl ? "leave" : "event", title: ev.title, sub: cl ? "회사 지정 휴가" : ev.kind === "training" ? "교육" : "일정", eventId: ev.id }); }
   }
   for (const list of out.values()) list.sort((a, b) => (a.cat === "holiday" ? -1 : b.cat === "holiday" ? 1 : 0) || a.cat.localeCompare(b.cat) || String(a.title).localeCompare(String(b.title), "ko"));
   return out;
@@ -132,8 +138,25 @@ function openEvent(ev, date = "") {
   const sel = isAdmin() ? [state.role.orgId] : (ev?.orgIds || []);
   renderOrgChecks($("evOrgs"), { selected: sel, disabled: isAdmin(), onlyActive: true });
   $("evOrgHelp").textContent = isAdmin() ? "지점 관리자는 소속 지점 일정만 등록할 수 있습니다." : "아무것도 선택하지 않으면 전체 지점에 표시됩니다.";
-  $("btnEvDelete").classList.toggle("hidden", !ev); $("evErr").textContent = ""; $("dlgEvent").showModal();
+  $("btnEvDelete").classList.toggle("hidden", !ev); $("evErr").textContent = ""; refreshLeaveBox(); $("dlgEvent").showModal();
 }
+// 회사 지정 휴가 일정이면 연차 차감 상태·버튼을 보여 준다 (저장된 일정만)
+function refreshLeaveBox() {
+  const on = $("evKind").value === "companyLeave";
+  $("evLeaveBox").classList.toggle("hidden", !on);
+  if (!on) return;
+  const saved = editingEv && isCompanyLeave(editingEv), n = saved ? appliedLeaves(editingEv).length : 0;
+  $("evLeaveState").textContent = !editingEv ? "저장한 뒤에 연차 차감을 적용할 수 있습니다 (저장하면 바로 이어서 묻습니다)." : !saved ? "종류를 바꾼 내용을 먼저 저장한 뒤 적용하세요." : n ? `현재 ${n}명의 연차에서 차감 중입니다.` : "아직 연차에서 차감하지 않았습니다.";
+  $("btnEvApply").classList.toggle("hidden", !saved); $("btnEvRevoke").classList.toggle("hidden", !n);
+  $("btnEvApply").textContent = n ? "남은 직원 연차 차감…" : "연차 차감 적용…";
+}
+$("evKind").addEventListener("change", refreshLeaveBox);
+$("btnEvApply").onclick = () => { const ev = editingEv; $("dlgEvent").close(); openCompanyLeaveDialog(ev, () => renderCalendar()); };
+$("btnEvRevoke").onclick = async () => {
+  const ev = editingEv, n = appliedLeaves(ev).length;
+  if (!confirm(`‘${ev.title}’로 차감한 ${n}명의 연차를 되돌릴까요? (휴가는 취소 처리됩니다)`)) return;
+  const ok = await revokeCompanyLeave(ev); toast(`${ok}명의 연차를 되돌렸습니다`, ok !== n); refreshLeaveBox(); renderCalendar();
+};
 $("btnEventNew").onclick = () => openEvent(null);
 $("btnEvCancel").onclick = () => $("dlgEvent").close();
 $("btnEvSave").onclick = async () => {
@@ -144,14 +167,23 @@ $("btnEvSave").onclick = async () => {
   const orgIds = isAdmin() ? [state.role.orgId] : readOrgChecks($("evOrgs"));
   const data = { title, kind: $("evKind").value, startDate: start, endDate: end, note: $("evNote").value.trim().slice(0, 500), orgIds, updatedAt: serverTimestamp() };
   try {
-    if (editingEv) await updateDoc(doc(db, "calendarEvents", editingEv.id), data);
-    else await addDoc(collection(db, "calendarEvents"), { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
+    let id = editingEv?.id;
+    if (editingEv) await updateDoc(doc(db, "calendarEvents", id), data);
+    else id = (await addDoc(collection(db, "calendarEvents"), { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" })).id;
     audit(editingEv ? "event_update" : "event_create", { detail: `${title} ${start}~${end}` });
     $("dlgEvent").close(); toast("저장했습니다"); await loadEvents(); renderCalendar();
+    const saved = state.events.find((x) => x.id === id);
+    // 회사 지정 휴가는 저장 직후 연차 차감을 바로 이어서 묻는다 (이미 차감된 일정의 기간을 바꾼 경우는 안내만)
+    if (saved && isCompanyLeave(saved)) {
+      if (appliedLeaves(saved).length) toast("이미 차감된 연차는 그대로입니다. 기간을 바꿨다면 ‘차감 취소’ 후 다시 적용하세요.", true);
+      else if (confirm(`‘${saved.title}’ 기간을 직원들의 연차에서 지금 차감할까요?`)) openCompanyLeaveDialog(saved, () => renderCalendar());
+    }
   } catch (e) { console.error(e); err(errMsg(e)); }
 };
 $("btnEvDelete").onclick = async () => {
   if (!editingEv || !confirm(`‘${editingEv.title}’ 일정을 삭제할까요?`)) return;
+  const n = isCompanyLeave(editingEv) ? appliedLeaves(editingEv).length : 0;
+  if (n && confirm(`이 일정으로 연차를 차감한 직원이 ${n}명 있습니다. 차감한 연차도 함께 되돌릴까요? (취소하면 연차는 그대로 차감된 채 남습니다)`)) await revokeCompanyLeave(editingEv);
   try { await deleteDoc(doc(db, "calendarEvents", editingEv.id)); audit("event_delete", { detail: editingEv.title }); $("dlgEvent").close(); toast("삭제했습니다"); await loadEvents(); renderCalendar(); }
   catch (e) { console.error(e); $("evErr").textContent = errMsg(e); }
 };

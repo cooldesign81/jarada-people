@@ -540,7 +540,7 @@ service cloud.firestore {
       function validEvent() {
         let d = request.resource.data;
         return d.title is string && d.title.size() > 0 && d.title.size() <= 60
-          && d.kind in ['holiday', 'event', 'training']
+          && d.kind in ['holiday', 'event', 'training', 'companyLeave']
           && d.startDate is string && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
           && d.endDate is string && d.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && d.endDate >= d.startDate
           && d.orgIds is list && d.orgIds.size() <= 20;

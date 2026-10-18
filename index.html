@@ -287,17 +287,30 @@
     <button type="button" class="btn btn-secondary hidden" id="btnDayEvent">일정 추가</button><button type="button" class="btn btn-primary" id="btnDayLeave">휴가 신청</button></div>
 </dialog>
 
+<!-- 회사 지정 휴가: 연차 차감 미리보기 -->
+<dialog id="dlgCompanyLeave" class="wide">
+  <div class="dlg-head"><h2 id="clTitle">연차 차감</h2></div>
+  <div class="bulk-body">
+    <div id="clInfo" style="margin-bottom:10px"></div>
+    <div class="bulk-preview"><table class="tbl" id="clTable"></table></div>
+    <div class="msg error" id="clErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnClCancel">닫기</button><button type="button" class="btn btn-primary" id="btnClApply" disabled>연차 차감</button></div>
+</dialog>
+
 <!-- 일정 추가/수정 -->
 <dialog id="dlgEvent">
   <form onsubmit="return false">
   <div class="dlg-head"><h2>일정</h2></div>
   <div class="dlg-body">
     <div class="field full"><label for="evTitle">제목<span class="req">*</span></label><input class="input" id="evTitle" maxlength="60"></div>
-    <div class="field"><label for="evKind">종류</label><select id="evKind"><option value="event">행사·일정</option><option value="training">교육</option><option value="holiday">휴일 (휴가 일수에서 제외)</option></select></div>
+    <div class="field"><label for="evKind">종류</label><select id="evKind"><option value="event">행사·일정</option><option value="training">교육</option><option value="companyLeave">회사 지정 휴가 (전 직원 연차 차감)</option><option value="holiday">휴일 (휴가 일수에서 제외)</option></select></div>
     <div class="field"></div>
     <div class="field"><label for="evStart">시작일</label><input class="input" id="evStart" type="date"></div>
     <div class="field"><label for="evEnd">종료일</label><input class="input" id="evEnd" type="date"></div>
     <div class="field full"><label>대상 지점</label><div class="chk-group" id="evOrgs"></div><span class="help" id="evOrgHelp"></span></div>
+    <div class="field full hidden" id="evLeaveBox"><label>연차 차감</label><div id="evLeaveState" class="sub"></div>
+      <div class="row-actions" style="margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="btnEvApply">연차 차감 적용…</button> <button type="button" class="btn btn-secondary btn-sm hidden" id="btnEvRevoke">차감 취소 (연차 되돌리기)</button></div></div>
     <div class="field full"><label for="evNote">메모</label><textarea id="evNote" maxlength="500"></textarea></div>
     <div class="msg error dlg-err" id="evErr"></div>
   </div>

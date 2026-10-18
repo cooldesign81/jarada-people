@@ -526,6 +526,23 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await setPerms(null);
   await t("payLock: super reads", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc()).then(() => sup.doc("employees/emp_0003/private/payLock").get()));
   await t("payLock: super resets", true, () => sup.doc("employees/emp_0003/private/payLock").delete());
+
+  // ---- 회사 지정 휴가 (calendarEvents kind=companyLeave + 직원별 승인 연차) ----
+  const cev = (o = {}) => ({ title: "하계 휴가", kind: "companyLeave", startDate: "2026-08-10", endDate: "2026-08-14", orgIds: [], ...o });
+  await t("companyLeave: hr creates event", true, () => hr.doc("calendarEvents/cl1").set(cev()));
+  await t("companyLeave: admin creates own-org event", true, () => adm.doc("calendarEvents/cl2").set(cev({ orgIds: ["banpo"] })));
+  await t("companyLeave: admin cannot create all-branch event", false, () => adm.doc("calendarEvents/cl3").set(cev()));
+  await t("companyLeave: staff cannot create", false, () => stf.doc("calendarEvents/cl4").set(cev()));
+  await t("companyLeave: unknown kind denied", false, () => hr.doc("calendarEvents/cl5").set(cev({ kind: "vacation" })));
+  const cl = (empId, o = {}) => ({ ...LV(empId, { status: "approved", days: 5, startDate: "2026-08-10", endDate: "2026-08-14", reason: "하계 휴가 (회사 지정 휴가)", decidedBy: "u_hr", decidedAt: TS() }), source: "company", eventId: "cl1", ...o });
+  await t("companyLeave: hr creates approved annual for employee", true, () => hr.doc("leaveRequests/CL1").set(cl("emp_0003")));
+  await t("companyLeave: hr creates for another branch employee", true, () => hr.doc("leaveRequests/CL2").set(cl("emp_0005")));
+  await t("companyLeave: branch admin creates for own-org employee", true, () => adm.doc("leaveRequests/CL3").set(cl("emp_0004", { orgId: "banpo", orgIds: ["banpo"] })));
+  await t("companyLeave: branch admin cannot create for other-org employee", false, () => adm.doc("leaveRequests/CL4").set(cl("emp_0005")));
+  await t("companyLeave: staff cannot create approved for self", false, () => stf.doc("leaveRequests/CL5").set(cl("emp_0003")));
+  await t("companyLeave: hr cancels generated leave", true, () => hr.doc("leaveRequests/CL1").update({ status: "cancelled", decisionNote: "회사 지정 휴가 취소", decidedBy: "u_hr", decidedAt: TS(), updatedAt: TS() }));
+  await t("companyLeave: employee reads own generated leave", true, () => stf.doc("leaveRequests/CL2").get().catch(() => stf.collection("leaveRequests").where("employeeId", "==", "emp_0003").get()));
+  await t("companyLeave: super deletes event", true, () => sup.doc("calendarEvents/cl1").delete());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);
