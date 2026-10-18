@@ -36,7 +36,23 @@ export const AUDIT_ACTIONS = {
   leave_request: "휴가 신청", leave_register: "휴가 대리 등록", leave_approved: "휴가 승인", leave_rejected: "휴가 반려", leave_cancelled: "휴가 취소 처리", leave_cancel: "휴가 신청 취소",
   annual_adjust: "연차 조정", event_create: "일정 등록", event_update: "일정 수정", event_delete: "일정 삭제",
   emp_bulk_change: "직원 일괄 변경", notice_create: "공지 작성", notice_update: "공지 수정", notice_delete: "공지 삭제",
-  role_relink: "내 계정 연결 변경", labor_view: "인건비 조회", payslip: "급여명세서 발급", contract_draft: "근로계약서 초안 발급",
+  perms_change: "권한 설정 변경", role_relink: "내 계정 연결 변경", labor_view: "인건비 조회", payslip: "급여명세서 발급", contract_draft: "근로계약서 초안 발급",
   cert_issue: "증명서 발급", record_add: "인사 기록 추가", record_delete: "인사 기록 삭제",
   notice_create: "공지 등록", notice_delete: "공지 삭제", contract_issue: "계약서 작성", payslip_issue: "급여명세서 작성",
 };
+
+// ---------- 등급별 권한 설정 (관리 → 권한 설정) ----------
+// levels: 설정에서 켜고 끌 수 있는 등급 / def: 설정이 없을 때의 기본값 (firestore.rules·storage.rules 의 기본값과 같아야 함)
+// 최고관리자는 항상 모든 권한을 가지며 설정 대상이 아니다. 사원은 부여할 수 없다.
+export const PERM_LEVELS = [["hr", "대표이사"], ["principal", "원장"], ["admin", "부원장"], ["manager", "실장"], ["lead", "팀장"]];
+const ALL_MGR = ["hr", "principal", "admin", "manager", "lead"];
+export const PERMS = [
+  { key: "comp", label: "급여 정보", desc: "급여 조회·수정과 변경 이력, 급여명세서·근로계약서·퇴직금 예상, 지점별 인건비", levels: ["hr"], def: [] },
+  { key: "rrnBack", label: "주민번호 뒷자리 조회", desc: "직원이 입력한 주민등록번호 뒤 7자리를 볼 수 있음", levels: ["hr"], def: [] },
+  { key: "secDocs", label: "비공개서류·인사평가 파일", desc: "주민등록등본·통장사본 등 비공개서류와 인사평가·기타 파일의 열람·업로드·삭제", levels: ["hr"], def: [] },
+  { key: "audit", label: "감사 로그 열람", desc: "누가 언제 민감정보를 열었는지 보는 기록", levels: ["hr"], def: ["hr"] },
+  { key: "trash", label: "직원 삭제(휴지통)·복원", desc: "직원을 휴지통으로 옮기고 되살림 (‘직원 등록·수정’ 권한도 필요). 완전 삭제는 최고관리자만", levels: ["hr"], def: ["hr"] },
+  { key: "empWrite", label: "직원 등록·수정·일괄 등록", desc: "직원 기본 정보, 소속·등급·상태 변경, 일괄 등록 (원장·부원장은 소속 지점 직원만)", levels: ["hr", "principal", "admin"], def: ["hr", "principal", "admin"] },
+  { key: "leaveApprove", label: "휴가 승인·반려", desc: "휴가 신청 처리. 실장·팀장은 소속 지점 신청만", levels: ALL_MGR, def: ALL_MGR },
+  { key: "noticeWrite", label: "공지 작성·수정·삭제", desc: "대표이사는 전체·지점별, 원장·부원장은 소속 지점 공지만", levels: ["hr", "principal", "admin"], def: ["hr", "principal", "admin"] },
+];

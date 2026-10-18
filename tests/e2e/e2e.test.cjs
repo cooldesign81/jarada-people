@@ -257,7 +257,7 @@ const buf = (s) => Buffer.from(s);
     await page.evaluate(() => (location.hash = "#employees")); await page.click("#btnBulk"); await page.waitForTimeout(100);
     await page.fill("#bulkText", "이름\t이메일\t기본급\n급여넣기\tpaytest@jarada.kr\t1000000\n정상\tfine@jarada.kr\t");
     await page.waitForTimeout(100);
-    ok("C admin cannot bulk-import salary", (await page.textContent("#bulkPreview")).includes("급여 정보는 최고관리자만") && (await page.textContent("#bulkSummary")).includes("등록 가능 1명"), await page.textContent("#bulkSummary"));
+    ok("C admin cannot bulk-import salary", (await page.textContent("#bulkPreview")).includes("급여 정보를 등록할 권한이 없습니다") && (await page.textContent("#bulkSummary")).includes("등록 가능 1명"), await page.textContent("#bulkSummary"));
     await page.click("#btnBulkTemplate").catch(() => {});
     ok("C no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
@@ -321,7 +321,7 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u_hr", email: "hr@jarada.kr" }, store: st, files: J(snapFiles) });
     await page.goto(BASE + "/index.html#employees"); await page.waitForSelector("#viewEmployees:not(.hidden)");
     ok("H hr sees all employees", (await count(page, "#tblEmp tbody tr")) >= 6, await page.textContent("#empCount"));
-    ok("H hr nav", (await page.textContent("#nav")).includes("대시보드") && (await page.textContent("#appSub")).includes("본사 인사"));
+    ok("H hr nav", (await page.textContent("#nav")).includes("대시보드") && (await page.textContent("#appSub")).includes("대표이사"));
     ok("H hr can add org", await vis(page, "#btnBulk"));
     await page.evaluate(() => (location.hash = "#orgs")); await page.waitForSelector("#btnAddOrg:not(.hidden)");
     ok("H hr add-org button visible", await vis(page, "#btnAddOrg"));
@@ -348,7 +348,7 @@ const buf = (s) => Buffer.from(s);
     ok("H principal behaves as admin (scoped list)", JSON.stringify(await pr.page.$$eval("#tblEmp tbody tr", (r) => r.map((x) => x.dataset.id))) === '["emp_0002","emp_0003","emp_0004"]');
     await pr.page.evaluate(() => (location.hash = "#emp/emp_0004")); await pr.page.waitForSelector(".emp-name");
     await pr.page.click("#dBtnEdit"); await pr.page.waitForTimeout(100);
-    ok("H principal edit keeps principal", (await pr.page.inputValue("#fLevel")) === "principal" && (await pr.page.locator("#fLevel option").count()) === 4, await pr.page.locator("#fLevel option").allTextContents());
+    ok("H principal edit keeps principal", (await pr.page.inputValue("#fLevel")) === "principal" && (await pr.page.locator("#fLevel option").count()) === 5, await pr.page.locator("#fLevel option").allTextContents());
     await pr.page.click("#btnEmpCancel");
     await pr.page.evaluate(() => (location.hash = "#emp/emp_0001")).catch(() => {});
     await pr.ctx.close();
@@ -521,7 +521,7 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#viewAdmin:not(.hidden) .subtab");
     const tabs = await page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
-    ok("M super sees 6 admin tabs", tabs.length === 6 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
+    ok("M super sees 7 admin tabs", tabs.length === 7 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
     // CSV 내보내기
     await page.check("#xpPersonal"); await page.check("#xpComp");
     const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#btnXp")]);
@@ -1002,6 +1002,9 @@ const buf = (s) => Buffer.from(s);
     await n.page.fill("#fName", "양진혁"); await n.page.click("#btnEmpSave"); await n.page.waitForTimeout(500);
     const e1 = await S(n.page, "employees/emp_0001"), r1 = await S(n.page, "roles/u1");
     ok("V self save keeps super", e1.level === "super" && e1.name === "양진혁" && r1.level === "super" && r1.employeeId === "emp_0001", JSON.stringify([e1.level, r1]));
+    // 내 직원 문서를 어떻게 바꿔도 내 roles 등급은 건드리지 않는다
+    await n.page.click("#dBtnEdit"); await n.page.fill("#fPosition", "이사"); await n.page.click("#btnEmpSave"); await n.page.waitForTimeout(400);
+    ok("V own role never touched by syncRoles", (await S(n.page, "roles/u1")).level === "super");
     await n.ctx.close();
     // 계정이 엉뚱한 직원에 연결된 경우 경고 + 다시 연결
     const sl = J(snapStore); sl.roles.u9 = { level: "super", orgId: "hq", employeeId: "emp_0001" };
@@ -1021,6 +1024,61 @@ const buf = (s) => Buffer.from(s);
     await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector(".emp-name");
     ok("V branch admin has no delete button", (await count(a.page, "#dBtnTrash")) === 0);
     await a.ctx.close();
+  }
+
+
+  // ================= W. 권한 설정 메뉴 =================
+  {
+    const NOW = "2026-11-04T10:00:00+09:00";
+    const st = J(snapStore); st.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    st["employees/emp_0003/private"] = { ...(st["employees/emp_0003/private"] || {}), compensation: { baseSalary: "3000000" } };
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs");
+    await page.click('#adminTabs [data-t="perms"]'); await page.waitForSelector(".perm-tbl");
+    ok("W matrix renders all capabilities", (await count(page, ".perm-tbl tbody tr")) === 8 && (await count(page, '.perm-tbl input[data-perm="comp"]')) === 1);
+    ok("W defaults: audit/trash on for hr, comp off", (await page.isChecked('input[data-perm="audit"][value="hr"]')) && !(await page.isChecked('input[data-perm="comp"][value="hr"]')) && (await page.isChecked('input[data-perm="leaveApprove"][value="lead"]')));
+    ok("W branch levels cannot be given comp", (await count(page, 'input[data-perm="comp"][value="principal"]')) === 0);
+    await page.check('input[data-perm="comp"][value="hr"]'); await page.uncheck('input[data-perm="audit"][value="hr"]'); await page.uncheck('input[data-perm="noticeWrite"][value="admin"]');
+    await page.click("#btnPermSave"); await page.waitForTimeout(500);
+    const pm = await S(page, "settings/permissions");
+    ok("W saved to settings/permissions", pm && JSON.stringify(pm.comp) === '["hr"]' && pm.audit.length === 0 && !pm.noticeWrite.includes("admin") && pm.noticeWrite.includes("principal"), JSON.stringify(pm));
+    ok("W audit logged", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "perms_change"));
+    await page.click("#btnPermReset"); await page.waitForTimeout(400);
+    ok("W reset removes the document", !(await S(page, "settings/permissions")) && (await page.isChecked('input[data-perm="audit"][value="hr"]')));
+    ok("W no errors (super)", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 대표이사(hr): 기본값 → 급여 도구·감사 없음 아님(감사는 기본 허용), 권한 설정 탭 없음
+    const h0 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: J(st), files: J(snapFiles), now: NOW });
+    await h0.page.goto(BASE + "/index.html#emp/emp_0003"); await h0.page.waitForSelector(".emp-name"); await h0.page.waitForTimeout(300);
+    ok("W hr default: no comp card", (await count(h0.page, "#cBtnPayslip")) === 0);
+    await h0.page.evaluate(() => (location.hash = "#admin")); await h0.page.waitForSelector("#adminTabs");
+    const t0 = await h0.page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
+    ok("W hr default tabs: no perms/labor/settings, has audit/trash", !t0.some((x) => x.includes("권한 설정") || x.includes("인건비") || x.includes("설정") && !x.includes("권한")) && t0.some((x) => x.includes("감사")) && t0.some((x) => x.includes("휴지통")), t0.join("|"));
+    await h0.ctx.close();
+    // 권한을 열어 주면 화면에도 반영: comp 허용, audit/trash/empWrite 끔
+    const s1 = J(st); s1.settings = { ...(s1.settings || {}), permissions: { comp: ["hr"], audit: [], trash: [], empWrite: [], leaveApprove: ["hr"], noticeWrite: [], secDocs: [], rrnBack: [] } };
+    const h1 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: s1, files: J(snapFiles), now: NOW });
+    await h1.page.goto(BASE + "/index.html#emp/emp_0003"); await h1.page.waitForSelector(".emp-name"); await h1.page.waitForSelector("#cBtnPayslip");
+    ok("W hr with comp: sees salary card + tools", (await count(h1.page, "#cBtnContract")) === 1 && (await h1.page.inputValue("#cBase")) === "3000000");
+    ok("W hr without empWrite: no edit/delete buttons", (await count(h1.page, "#dBtnEdit")) === 0 && (await count(h1.page, "#dBtnTrash")) === 0);
+    await h1.page.evaluate(() => (location.hash = "#employees")); await h1.page.waitForSelector("#tblEmp tbody tr");
+    ok("W hr without empWrite: no add/bulk, no checkboxes", !(await vis(h1.page, "#btnAddEmp")) && !(await vis(h1.page, "#btnBulk")) && (await count(h1.page, "#selAll")) === 0);
+    await h1.page.evaluate(() => (location.hash = "#admin")); await h1.page.waitForSelector("#adminTabs");
+    const t1 = await h1.page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
+    ok("W hr tabs follow permissions", t1.some((x) => x.includes("인건비")) && !t1.some((x) => x.includes("감사")) && !t1.some((x) => x.includes("휴지통")), t1.join("|"));
+    await h1.ctx.close();
+    // 휴가 승인 권한: 실장에게서 끄면 처리 버튼이 사라진다
+    const s2 = J(st); s2.roles.u_m2 = { level: "manager", orgId: "anyang", employeeId: "emp_0002" };
+    s2.leaveRequests = { lq: { employeeId: "emp_0003", employeeName: "이교사", orgId: "anyang", orgIds: ["anyang", "banpo"], type: "annual", startDate: "2026-11-30", endDate: "2026-11-30", days: 1, status: "submitted" } };
+    const m1 = await newPage(browser, { user: { uid: "u_m2", email: "choi@jarada.kr" }, store: J(s2), files: {}, now: NOW });
+    await m1.page.goto(BASE + "/index.html#leaves"); await m1.page.waitForSelector("#viewLeaves:not(.hidden)"); await m1.page.waitForTimeout(400);
+    ok("W manager default can decide leave", (await count(m1.page, "[data-decide]")) >= 1);
+    await m1.ctx.close();
+    s2.settings = { ...(s2.settings || {}), permissions: { leaveApprove: ["hr"] } };
+    const m2 = await newPage(browser, { user: { uid: "u_m2", email: "choi@jarada.kr" }, store: s2, files: {}, now: NOW });
+    await m2.page.goto(BASE + "/index.html#leaves"); await m2.page.waitForSelector("#viewLeaves:not(.hidden)"); await m2.page.waitForTimeout(400);
+    ok("W manager without leaveApprove: no decide buttons", (await count(m2.page, "[data-decide]")) === 0);
+    await m2.ctx.close();
   }
 
   // ================= F. setup.html / 로그인 화면 =================

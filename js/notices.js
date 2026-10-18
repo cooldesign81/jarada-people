@@ -4,11 +4,11 @@
 import { db, auth } from "./firebase.js";
 import { collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, isHR, isAdmin, esc, toast, errMsg, orgName, orgNames, renderOrgChecks, readOrgChecks, tsMillis, audit } from "./core.js";
+import { $, state, can, isHR, isAdmin, esc, toast, errMsg, orgName, orgNames, renderOrgChecks, readOrgChecks, tsMillis, audit } from "./core.js";
 
 const N = { list: [], mine: {}, readers: null, loaded: false, open: "" };
-const canWrite = () => isHR() || isAdmin();
-const canEdit = (n) => isHR() || (isAdmin() && n.scope === "org" && (n.orgIds || []).length === 1 && n.orgIds[0] === state.role.orgId);
+const canWrite = () => can("noticeWrite");
+const canEdit = (n) => can("noticeWrite") && (isHR() || isAdmin() && n.scope === "org" && (n.orgIds || []).length === 1 && n.orgIds[0] === state.role.orgId);
 const ymdOf = (t) => { const d = new Date(tsMillis(t) || Date.now()); return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`; };
 
 export async function loadNotices() {

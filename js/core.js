@@ -1,20 +1,21 @@
 // 공용 상태·유틸 (app.js / detail.js 가 함께 사용)
 import { db, auth } from "./firebase.js";
+import { PERMS } from "./schema.js";
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 export const $ = (id) => document.getElementById(id);
 
-export const LEVELS    = { super: "최고관리자", hr: "본사 인사", edu: "교육팀", principal: "원장", admin: "관리자", manager: "실장", staff: "직원" };
-export const ORG_LEVELS = ["staff", "manager", "admin", "principal"];   // 지점 관리자가 부여할 수 있는 등급
+export const LEVELS    = { super: "최고관리자", hr: "대표이사", principal: "원장", admin: "부원장", manager: "실장", lead: "팀장", staff: "사원", edu: "교육팀" };   // 교육팀(edu)은 예전 등급: 기존 데이터만 표시하고 새로 부여하지는 않음
+export const ORG_LEVELS = ["staff", "lead", "manager", "admin", "principal"];   // 지점 관리자가 부여할 수 있는 등급
 export const STATUS    = { active: "재직", leave: "휴직", resigned: "퇴직" };
 export const ORG_TYPES = { hq: "본사", branch: "지점" };
 
 export const state = {
   user: null, role: null,
   orgs: [], employees: [], me: null,
-  leaves: [], events: [], settings: {}, trash: [],
+  leaves: [], events: [], settings: {}, trash: [], perms: {},
   selfMode: false,            // 등록 링크(익명 로그인)로 들어온 경우
   editing: null, editingOrg: null,
   noRoleReason: "",
@@ -23,8 +24,15 @@ export const isSuper   = () => state.role?.level === "super";
 export const isHR      = () => ["super", "hr"].includes(state.role?.level);          // 모든 지점 관리
 export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level);   // 소속 지점 관리
 export const canManage = () => isHR() || isAdmin();
-export const isMgr     = () => ["admin", "principal", "manager"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
+export const isMgr     = () => ["admin", "principal", "manager", "lead"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
 export const canApprove = () => isHR() || isMgr();
+// 관리 → 권한 설정에서 정한 기능 권한 (최고관리자는 항상 true). 규칙(firestore.rules)이 실제로 막고, 이 값은 화면 표시용
+export function can(cap) {
+  if (isSuper()) return true;
+  const def = PERMS.find((p) => p.key === cap); if (!def) return false;
+  const lv = state.role?.level;
+  return def.levels.includes(lv) && (Array.isArray(state.perms?.[cap]) ? state.perms[cap] : def.def).includes(lv);
+}
 
 export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -96,6 +104,8 @@ export async function syncRoles(employeeId, data) {
     if (data.status === "resigned") return deleteDoc(d.ref);
     // 등록 링크로 만들어진 권한(selfToken)은 항상 ‘직원’ 등급 유지 — 승격되지 않게 건너뜀
     if (d.data().selfToken) return null;
+    // 내 권한 문서는 내가 직원 정보를 고치다가 바뀌지 않게 건너뜀 (실수로 내 권한이 낮아지는 사고 방지)
+    if (d.id === auth.currentUser?.uid) return null;
     return updateDoc(d.ref, { level: data.level, orgId: data.orgId });
   }));
 }

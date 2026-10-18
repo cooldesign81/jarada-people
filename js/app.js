@@ -8,7 +8,7 @@ import {
   query, where, limit, runTransaction, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, canManage, canApprove, esc, toast, errMsg,
+  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, canManage, canApprove, can, esc, toast, errMsg,
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
   tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
@@ -165,6 +165,8 @@ async function resolveRole(user) {
 async function loadSettings() {
   try { const s = await getDoc(doc(db, "settings", "app")); state.settings = s.exists() ? s.data() : {}; }
   catch (e) { state.settings = {}; }
+  try { const p = await getDoc(doc(db, "settings", "permissions")); state.perms = p.exists() ? p.data() : {}; }
+  catch (e) { state.perms = {}; }
 }
 
 async function loadAll() {
@@ -384,7 +386,8 @@ function renderEmployees(keepPage) {
   if (!keepPage) lv.page = 1;
   lv.page = Math.min(Math.max(1, lv.page), pages);
   const view = list.slice((lv.page - 1) * PAGE_SIZE, lv.page * PAGE_SIZE);
-  const cols = listCols(), bulk = isHR();
+  const cols = listCols(), bulk = isHR() && can("empWrite");
+  $("btnAddEmp").classList.toggle("hidden", !can("empWrite")); $("btnBulk").classList.toggle("hidden", !can("empWrite"));
   $("empCount").textContent = `${list.length}명`;
   $("tblEmp").innerHTML = list.length
     ? `<thead><tr>${bulk ? `<th style="width:34px"><input type="checkbox" id="selAll" title="이 쪽 전체 선택" ${view.length && view.every((e) => lv.sel.has(e.id)) ? "checked" : ""}></th>` : ""}${cols.map((c) =>
@@ -406,7 +409,8 @@ function renderEmployees(keepPage) {
 function renderBulkBar() {
   const bar = $("empBulkBar"); const ids = [...lv.sel].filter((id) => state.employees.some((e) => e.id === id));
   lv.sel = new Set(ids);
-  if (!isHR() || !ids.length) { bar.classList.add("hidden"); return; }
+  if (!(isHR() && can("empWrite")) || !ids.length) { bar.classList.add("hidden"); return; }
+  $("bulkTrash").classList.toggle("hidden", !can("trash"));
   bar.classList.remove("hidden");
   $("bulkCount").textContent = `${ids.length}명 선택`;
   fillOrgSelect($("bulkOrg"), { onlyActive: true });
@@ -417,7 +421,7 @@ $("bulkOrgGo").onclick = () => bulkChange({ addOrg: $("bulkOrg").value }, `‘${
 $("bulkOrgMove").onclick = () => bulkChange({ moveOrg: $("bulkOrg").value }, `소속을 ‘${orgName($("bulkOrg").value)}’ 한 곳으로 바꿉니다.`);
 async function bulkChange(op, desc) {
   const targets = state.employees.filter((e) => lv.sel.has(e.id));
-  if (!targets.length || !isHR()) return;
+  if (!targets.length || !isHR() || !can("empWrite")) return;
   if (op.status === "resigned" && !confirm("퇴직으로 바꾸면 이 직원들의 로그인 권한이 제거됩니다.")) return;
   if (!confirm(`${targets.length}명에 대해 ${desc} 계속할까요?`)) return;
   let ok = 0, fail = 0;
@@ -460,6 +464,7 @@ function openEmp(id) {
   const emp = id ? state.employees.find((e) => e.id === id) : null;
   if (id && !emp) return;
   if (!canManage()) return;
+  if (!can("empWrite")) return toast("직원 정보를 수정할 권한이 없습니다. (관리 → 권한 설정에서 최고관리자가 정합니다)", true);
   state.editing = emp;
   const self   = !!emp && emp.id === state.role.employeeId;
   const locked = !!emp && !isSuper() && (isAdmin() ? !ORG_LEVELS.includes(emp.level) : emp.level === "super"); // 본사 등급은 지점 관리자가, 최고관리자는 본사 인사가 수정할 수 없음
@@ -471,13 +476,13 @@ function openEmp(id) {
     : [state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (state.orgs.find((o) => o.active !== false)?.id || "")].filter(Boolean);
   renderOrgChecks($("fOrgs"), { selected: defOrgs, disabled: isAdmin() || locked, onlyActive: !emp });
 
-  const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k)));
+  const levels = Object.entries(LEVELS).filter(([k]) => (k !== "edu" || emp?.level === "edu") && (isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k))));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   // 본인 문서는 직원 문서에 등급이 비어 있어도 실제 권한(roles)을 보여주고 그대로 저장한다 (안 그러면 저장하다 내 권한이 낮아질 수 있음)
   $("fLevel").value = self && levels.some(([k]) => k === state.role.level) ? state.role.level : emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
   $("fLevel").disabled = self || locked;
   $("fLevelHelp").textContent = self ? "본인 권한은 변경할 수 없습니다" :
-    (isHR() ? "최고관리자·본사 인사: 전체 / 관리자·원장: 소속 지점 / 직원: 본인 정보만" : "관리자·원장: 소속 지점 / 직원: 본인 정보만");
+    (isHR() ? "최고관리자: 전체(급여 포함) / 대표이사: 전체 지점 / 원장·부원장: 소속 지점 관리 / 실장·팀장: 소속 지점 조회·휴가 승인 / 사원: 본인 정보만" : "원장·부원장: 소속 지점 관리 / 실장·팀장: 소속 지점 조회·휴가 승인 / 사원: 본인 정보만");
 
   $("fName").value     = emp?.name || "";
   $("fEmail").value    = emp?.email || "";
@@ -493,7 +498,7 @@ function openEmp(id) {
   ["fName", "fEmail", "fPosition", "fPhone", "fJoined", "fBirth", "fProbation", "fContractEnd", "fMemo"].forEach((i) => ($(i).disabled = locked));
   $("empErr").textContent = "";
   $("btnEmpSave").classList.toggle("hidden", locked);
-  $("btnEmpDelete").classList.toggle("hidden", !(emp && isHR() && !self && !locked));
+  $("btnEmpDelete").classList.toggle("hidden", !(emp && can("trash") && isHR() && !self && !locked));
   $("dlgEmp").showModal();
   if (!locked) $("fName").focus();
 }
@@ -505,7 +510,7 @@ function validateEmp(d, emp) {
   if (!LEVELS[d.level]) return "권한을 선택하세요.";
   if (!STATUS[d.status]) return "상태를 선택하세요.";
   if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
-    return "지점 관리자는 소속 지점 직원만, 직원·실장·관리자·원장 권한으로 등록할 수 있습니다.";
+    return "지점 관리자는 소속 지점 직원만, 사원·팀장·실장·부원장·원장 등급으로 등록할 수 있습니다.";
   if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
   const dup = [...state.employees, ...state.trash].find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
@@ -567,7 +572,7 @@ $("formEmp").addEventListener("submit", async (ev) => {
 
 // 직원을 휴지통으로 옮긴다 (목록에서 숨기고 로그인 권한 제거). 복원·완전 삭제는 관리 → 휴지통
 async function trashEmployees(list) {
-  if (!isHR()) return { ok: 0, fail: 0 };
+  if (!can("trash") || !can("empWrite")) return { ok: 0, fail: list.length };
   let ok = 0, fail = 0;
   for (const emp of list) {
     try {
@@ -595,7 +600,7 @@ $("btnEmpDelete").onclick = async () => {
 };
 $("bulkTrash").onclick = async () => {
   const targets = state.employees.filter((e) => lv.sel.has(e.id));
-  if (!targets.length || !isHR()) return;
+  if (!targets.length || !can("trash")) return;
   if (!confirm(`선택한 ${targets.length}명을 휴지통으로 옮길까요?\n${TRASH_NOTE}`)) return;
   const r = await trashEmployees(targets);
   toast(`${r.ok}명을 휴지통으로 옮겼습니다${r.fail ? `, ${r.fail}명 실패` : ""}`, !!r.fail);
@@ -662,7 +667,7 @@ const BULK_COLS = [
   { key: "otherSalary", label: "기타 급여", alias: ["기타급여"], comp: true },
   { key: "memo",        label: "급여 메모", alias: ["급여메모"], comp: true, long: true },
 ];
-const LEVEL_WORDS  = { 직원: "staff", staff: "staff", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 실장: "manager", manager: "manager", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
+const LEVEL_WORDS  = { 사원: "staff", 직원: "staff", staff: "staff", 팀장: "lead", lead: "lead", 실장: "manager", manager: "manager", 부원장: "admin", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 대표이사: "hr", 대표: "hr", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
 const bulk = { rows: [], busy: false };
 const nrm = (s) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
@@ -784,7 +789,7 @@ function parseBulk(text) {
     }
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
-    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 직원·실장·관리자·원장 권한만 부여");
+    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 사원·팀장·실장·부원장·원장 등급만 부여");
     if (isAdmin() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
       errors.push("관리자는 소속 조직 직원만 등록 가능");
     // 급여 열 (숫자 칸은 1,000,000 / 100만원처럼 쉼표·‘원’이 있어도 숫자만 뽑음)
@@ -797,7 +802,7 @@ function parseBulk(text) {
       } else if (v.length > (c.long ? 2000 : 200)) errors.push(`${c.label}이 너무 깁니다`);
       if (v) comp[c.key] = v;
     }
-    if (Object.keys(comp).length && !isSuper()) errors.push("급여 정보는 최고관리자만 등록할 수 있습니다");
+    if (Object.keys(comp).length && !can("comp")) errors.push("급여 정보를 등록할 권한이 없습니다");
     // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
     const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
     if (ex) {
@@ -842,7 +847,7 @@ function renderBulk() {
 }
 
 function openBulk() {
-  if (!canManage()) return;
+  if (!canManage() || !can("empWrite")) return;
   const sel = $("bulkOrg");
   fillOrgSelect(sel, { onlyActive: true });
   sel.value = state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (sel.options[0]?.value || "");
@@ -902,13 +907,13 @@ $("btnBulkTemplate").onclick = () => {
   const o = state.orgs.find((x) => x.type !== "hq") || state.orgs[0];
   const sample = o?.name || "본사";
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  const cols = BULK_COLS.filter((c) => isSuper() || !c.comp);
+  const cols = BULK_COLS.filter((c) => can("comp") || !c.comp);
   const rows = [
-    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직", birthDate: "1995-05-21",
+    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "사원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
       baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
-    { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "관리자", status: "재직", workStartDate: "2020-01-01" },
+    { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "원장", status: "재직", workStartDate: "2020-01-01" },
   ];
   const csv = "\uFEFF" + [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => r[c.key] ?? ""))]
     .map((r) => r.map(csvCell).join(",")).join("\r\n");

@@ -1,7 +1,7 @@
 // 내보내기(CSV)와 전체 백업(JSON)
 import { db } from "./firebase.js";
 import { doc, getDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { state, isSuper, isHR, toast, errMsg, orgNames, audit, LEVELS, STATUS } from "./core.js";
+import { state, can, isSuper, isHR, toast, errMsg, orgNames, audit, LEVELS, STATUS } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS } from "./schema.js";
 import { today } from "./dates.js";
 
@@ -32,7 +32,7 @@ export const BASE_COLUMNS = [
 // 직원 목록 CSV. personal/comp 는 직원마다 하위 문서를 읽으므로 시간이 걸린다. 주민등록번호는 내보내지 않는다.
 export async function exportEmployees(list, { personal = false, comp = false } = {}, onStep) {
   if (!list.length) return toast("내보낼 직원이 없습니다.", true);
-  personal = personal && isHR(); comp = comp && isSuper();
+  personal = personal && isHR(); comp = comp && can("comp");
   try {
     const cols = [...BASE_COLUMNS];
     const extra = {};

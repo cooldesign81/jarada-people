@@ -22,6 +22,8 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
     await set("roles/u_adm", { level: "admin", orgId: "banpo", employeeId: "emp_0004" });
     await set("roles/u_mgr", { level: "manager", orgId: "anyang", employeeId: "emp_m" });
     await set("roles/u_staff", { level: "staff", orgId: "anyang", employeeId: "emp_0003" });
+    await set("roles/u_lead", { level: "lead", orgId: "anyang", employeeId: "emp_l" });
+    await set("employees/emp_l", emp({ name: "팀장", email: "lead@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "lead" }));
     await set("roles/u_bstaff", { level: "staff", orgId: "banpo", employeeId: "emp_b" });
     await set("roles/u_hrtarget", { level: "hr", orgId: "banpo", employeeId: "emp_x" });
     await set("roles/u_banstaff2", { level: "staff", orgId: "banpo", employeeId: "emp_s2" });
@@ -397,6 +399,66 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("noticeReads: admin lists own org only", true, () => adm.collection("noticeReads").where("orgId", "==", "banpo").get());
   await t("noticeReads: admin unfiltered list denied", false, () => adm.collection("noticeReads").get());
   await t("noticeReads: staff list denied", false, () => stf.collection("noticeReads").get());
+
+  // ---- 팀장(lead): 실장과 같은 조회·휴가 승인 권한, 쓰기는 불가 ----
+  const lead = as("u_lead", "lead@jarada.kr");
+  await t("lead: reads employee of own org", true, () => lead.doc("employees/emp_0005").get());
+  await t("lead: cannot read employee of other org only", false, () => lead.doc("employees/emp_0004").get());
+  await t("lead: cannot create employee", false, () => lead.doc("employees/emp_9").set(emp({ name: "x", orgId: "anyang", orgIds: ["anyang"] })));
+  await t("lead: cannot update employee", false, () => lead.doc("employees/emp_0005").update({ position: "x" }));
+  await t("lead: cannot read compensation", false, () => lead.doc("employees/emp_0003/private/compensation").get());
+  await t("lead: cannot read personal info", false, () => lead.doc("employees/emp_0003/private/personalInfo").get());
+  await t("lead: reads leave of own org (query)", true, () => lead.collection("leaveRequests").where("orgId", "==", "anyang").get());
+  await t("lead: approves leave of own org", true, async () => { await env.withSecurityRulesDisabled((c) => c.firestore().doc("leaveRequests/LL1").set(LV("emp_0005"))); return lead.doc("leaveRequests/LL1").update({ status: "approved", decidedBy: "u_lead", decidedAt: TS(), updatedAt: TS() }); });
+  await t("hr can grant lead level", true, () => hr.doc("employees/emp_0006").update({ level: "lead" }));
+  await t("admin(banpo) can grant lead level", true, () => adm.doc("employees/emp_0004").update({ level: "admin", position: "x" }));
+  await t("level value outside list denied", false, () => hr.doc("employees/emp_0006").update({ level: "ceo" }));
+
+  // ---- 등급별 권한 설정 (settings/permissions) ----
+  const setPerms = (d) => env.withSecurityRulesDisabled((c) => (d ? c.firestore().doc("settings/permissions").set(d) : c.firestore().doc("settings/permissions").delete()));
+  await setPerms(null);
+  await t("perms: super writes settings/permissions", true, () => sup.doc("settings/permissions").set({ comp: [] }));
+  await t("perms: hr cannot write settings/permissions", false, () => hr.doc("settings/permissions").set({ comp: ["hr"] }));
+  await t("perms: everyone with a role can read it", true, () => stf.doc("settings/permissions").get());
+  await setPerms(null);
+  // 기본값(문서 없음)
+  await t("perms default: hr reads audit log", true, () => hr.doc("auditLogs/a1").get());
+  await t("perms default: hr cannot read compensation", false, () => hr.doc("employees/emp_0003/private/compensation").get());
+  await t("perms default: hr cannot read resident back", false, () => hr.doc("employees/emp_0003/private/residentBack").get());
+  // 급여·주민번호 뒷자리: 대표이사(hr)에게만 열 수 있다
+  await setPerms({ comp: ["hr", "admin"], rrnBack: ["hr"] });
+  await t("perms comp[hr]: hr reads compensation", true, () => hr.doc("employees/emp_0003/private/compensation").get());
+  await t("perms comp[hr]: hr writes compensation", true, () => hr.doc("employees/emp_0003/private/compensation").set({ baseSalary: "2" }));
+  await t("perms comp[hr]: hr reads compHistory", true, () => hr.collection("employees/emp_0003/compHistory").get());
+  await t("perms comp[hr]: hr creates compHistory", true, () => hr.doc("employees/emp_0003/compHistory/zz").set({ date: "2026-10-01", changes: [] }));
+  await t("perms comp: branch admin listed but still denied", false, () => adm.doc("employees/emp_0003/private/compensation").get());
+  await t("perms comp: edu still denied", false, () => edu.doc("employees/emp_0003/private/compensation").get());
+  await t("perms rrnBack[hr]: hr reads resident back", true, () => hr.doc("employees/emp_0003/private/residentBack").get());
+  await t("perms rrnBack[hr]: hr writes resident back", true, () => hr.doc("employees/emp_0003/private/residentBack").set({ value: "1234567" }));
+  await t("perms rrnBack: staff still cannot read back digits", false, () => stf.doc("employees/emp_0003/private/residentBack").get());
+  await setPerms({ audit: [], trash: [], empWrite: ["principal"], leaveApprove: ["principal"], noticeWrite: [] });
+  await t("perms audit[]: hr cannot read audit log", false, () => hr.doc("auditLogs/a1").get());
+  await t("perms audit[]: super still reads", true, () => sup.doc("auditLogs/a1").get());
+  await t("perms empWrite[principal]: hr cannot update employee", false, () => hr.doc("employees/emp_0006").update({ position: "새 직책" }));
+  await t("perms empWrite[principal]: hr cannot create employee", false, () => hr.doc("employees/emp_77").set(emp({ name: "신규", email: "n77@jarada.kr" })));
+  await t("perms empWrite[principal]: super still updates", true, () => sup.doc("employees/emp_0006").update({ position: "새 직책" }));
+  await t("perms trash[]: super can still trash", true, () => sup.doc("employees/emp_0006").update({ deleted: true, status: "resigned" }));
+  await t("perms leaveApprove[principal]: manager cannot approve", false, async () => { await env.withSecurityRulesDisabled((c) => c.firestore().doc("leaveRequests/PL1").set(LV("emp_0005"))); return mgr.doc("leaveRequests/PL1").update({ status: "approved", decidedBy: "u_mgr", decidedAt: TS(), updatedAt: TS() }); });
+  await t("perms leaveApprove[principal]: hr cannot approve", false, () => hr.doc("leaveRequests/PL1").update({ status: "approved", decidedBy: "u_hr", decidedAt: TS(), updatedAt: TS() }));
+  await t("perms leaveApprove[principal]: super approves", true, () => sup.doc("leaveRequests/PL1").update({ status: "approved", decidedBy: "u_super", decidedAt: TS(), updatedAt: TS() }));
+  await t("perms noticeWrite[]: hr cannot create notice", false, () => hr.doc("notices/pn1").set(nt()));
+  await t("perms noticeWrite[]: admin cannot create notice", false, () => adm.doc("notices/pn2").set(nt({ scope: "org", orgIds: ["banpo"], createdBy: "u_adm" })));
+  await t("perms noticeWrite[]: super creates notice", true, () => sup.doc("notices/pn3").set(nt({ createdBy: "u_super" })));
+  await setPerms({ noticeWrite: ["admin"], trash: ["hr"], empWrite: ["hr"], leaveApprove: ["hr", "manager"] });
+  await t("perms noticeWrite[admin]: admin creates own-org notice", true, () => adm.doc("notices/pn4").set(nt({ scope: "org", orgIds: ["banpo"], createdBy: "u_adm" })));
+  await t("perms noticeWrite[admin]: hr cannot", false, () => hr.doc("notices/pn5").set(nt()));
+  await t("perms empWrite[hr]: hr updates employee", true, () => hr.doc("employees/emp_0005").update({ position: "직책" }));
+  await t("perms empWrite[hr]: branch admin cannot update", false, () => adm.doc("employees/emp_0003").update({ position: "x" }));
+  await t("perms trash[hr]: hr can trash", true, () => hr.doc("employees/emp_0005").update({ deleted: true, status: "resigned" }));
+  await t("perms trash: branch admin cannot touch deleted flag", false, () => adm.doc("employees/emp_0003").update({ deleted: true }));
+  await t("perms leaveApprove[hr,manager]: manager approves own org", true, () => mgr.doc("leaveRequests/PL1").update({ status: "rejected", decisionNote: "x", decidedBy: "u_mgr", decidedAt: TS(), updatedAt: TS() }));
+  await t("perms: malformed value denies instead of opening", false, async () => { await setPerms({ comp: "hr" }); return hr.doc("employees/emp_0003/private/compensation").get(); });
+  await setPerms(null);
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

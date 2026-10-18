@@ -9,6 +9,7 @@ module.exports = () => {
   s = s.replace("function roleExists() { return signedIn() && firestore.exists(rolePath()); }", "function roleExists() { return signedIn() && request.auth.token.get('lvl', '') != ''; }");
   s = s.replace(/    function role\(\) \{[^\n]*\n/, "");
   s = s.split("role().level").join("request.auth.token.lvl").split("role().get('employeeId', '')").join("request.auth.token.get('eid', '')");
+  s = s.replace(/function secAllowed\(\) \{[\s\S]*?\n    \}\n/, "function secAllowed() { return isSuper() || (roleExists() && request.auth.token.lvl == 'hr' && request.auth.token.get('sec', false)); }\n");
   s = s.replace(/function selfTokenValid\(empId\) \{[\s\S]*?\n    \}\n/, "function selfTokenValid(empId) { return true; }\n");
   s = s.replace(/function adminOf\(empId\) \{[\s\S]*?\n    \}\n/, "function adminOf(empId) {\n      return isAdmin() && request.auth.token.org in request.auth.token.get('emp_' + empId, []);\n    }\n");
   must(s !== before, "no change");

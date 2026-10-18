@@ -4,7 +4,7 @@ import {
   collection, doc, getDocs, addDoc, updateDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, state, isHR, isAdmin, isMgr, canApprove, canManage, esc, toast, errMsg, orgNames, branchTags, audit, toEmp
+  $, state, can, isHR, isAdmin, isMgr, canApprove, canManage, esc, toast, errMsg, orgNames, branchTags, audit, toEmp
 } from "./core.js";
 import { addDays, addMonths, addYears, eachDay, fmtKo, isWeekend, isYmd, today, monthKey } from "./dates.js";
 import { holidayMap } from "./holidays.js";
@@ -45,7 +45,7 @@ export async function loadEvents() {
 // ---------- 권한 ----------
 const myEmpId = () => state.role?.employeeId;
 export function canDecide(l) {
-  if (!canApprove()) return false;
+  if (!canApprove() || !can("leaveApprove")) return false;
   if (l.employeeId === myEmpId() && !(state.role?.level === "super")) return false;   // 본인 신청은 대표만 처리
   return isHR() || l.orgId === state.role.orgId || (l.orgIds || []).includes(state.role.orgId);
 }

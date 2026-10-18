@@ -140,7 +140,8 @@ table.tbl{ width:100%; border-collapse:collapse; font-size:14px; }
 .badge.s-resigned{ background:#EEEEEE; color:var(--text-sub); }
 .badge.l-super{ background:var(--slot-navy); color:#fff; }
 .badge.l-admin{ background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); }
-.badge.l-staff, .badge.l-manager{ background:#F0F0F0; color:var(--text); }
+.badge.l-staff{ background:#F0F0F0; color:var(--text); }
+.badge.l-manager, .badge.l-lead{ background:#FFF4E8; color:#D9480F; }
 .badge.l-principal{ background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); }
 .badge.l-hr, .badge.l-edu{ background:#fff; border:1px solid var(--slot-navy); color:var(--slot-navy); }
 .badge.o-hq{ background:#F0F0F0; color:var(--text); }
@@ -400,3 +401,9 @@ th.sortable:hover{ color:var(--brand-orange); }
 .name-row{ display:flex; gap:14px; align-items:center; }
 .avatar-lg{ width:64px; height:64px; font-size:26px; }
 .photo-actions{ margin-top:6px; display:flex; gap:6px; }
+
+/* 권한 설정 표 */
+.perm-tbl th.c, .perm-tbl td.c{ text-align:center; white-space:nowrap; }
+.perm-tbl td:first-child{ min-width:240px; white-space:normal; }
+.perm-tbl input[type=checkbox]{ width:18px; height:18px; }
+ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
