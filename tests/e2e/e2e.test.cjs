@@ -1002,6 +1002,9 @@ const buf = (s) => Buffer.from(s);
     await n.page.fill("#fName", "양진혁"); await n.page.click("#btnEmpSave"); await n.page.waitForTimeout(500);
     const e1 = await S(n.page, "employees/emp_0001"), r1 = await S(n.page, "roles/u1");
     ok("V self save keeps super", e1.level === "super" && e1.name === "양진혁" && r1.level === "super" && r1.employeeId === "emp_0001", JSON.stringify([e1.level, r1]));
+    // 내 직원 문서를 어떻게 바꿔도 내 roles 등급은 건드리지 않는다
+    await n.page.click("#dBtnEdit"); await n.page.fill("#fPosition", "이사"); await n.page.click("#btnEmpSave"); await n.page.waitForTimeout(400);
+    ok("V own role never touched by syncRoles", (await S(n.page, "roles/u1")).level === "super");
     await n.ctx.close();
     // 계정이 엉뚱한 직원에 연결된 경우 경고 + 다시 연결
     const sl = J(snapStore); sl.roles.u9 = { level: "super", orgId: "hq", employeeId: "emp_0001" };

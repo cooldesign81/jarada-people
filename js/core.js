@@ -96,6 +96,8 @@ export async function syncRoles(employeeId, data) {
     if (data.status === "resigned") return deleteDoc(d.ref);
     // 등록 링크로 만들어진 권한(selfToken)은 항상 ‘직원’ 등급 유지 — 승격되지 않게 건너뜀
     if (d.data().selfToken) return null;
+    // 내 권한 문서는 내가 직원 정보를 고치다가 바뀌지 않게 건너뜀 (실수로 내 권한이 낮아지는 사고 방지)
+    if (d.id === auth.currentUser?.uid) return null;
     return updateDoc(d.ref, { level: data.level, orgId: data.orgId });
   }));
 }
