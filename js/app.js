@@ -241,8 +241,27 @@ function updateBadges() {
   document.querySelectorAll('.tab[data-view="notices"]').forEach((t) => { t.innerHTML = `공지${u ? ` <span class="tab-badge">${u}</span>` : ""}`; });
 }
 
+// 로그인한 구글 계정의 이메일과, 권한(roles)에 연결된 직원의 이메일이 다르면 알린다 (연결이 잘못된 경우)
+function renderLinkWarn() {
+  const el = $("linkWarn"), mail = (state.user?.email || "").toLowerCase();
+  const mine = state.me, other = mail && state.employees.find((e) => (e.email || "").toLowerCase() === mail && e.id !== mine?.id);
+  if (state.selfMode || !state.user || state.user.isAnonymous || !mine || !other || (mine.email || "").toLowerCase() === mail) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.innerHTML = `⚠ 로그인한 계정(<b>${esc(mail)}</b>)은 <b>${esc(other.name)}</b>(${esc(other.id)}) 직원의 이메일인데, 이 계정의 권한은 <b>${esc(mine.name)}</b>(${esc(mine.id)})에 연결돼 있어 ‘내 정보’에 ${esc(mine.name)} 님이 나옵니다.
+    ${isSuper() ? `<button class="btn btn-primary btn-sm" id="btnRelink">내 계정을 ${esc(other.name)}(${esc(other.id)})에 연결</button>` : "최고관리자에게 연결을 바꿔 달라고 요청하세요."}`;
+  $("btnRelink")?.addEventListener("click", async () => {
+    if (!confirm(`이 계정을 ${other.name}(${other.id}) 직원에 연결합니다. 권한 등급은 그대로(${LEVELS[state.role.level]}) 유지되고 소속은 ${orgName(other.orgId)}로 바뀝니다. 계속할까요?`)) return;
+    try {
+      await updateDoc(doc(db, "roles", state.user.uid), { employeeId: other.id, orgId: other.orgId });
+      audit("role_relink", { targetEmployeeId: other.id, detail: `${mine.id} → ${other.id}` });
+      toast("연결을 바꿨습니다. 새로고침합니다"); setTimeout(() => location.reload(), 800);
+    } catch (e) { console.error(e); toast(errMsg(e), true); }
+  });
+}
+
 function route() {
   if (!state.role) return;
+  renderLinkWarn();
   if (state.selfMode) { showView("Detail"); renderDetail(state.role.employeeId); return; }
   const allowed = allowedNav();
   const hash = (location.hash || "").replace("#", "");
@@ -454,7 +473,8 @@ function openEmp(id) {
 
   const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k)));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
-  $("fLevel").value = emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
+  // 본인 문서는 직원 문서에 등급이 비어 있어도 실제 권한(roles)을 보여주고 그대로 저장한다 (안 그러면 저장하다 내 권한이 낮아질 수 있음)
+  $("fLevel").value = self && levels.some(([k]) => k === state.role.level) ? state.role.level : emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
   $("fLevel").disabled = self || locked;
   $("fLevelHelp").textContent = self ? "본인 권한은 변경할 수 없습니다" :
     (isHR() ? "최고관리자·본사 인사: 전체 / 관리자·원장: 소속 지점 / 직원: 본인 정보만" : "관리자·원장: 소속 지점 / 직원: 본인 정보만");
@@ -545,28 +565,42 @@ $("formEmp").addEventListener("submit", async (ev) => {
   }
 });
 
+// 직원을 휴지통으로 옮긴다 (목록에서 숨기고 로그인 권한 제거). 복원·완전 삭제는 관리 → 휴지통
+async function trashEmployees(list) {
+  if (!isHR()) return { ok: 0, fail: 0 };
+  let ok = 0, fail = 0;
+  for (const emp of list) {
+    try {
+      if (emp.id === state.role.employeeId) throw new Error("본인은 삭제할 수 없습니다");
+      await updateDoc(doc(db, "employees", emp.id), { deleted: true, deletedAt: serverTimestamp(), deletedBy: state.user?.uid || "", status: "resigned", updatedAt: serverTimestamp() });
+      await syncRoles(emp.id, { status: "resigned" });   // 연결된 roles 삭제
+      audit("emp_trash", { targetEmployeeId: emp.id, detail: emp.name });
+      ok++;
+    } catch (e) { console.warn("휴지통 이동 실패", emp.id, e.code || e); fail++; }
+  }
+  return { ok, fail };
+}
+const TRASH_NOTE = "목록에서 사라지고 로그인 권한이 제거됩니다.\n관리 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.";
 $("btnEmpDelete").onclick = async () => {
   const emp = state.editing;
   if (!emp || !isHR()) return;
-  const ok = confirm(`${emp.name} (${emp.id}) 직원을 휴지통으로 옮길까요?\n목록에서 사라지고 이 계정의 로그인 권한이 제거됩니다.\n관리 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.`);
-  if (!ok) return;
+  if (!confirm(`${emp.name} (${emp.id}) 직원을 휴지통으로 옮길까요?\n${TRASH_NOTE}`)) return;
   setEmpBusy(true);
-  try {
-    await updateDoc(doc(db, "employees", emp.id), { deleted: true, deletedAt: serverTimestamp(), deletedBy: state.user?.uid || "", status: "resigned", updatedAt: serverTimestamp() });
-    await syncRoles(emp.id, { status: "resigned" });   // 연결된 roles 삭제
-    audit("emp_trash", { targetEmployeeId: emp.id, detail: emp.name });
-    toast("휴지통으로 옮겼습니다");
-    $("dlgEmp").close();
-    await loadEmployees();
-    if ((location.hash || "").startsWith("#emp/")) location.hash = "#employees"; else route();
-  } catch (e) {
-    console.error(e);
-    $("empErr").textContent = errMsg(e);
-  } finally {
-    setEmpBusy(false);
-  }
+  const r = await trashEmployees([emp]);
+  setEmpBusy(false);
+  if (r.fail) { $("empErr").textContent = "휴지통으로 옮기지 못했습니다. 권한을 확인하세요 (최고관리자 계정은 본사 인사가 삭제할 수 없습니다)."; return; }
+  toast("휴지통으로 옮겼습니다"); $("dlgEmp").close();
+  await loadEmployees();
+  if ((location.hash || "").startsWith("#emp/")) location.hash = "#employees"; else route();
 };
-
+$("bulkTrash").onclick = async () => {
+  const targets = state.employees.filter((e) => lv.sel.has(e.id));
+  if (!targets.length || !isHR()) return;
+  if (!confirm(`선택한 ${targets.length}명을 휴지통으로 옮길까요?\n${TRASH_NOTE}`)) return;
+  const r = await trashEmployees(targets);
+  toast(`${r.ok}명을 휴지통으로 옮겼습니다${r.fail ? `, ${r.fail}명 실패` : ""}`, !!r.fail);
+  lv.sel.clear(); await loadEmployees(); renderEmployees(true);
+};
 // 사번 자동 부여: meta/counters.employee 를 트랜잭션으로 증가
 async function nextEmployeeId() {
   const known = [...state.employees, ...state.trash].reduce((m, e) => {
@@ -1099,6 +1133,12 @@ function renderMe() {
 // ---------- 상세 화면 연결 ----------
 initDetail({
   openEdit: (emp) => openEmp(emp.id),
+  trash: async (emp) => {
+    if (!confirm(`${emp.name} (${emp.id}) 직원을 휴지통으로 옮길까요?\n${TRASH_NOTE}`)) return;
+    const r = await trashEmployees([emp]);
+    if (r.fail) return toast("휴지통으로 옮기지 못했습니다. 권한을 확인하세요.", true);
+    toast("휴지통으로 옮겼습니다"); await loadEmployees(); location.hash = "#employees";
+  },
   reload: loadEmployees,
 });
 bindCertModal();

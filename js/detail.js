@@ -120,6 +120,7 @@ function draw() {
           <div><h2 class="emp-name">${esc(e.name)}</h2>${canPhoto() ? `<div class="photo-actions"><button class="btn btn-secondary btn-sm" id="dBtnPhoto" type="button">사진 변경</button> <button class="btn btn-secondary btn-sm hidden" id="dBtnPhotoDel" type="button">사진 삭제</button><input type="file" id="dPhotoInput" accept="image/*" class="hidden"></div>` : ""}</div></div>
         ${mgr ? `<div class="row-actions">
           <button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button>
+          ${isHR() && !isOwnPage() && !(cur.emp.level === "super" && !isSuper()) ? `<button class="btn btn-danger" id="dBtnTrash">삭제</button>` : ""}
           <button class="btn btn-secondary" id="dBtnLink">등록 링크 복사</button>
           <button class="btn btn-secondary" id="dBtnCert" data-type="current">재직증명서 발급</button>
           <button class="btn btn-secondary" id="dBtnCareer" data-type="career">경력증명서 발급</button>
@@ -254,6 +255,7 @@ function bindPhoto() {
 function bindHead() {
   bindPhoto();
   $("dBtnEdit")?.addEventListener("click", () => ctx.openEdit(cur.emp));
+  $("dBtnTrash")?.addEventListener("click", () => ctx.trash(cur.emp));
   $("dBtnLink")?.addEventListener("click", copySelfLink);
   $("dBtnLinkNew")?.addEventListener("click", reissueLink);
   $("dBtnLinkOff")?.addEventListener("click", revokeLink);

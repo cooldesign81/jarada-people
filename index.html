@@ -30,6 +30,8 @@
 
 <main class="wrap">
 
+  <div class="notice link-warn hidden" id="linkWarn"></div>
+
   <!-- 로그인 -->
   <section id="viewLogin">
     <div class="card login-card">
@@ -119,6 +121,7 @@
     <div class="bulk-bar hidden" id="empBulkBar"><strong id="bulkCount"></strong>
       <select id="bulkStatus"><option value="active">재직</option><option value="leave">휴직</option><option value="resigned">퇴직</option></select><button class="btn btn-secondary btn-sm" id="bulkStatusGo">상태 변경</button>
       <select id="bulkOrg"></select><button class="btn btn-secondary btn-sm" id="bulkOrgGo">지점 추가</button><button class="btn btn-secondary btn-sm" id="bulkOrgMove">이 지점으로 이동</button>
+      <button class="btn btn-danger btn-sm" id="bulkTrash">휴지통으로 이동</button>
       <button class="btn btn-secondary btn-sm" id="bulkClear">선택 해제</button></div>
     <div class="card flush"><div class="tbl-wrap"><table class="tbl" id="tblEmp"></table></div></div>
     <div class="pager" id="empPager"></div>
