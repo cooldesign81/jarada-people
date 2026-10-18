@@ -459,6 +459,73 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("perms leaveApprove[hr,manager]: manager approves own org", true, () => mgr.doc("leaveRequests/PL1").update({ status: "rejected", decisionNote: "x", decidedBy: "u_mgr", decidedAt: TS(), updatedAt: TS() }));
   await t("perms: malformed value denies instead of opening", false, async () => { await setPerms({ comp: "hr" }); return hr.doc("employees/emp_0003/private/compensation").get(); });
   await setPerms(null);
+
+  // ---- 급여·인센티브 명세서 (employees/{id}/payslips) ----
+  const slip = (o = {}) => ({ type: "salary", month: "2026-10", path: "hr/emp_0003/pay/salary__2026-10__1__a.pdf", fileName: "a.pdf", size: 1000, contentType: "application/pdf", uploadedBy: "u_super", createdAt: TS(), ...o });
+  await setPerms(null);
+  await setEmp({ selfToken: "tokA", selfTokenExpires: TSf(86400000) });
+  await t("slip: super creates", true, () => sup.doc("employees/emp_0003/payslips/s1").set(slip()));
+  await t("slip: image allowed", true, () => sup.doc("employees/emp_0003/payslips/s2").set(slip({ type: "incentive", contentType: "image/png", fileName: "a.png" })));
+  await t("slip: hr denied by default", false, () => hr.doc("employees/emp_0003/payslips/s3").set(slip()));
+  await t("slip: admin denied", false, () => adm.doc("employees/emp_0003/payslips/s3").set(slip()));
+  await t("slip: staff cannot create own", false, () => stf.doc("employees/emp_0003/payslips/s3").set(slip()));
+  await t("slip: bad type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ type: "bonus" })));
+  await t("slip: bad month", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ month: "10월" })));
+  await t("slip: non-pdf/image content type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ contentType: "application/zip" })));
+  await t("slip: over 10MB", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ size: 11 * 1024 * 1024 })));
+  await t("slip: path outside hr/*/pay", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ path: "hr/emp_0003/sec/x.pdf" })));
+  await t("slip: employee reads own list", true, () => stf.collection("employees/emp_0003/payslips").get());
+  await t("slip: employee reads own doc", true, () => stf.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: other staff cannot read", false, () => s5.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: other staff cannot list", false, () => s5.collection("employees/emp_0003/payslips").get());
+  await t("slip: manager of same org cannot read", false, () => mgr.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: branch admin cannot read", false, () => adm.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: hr cannot read by default", false, () => hr.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: registration-link user cannot read", false, () => aok.doc("employees/emp_0003/payslips/s1").get());
+  await t("slip: registration-link user cannot list", false, () => aok.collection("employees/emp_0003/payslips").get());
+  await t("slip: employee marks viewedAt once", true, () => stf.doc("employees/emp_0003/payslips/s1").update({ viewedAt: TS() }));
+  await t("slip: viewedAt cannot be changed again", false, () => stf.doc("employees/emp_0003/payslips/s1").update({ viewedAt: TS() }));
+  await t("slip: employee cannot change other fields", false, () => stf.doc("employees/emp_0003/payslips/s2").update({ fileName: "x.pdf" }));
+  await t("slip: employee cannot fake viewedAt time", false, () => stf.doc("employees/emp_0003/payslips/s2").update({ viewedAt: TSf(-86400000) }));
+  await t("slip: employee cannot delete", false, () => stf.doc("employees/emp_0003/payslips/s1").delete());
+  await setPerms({ comp: ["hr"] });
+  await t("slip comp[hr]: hr creates", true, () => hr.doc("employees/emp_0003/payslips/s5").set(slip()));
+  await t("slip comp[hr]: hr reads", true, () => hr.collection("employees/emp_0003/payslips").get());
+  await t("slip comp[hr]: hr deletes", true, () => hr.doc("employees/emp_0003/payslips/s5").delete());
+  await t("slip comp[hr]: branch admin still denied", false, () => adm.doc("employees/emp_0003/payslips/s1").get());
+  await setPerms(null);
+  await t("slip: super deletes", true, () => sup.doc("employees/emp_0003/payslips/s2").delete());
+
+  // ---- 소속 법인(corp) ----
+  await t("corp: hr sets peak", true, () => hr.doc("employees/emp_0005").update({ corp: "peak" }));
+  await t("corp: hr sets jade", true, () => hr.doc("employees/emp_0005").update({ corp: "jade" }));
+  await t("corp: hr clears corp", true, () => hr.doc("employees/emp_0005").update({ corp: "" }));
+  await t("corp: unknown corp denied", false, () => hr.doc("employees/emp_0005").update({ corp: "other" }));
+  await t("corp: super sets", true, () => sup.doc("employees/emp_0005").update({ corp: "peak" }));
+  await t("corp: staff cannot set own corp", false, () => stf.doc("employees/emp_0003").update({ corp: "jade" }));
+
+  // ---- 급여 열람 비밀번호 (private/payLock) ----
+  const lockDoc = (o = {}) => ({ salt: "c2FsdHNhbHRzYWx0c2FsdA==", hash: "aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g=", iter: 200000, algo: "PBKDF2-SHA256", updatedAt: TS(), ...o });
+  await setPerms(null);
+  await t("payLock: employee (own account) creates", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: employee reads own", true, () => stf.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: employee changes own", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ salt: "YW5vdGhlcnNhbHRhbm90aGVy" })));
+  await t("payLock: extra field denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ pin: "1234" })));
+  await t("payLock: weak iteration count denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ iter: 10 })));
+  await t("payLock: wrong algo denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ algo: "MD5" })));
+  await t("payLock: other staff cannot read", false, () => s5.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: other staff cannot overwrite", false, () => s5.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: link user cannot read", false, () => aok.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: link user cannot write", false, () => aok.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: branch admin cannot read", false, () => adm.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: hr cannot read by default", false, () => hr.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: employee cannot delete own (no self reset)", false, () => stf.doc("employees/emp_0003/private/payLock").delete());
+  await t("payLock: hr cannot reset by default", false, () => hr.doc("employees/emp_0003/private/payLock").delete());
+  await setPerms({ comp: ["hr"] });
+  await t("payLock comp[hr]: hr can reset", true, () => hr.doc("employees/emp_0003/private/payLock").delete());
+  await setPerms(null);
+  await t("payLock: super reads", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc()).then(() => sup.doc("employees/emp_0003/private/payLock").get()));
+  await t("payLock: super resets", true, () => sup.doc("employees/emp_0003/private/payLock").delete());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

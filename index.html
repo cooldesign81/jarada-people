@@ -140,6 +140,12 @@
     <div id="noticeBody"></div>
   </section>
 
+  <!-- 내 급여·인센티브 명세서 -->
+  <section id="viewPayslips" class="hidden">
+    <div class="page-head"><h1>내 급여</h1><span class="hint">급여 명세서·급여 세부내역서</span></div>
+    <div id="payslipBody"></div>
+  </section>
+
   <!-- 관리 -->
   <section id="viewAdmin" class="hidden"><div class="page-head"><h1>관리</h1></div><div class="subtabs" id="adminTabs"></div><div id="adminBody"></div></section>
 
@@ -180,6 +186,11 @@
         <label for="fLevel">권한<span class="req">*</span></label>
         <select id="fLevel"></select>
         <span class="help" id="fLevelHelp"></span>
+      </div>
+      <div class="field">
+        <label for="fCorp">소속 법인</label>
+        <select id="fCorp"><option value="">(미지정)</option><option value="peak">피크코퍼레이션(주)</option><option value="jade">(주)제이드에듀</option></select>
+        <span class="help">지점과 별개입니다. 재직·경력증명서는 이 법인으로 발급됩니다</span>
       </div>
       <div class="field">
         <label for="fPosition">직책</label>
@@ -336,7 +347,8 @@
     <div class="field"><label for="certPurpose">용도</label><input class="input" id="certPurpose"></div>
     <div class="field"><label for="certApplyDate">근무 시작일</label><input class="input" id="certApplyDate" type="date"></div>
     <div class="field"><label for="certIssueDate">발급일</label><input class="input" id="certIssueDate" type="date"></div>
-    <div class="field full"><label for="certCompany">발급 회사명</label>
+    <div class="field full"><label for="certCompany">발급 회사명 (소속 법인)</label>
+      <span class="help" id="certCorpHint"></span>
       <select id="certCompany"><option value="">(선택 안 함)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
     <div class="field"><label for="certCeo">대표자명</label><input class="input" id="certCeo"></div>
     <div class="field"><label for="certAddr">사업장 주소</label><input class="input" id="certAddr"></div>
@@ -347,9 +359,24 @@
   </div>
 </dialog>
 
-<!-- 급여명세서 (대표 전용) -->
+<!-- 급여 열람 비밀번호 (직원이 급여 명세서를 열 때마다) -->
+<dialog id="dlgPayPw">
+  <form onsubmit="return false" autocomplete="off">
+  <div class="dlg-head"><h2 id="ppTitle">급여 열람 비밀번호</h2></div>
+  <div class="dlg-body">
+    <p class="field full" id="ppDesc" style="margin:0"></p>
+    <div class="field full" id="ppOldWrap"><label for="ppOld" id="ppOldLabel">비밀번호</label><input class="input" id="ppOld" type="password" autocomplete="current-password"></div>
+    <div class="field full hidden" id="ppNewWrap"><label for="ppNew">새 비밀번호 (8자 이상)</label><input class="input" id="ppNew" type="password" autocomplete="new-password"></div>
+    <div class="field full hidden" id="ppNew2Wrap"><label for="ppNew2">새 비밀번호 확인</label><input class="input" id="ppNew2" type="password" autocomplete="new-password"></div>
+    <div class="msg error dlg-err" id="ppErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnPpCancel">취소</button><button type="button" class="btn btn-primary" id="btnPpOk">확인</button></div>
+  </form>
+</dialog>
+
+<!-- 급여 명세서 (대표 전용) -->
 <dialog id="dlgPayslip">
-  <div class="dlg-head"><h2>급여명세서 만들기</h2></div>
+  <div class="dlg-head"><h2>급여 명세서 만들기</h2></div>
   <div class="dlg-body">
     <div class="field"><label for="psMonth">귀속 월</label><input class="input" id="psMonth" type="month"></div>
     <div class="field"><label for="psPayDate">지급일</label><input class="input" id="psPayDate" type="date"></div>
@@ -396,7 +423,7 @@
 <dialog id="dlgBulk" class="wide">
   <div class="dlg-head"><h2>직원 일괄 등록</h2><span class="id" id="bulkLimit">한 번에 최대 500명</span></div>
   <div class="bulk-body">
-    <p class="bulk-help">엑셀·구글시트에서 표를 <strong>복사해 아래 칸에 붙여넣거나</strong>, CSV 파일을 올리세요. <strong>‘양식 내려받기’</strong>의 제목 줄 그대로 쓰면 열 순서가 달라도 자동으로 맞춥니다. 이름과 이메일만 필수입니다. 급여 열(기본급·식대·추가급여1~3·인센티브 등)은 <strong>최고관리자만</strong> 넣을 수 있고, 주민등록번호·서류는 일괄 등록되지 않습니다(직원 상세에서 입력).</p>
+    <p class="bulk-help">엑셀·구글시트에서 표를 <strong>복사해 아래 칸에 붙여넣거나</strong>, CSV 파일을 올리세요. <strong>‘양식 내려받기’</strong>의 제목 줄 그대로 쓰면 열 순서가 달라도 자동으로 맞춥니다. 이름과 이메일만 필수입니다. 급여 열(기본급·식대·추가급여1~3·인센티브 등)은 <strong>최고관리자만</strong> 넣을 수 있고, 주민등록번호는 <strong>‘주민등록번호’ 열</strong>(900101-1234567)이나 <strong>앞자리·뒷자리 열</strong>로 넣을 수 있습니다(뒷자리는 저장 권한이 있을 때만). 서류는 일괄 등록되지 않습니다(직원 상세에서 입력).</p>
     <div class="bulk-tools">
       <input type="file" id="bulkFile" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,text/plain">
       <button type="button" class="btn btn-secondary" id="btnBulkTemplate">양식 내려받기</button>

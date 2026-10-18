@@ -4,6 +4,7 @@ import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { $, state, can as cap, isSuper, isHR, isAdmin, isMgr, esc, toast, errMsg, orgNames, audit, tsMillis } from "./core.js";
+import { corpName } from "./company.js";
 import { isYmd, today, diffDays, fmtKo } from "./dates.js";
 
 const isEdu = () => ["super", "hr", "edu"].includes(state.role?.level);
@@ -185,6 +186,7 @@ export function diffEmployee(before, after, statusMap, levelMap) {
   if (JSON.stringify(before.orgIds) !== JSON.stringify(after.orgIds)) out.push({ type: "transfer", from: orgNames(before.orgIds), to: orgNames(after.orgIds) });
   if ((before.position || "") !== (after.position || "")) out.push({ type: "position", from: before.position || "—", to: after.position || "—" });
   if (before.level !== after.level) out.push({ type: "level", from: levelMap[before.level] || before.level, to: levelMap[after.level] || after.level });
+  if ((before.corp || "") !== (after.corp || "")) out.push({ type: "other", from: corpName(before.corp) || "—", to: corpName(after.corp) || "—", note: "소속 법인 변경" });
   if (before.status !== after.status) out.push({ type: "status", from: statusMap[before.status] || before.status, to: statusMap[after.status] || after.status });
   return out;
 }

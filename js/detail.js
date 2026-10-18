@@ -11,9 +11,10 @@ import {
   statusBadge, levelBadge, toEmp, todayStr, renderOrgChecks, readOrgChecks, syncRoles, audit, tsMillis, revokeLinkRoles
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
+import { mountEmployeeSlips } from "./payslips.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
 import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
-import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
+import { STAMP_IMAGES, COMPANY_INFO, corpName } from "./company.js";
 
 // 서류/파일 규칙 — storage.rules 와 반드시 같이 바꿀 것
 const PUB_KEYS = PUBLIC_DOCS.map((d) => d.key);
@@ -128,7 +129,7 @@ function draw() {
       </div>
       <div class="label">전번</div>
       <div class="big-phone">${esc(e.phone || "—")}</div>
-      <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} <span class="mono sub">${esc(e.id)}</span></div>
+      <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} ${e.corp ? `<span class="badge o-hq">${esc(corpName(e.corp))}</span>` : ""} <span class="mono sub">${esc(e.id)}</span></div>
       ${mgr ? `<div class="link-line"><span class="sub">등록 링크:</span> <span id="dLinkState"></span>
         <button class="btn btn-secondary btn-sm" id="dBtnLinkNew">재발급</button> <button class="btn btn-secondary btn-sm" id="dBtnLinkOff">폐기</button></div>` : ""}
       <div class="label" style="margin-top:14px">소속 지점 (중복 선택 가능)</div>
@@ -161,6 +162,7 @@ function draw() {
     </div>
 
     ${can("comp") ? compHtml() : ""}
+    ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여 명세서·세부내역서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>급여 배포로 가기</a></div><div id="dSlips"></div></div>` : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
     <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
@@ -176,7 +178,7 @@ function draw() {
   renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
   rrnStatus();
   bindHead(); bindRrn(); bindPi();
-  if (can("comp")) bindComp();
+  if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
   if (can("secDocs")) bindEval();
   drawFiles();
   if (!state.selfMode && $("dRecords")) {
@@ -210,7 +212,7 @@ function compHtml() {
     <div id="cHist"></div>
     <div class="notice" id="cSevEst" style="margin:10px 0">${severanceLine(cur.emp, c, cur.pi.resignDate)}</div>
     <div class="row-actions"><button class="btn btn-primary" id="cBtnSave">급여 정보 저장</button>
-      <button class="btn btn-secondary" id="cBtnPayslip" type="button">급여명세서</button><button class="btn btn-secondary" id="cBtnContract" type="button">근로계약서 초안</button></div></div>`;
+      <button class="btn btn-secondary" id="cBtnPayslip" type="button">급여 명세서</button><button class="btn btn-secondary" id="cBtnContract" type="button">근로계약서 초안</button></div></div>`;
 }
 
 // ---------- 상단: 지점/링크/증명서 ----------
@@ -597,9 +599,9 @@ function addEtcDraft() {
 }
 
 // 직원 완전 삭제 시 하위 데이터/파일 정리 (최고관리자)
-export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues"];
+export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips"];
 export async function deleteEmployeeData(empId) {
-  for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation"]) {
+  for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation", "payLock"]) {
     try { await deleteDoc(doc(db, "employees", empId, "private", n)); } catch (e) { console.warn("삭제 실패", n, e.code || e); }
   }
   for (const sc of SUBCOLLECTIONS) {
@@ -608,7 +610,7 @@ export async function deleteEmployeeData(empId) {
   }
   try { const q = await getDocs(query(collection(db, "leaveRequests"), where("employeeId", "==", empId))); await Promise.all(q.docs.map((d) => deleteDoc(d.ref))); }
   catch (e) { console.warn("휴가 기록 삭제 실패", e.code || e); }
-  for (const folder of ["pub", "sec"]) {
+  for (const folder of ["pub", "sec", "pay"]) {
     try {
       const res = await listAll(ref(storage, `hr/${empId}/${folder}`));
       for (const it of res.items) { try { await deleteObject(it); } catch {} }
@@ -628,7 +630,11 @@ function openCert(type) {
   $("certPurpose").value = "기관제출용";
   $("certApplyDate").value = cur.pi.workStartDate || e.joinedAt || "";
   $("certIssueDate").value = todayStr();
-  $("certCompany").value = ""; $("certCeo").value = ""; $("certAddr").value = "";
+  // 증명서는 소속 법인을 따라간다 (법인이 지정돼 있으면 고정, 바꾸려면 기본 정보 수정에서)
+  const corp = corpName(e.corp), info = COMPANY_INFO[corp];
+  $("certCompany").value = corp; $("certCompany").disabled = !!corp;
+  $("certCeo").value = info?.ceo || ""; $("certAddr").value = info?.address || "";
+  $("certCorpHint").textContent = corp ? `소속 법인(${corp}) 기준으로 발급됩니다. 법인을 바꾸려면 ‘기본 정보 수정’에서 소속 법인을 바꾸세요.` : "소속 법인이 지정되지 않았습니다. ‘기본 정보 수정’에서 지정하면 자동으로 채워집니다. 지금은 직접 고르세요.";
   $("dlgCert").showModal();
 }
 export function bindCertModal() {

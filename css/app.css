@@ -407,3 +407,7 @@ th.sortable:hover{ color:var(--brand-orange); }
 .perm-tbl td:first-child{ min-width:240px; white-space:normal; }
 .perm-tbl input[type=checkbox]{ width:18px; height:18px; }
 ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
+
+/* 명세서 */
+.slip-row{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--line, #E9ECEF); }
+.slip-row:first-of-type{ border-top:0; }

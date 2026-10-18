@@ -7,6 +7,7 @@ import {
 import { $, state, can, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
 import { AUDIT_ACTIONS, PERMS, PERM_LEVELS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
 import { today, diffDays } from "./dates.js";
+import { renderDistribute } from "./payslips.js";
 import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
@@ -16,6 +17,7 @@ export function initAdmin(c) { ctx = { ...ctx, ...c }; }
 const TABS = [
   { id: "export", label: "내보내기·백업", ok: () => canManage() },
   { id: "status", label: "현황 점검",     ok: () => isHR() },
+  { id: "slips",  label: "급여 배포",    ok: () => can("comp") },
   { id: "labor",  label: "인건비",         ok: () => can("comp") },
   { id: "audit",  label: "감사 로그",     ok: () => can("audit") },
   { id: "perms",  label: "권한 설정",      ok: () => isSuper() },
@@ -26,11 +28,12 @@ const adm = { tab: "" };
 
 export async function renderAdmin() {
   const tabs = TABS.filter((t) => t.ok());
+  try { const want = sessionStorage.getItem("jarada.adminTab"); if (want) { sessionStorage.removeItem("jarada.adminTab"); if (tabs.some((t) => t.id === want)) adm.tab = want; } } catch {}
   if (!tabs.some((t) => t.id === adm.tab)) adm.tab = tabs[0]?.id || "";
   $("adminTabs").innerHTML = tabs.map((t) => `<button class="subtab ${t.id === adm.tab ? "active" : ""}" data-t="${t.id}">${t.label}${t.id === "trash" && state.trash.length ? ` <span class="tab-badge" style="background:#767676">${state.trash.length}</span>` : ""}</button>`).join("");
   $("adminTabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { adm.tab = b.dataset.t; renderAdmin(); }));
   const body = $("adminBody");
-  ({ perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
+  ({ slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
 }
 
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------

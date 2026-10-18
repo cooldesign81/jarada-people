@@ -6,6 +6,7 @@ rules_version = '2';
 // 파일 위치
 //   hr/{직원사번}/pub/{키}__{시각}__{원본이름}   공개서류: resume, portfolio, criminalRecord, diploma
 //   hr/{직원사번}/pub/photo__0__profile.jpg      프로필 사진 (본인도 보고 바꿀 수 있음)
+//   hr/{직원사번}/pay/{종류}__{YYYY-MM}__{시각}__{원본이름}   급여·인센티브 명세서 (본인 계정과 급여 권한자만)
 //   hr/{직원사번}/sec/{키}__{시각}__{원본이름}   비공개서류: residentCopy, bankbookCopy, businessRegistration, employmentInsuranceDoc
 //                                                인사평가(eval), 기타(etc)
 //
@@ -28,6 +29,14 @@ service firebase.storage {
         && firestore.exists(/databases/(default)/documents/settings/permissions)
         && 'hr' in firestore.get(/databases/(default)/documents/settings/permissions).data.get('secDocs', []));
     }
+    // 급여·인센티브 명세서: ‘급여 정보’ 권한(settings/permissions 의 comp)이 대표이사에게 열려 있는지
+    function payAllowed() {
+      return isSuper() || (roleExists() && role().level == 'hr'
+        && firestore.exists(/databases/(default)/documents/settings/permissions)
+        && 'hr' in firestore.get(/databases/(default)/documents/settings/permissions).data.get('comp', []));
+    }
+    // 본인 계정(구글 로그인)만 — 등록 링크(selfToken)로 들어온 사람은 제외
+    function selfAccount(empId) { return isSelf(empId) && !('selfToken' in role()); }
     function isAdmin() { return roleExists() && role().level in ['admin', 'principal']; }
     // 등록 링크 권한은 직원 문서의 링크가 유효할 때만 본인으로 인정 (firestore.rules 와 같은 기준)
     function selfTokenValid(empId) {
@@ -54,6 +63,16 @@ service firebase.storage {
       allow create, update: if file == 'photo__0__profile.jpg'
         && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')
         && (isHR() || adminOf(empId) || isSelf(empId));
+    }
+
+    // 급여·인센티브 명세서 (PDF·이미지, 10MB 이하). 파일 이름: {salary|incentive}__{YYYY-MM}__{시각}__{원본이름}
+    match /hr/{empId}/pay/{file} {
+      allow read: if payAllowed() || selfAccount(empId);
+      allow delete: if payAllowed();
+      allow create: if payAllowed()
+        && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType == 'application/pdf' || request.resource.contentType.matches('image/.*'))
+        && file.matches('(salary|incentive)__[0-9]{4}-[0-9]{2}__[0-9]+__.*');
     }
 
     match /hr/{empId}/sec/{file} {
