@@ -450,6 +450,7 @@ const buf = (s) => Buffer.from(s);
     ok("J event shown on both days", (await chips("2026-11-26")).some((x) => x.includes("교사 워크숍") && x.includes("교육")) && (await chips("2026-11-27")).length >= 1);
     await page.evaluate(() => (location.hash = "#leaves")); await page.waitForSelector("#leavesRoot .card");
     const txt = await page.textContent("#leavesRoot");
+    ok("J leaves: 직원별 연차 현황이 휴가 내역보다 위", txt.indexOf("직원별 연차 현황") > -1 && txt.indexOf("직원별 연차 현황") < txt.indexOf("휴가 내역"));
     ok("J leaves: list + annual table", txt.includes("휴가 내역") && txt.includes("직원별 연차 현황") && txt.includes("이교사") && txt.includes("가족 여행"));
     const rowOf = () => page.$$eval("#leavesRoot table tr", (rs) => rs.map((r) => r.textContent.replace(/\s+/g, " ").trim()).find((x) => x.startsWith("이교사") && x.includes("2024-03-02")));
     const row = await rowOf();

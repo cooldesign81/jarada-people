@@ -81,6 +81,15 @@ export function renderLeaves() {
           <td><button class="btn btn-primary btn-sm" data-decide="${l.id}">처리</button></td></tr>`).join("")}</tbody>`
         : `<tbody><tr><td class="empty">승인을 기다리는 휴가가 없습니다.</td></tr></tbody>`}</table></div></div>`);
   }
+  // 직원별 연차 현황
+  if (canManage() || (isMgr() && state.employees.length > 1)) {
+    const emps = state.employees.filter((e) => e.status !== "resigned").sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    parts.push(`<div class="card flush"><div class="card-head"><h2>직원별 연차 현황</h2><span class="sub">입사일 기준 법정 연차 · 개근 가정</span></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">대기</th><th class="num">조정</th><th class="num">잔여</th>${canManage() ? "<th></th>" : ""}</tr></thead><tbody>${
+      emps.map((e) => { const b = annualBalance(e); return `<tr><td class="strong">${esc(e.name)}</td><td>${branchTags(e.orgIds)}</td><td class="sub">${esc(e.joinedAt || "—")}</td>${b.ok
+        ? `<td class="sub">${esc(b.kind)}</td><td class="num">${b.granted}</td><td class="num">${b.used}</td><td class="num">${b.pending}</td><td class="num">${b.adjust || 0}</td><td class="num strong">${b.remaining}</td>`
+        : `<td class="sub" colspan="6">입사일 없음</td>`}${canManage() ? `<td><button class="btn btn-secondary btn-sm" data-adjust="${esc(e.id)}">조정</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div></div>`);
+  }
   // 내역
   const months = [...new Set(state.leaves.map((l) => monthKey(l.startDate)))].sort().reverse();
   if (!view.month || (view.month !== "all" && !months.includes(view.month))) view.month = months.includes(monthKey(today())) ? monthKey(today()) : (months[0] || "all");
@@ -97,15 +106,6 @@ export function renderLeaves() {
         <td><span class="badge ${statusBadgeCls[l.status] || "off"}">${LEAVE_STATUS[l.status] || l.status}</span></td>
         <td class="sub" style="white-space:normal">${l.decidedByName ? esc(l.decidedByName) + (l.decisionNote ? " · " + esc(l.decisionNote) : "") : "—"}</td>
         <td>${actionsFor(l)}</td></tr>`).join("")}</tbody>` : `<tbody><tr><td class="empty">휴가 내역이 없습니다.</td></tr></tbody>`}</table></div></div>`);
-  // 직원별 연차 현황
-  if (canManage() || (isMgr() && state.employees.length > 1)) {
-    const emps = state.employees.filter((e) => e.status !== "resigned").sort((a, b) => a.name.localeCompare(b.name, "ko"));
-    parts.push(`<div class="card flush"><div class="card-head"><h2>직원별 연차 현황</h2><span class="sub">입사일 기준 법정 연차 · 개근 가정</span></div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">대기</th><th class="num">조정</th><th class="num">잔여</th>${canManage() ? "<th></th>" : ""}</tr></thead><tbody>${
-      emps.map((e) => { const b = annualBalance(e); return `<tr><td class="strong">${esc(e.name)}</td><td>${branchTags(e.orgIds)}</td><td class="sub">${esc(e.joinedAt || "—")}</td>${b.ok
-        ? `<td class="sub">${esc(b.kind)}</td><td class="num">${b.granted}</td><td class="num">${b.used}</td><td class="num">${b.pending}</td><td class="num">${b.adjust || 0}</td><td class="num strong">${b.remaining}</td>`
-        : `<td class="sub" colspan="6">입사일 없음</td>`}${canManage() ? `<td><button class="btn btn-secondary btn-sm" data-adjust="${esc(e.id)}">조정</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div></div>`);
-  }
   root.innerHTML = parts.join("");
   bindList(root);
 }
