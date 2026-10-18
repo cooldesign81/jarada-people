@@ -7,3 +7,14 @@ export const COMPANY_INFO = {
   '피크코퍼레이션(주)': { ceo:'양진혁', address:'경기도 안양시 동안구 평촌대로122, 601호', stampKey:'peak' },
   '(주)제이드에듀': { ceo:'정혜원', address:'서울시 서초구 서초중앙로 31길 14-9, 2층', stampKey:'jade' },
 };
+// 소속 법인 (지점과 별개). employees.corp 에 키를 저장한다. 증명서·급여명세서·근로계약서는 이 법인을 따라간다
+export const CORPS = { peak: "피크코퍼레이션(주)", jade: "(주)제이드에듀" };
+export const corpName = (id) => CORPS[id] || "";
+// 엑셀 등에서 읽은 글자 → 법인 키 ("" = 비어 있음, null = 알 수 없음)
+export function corpFromText(v) {
+  const n = String(v ?? "").replace(/[\s()（）㈜]/g, "").toLowerCase();
+  if (!n) return "";
+  if (/피크|peak/.test(n)) return "peak";
+  if (/제이드|jade/.test(n)) return "jade";
+  return null;
+}

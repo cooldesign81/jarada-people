@@ -4,7 +4,7 @@ import { esc, state, toast } from "./core.js";
 import { today, fmtKo } from "./dates.js";
 import { num, won, fixedItems, severanceEstimate } from "./payroll-calc.js";
 export { num, won, fixedItems, severanceEstimate };
-import { COMPANY_INFO, STAMP_IMAGES } from "./company.js";
+import { COMPANY_INFO, STAMP_IMAGES, corpName } from "./company.js";
 
 const CSS = `body{font-family:"Malgun Gothic","Pretendard",sans-serif;padding:50px;color:#111;font-size:14px;line-height:1.7}
 h1{text-align:center;font-size:24px;margin:0 0 24px}h2{font-size:15px;margin:22px 0 8px}
@@ -70,7 +70,7 @@ export function openPayslip(ctx) {
   const fi = fixedItems(comp);
   document.getElementById("psMonth").value = today().slice(0, 7);
   document.getElementById("psPayDate").value = "";
-  document.getElementById("psCompany").value = "";
+  document.getElementById("psCompany").value = corpName(emp.corp);
   document.getElementById("psExtraLabel").value = ""; document.getElementById("psExtra").value = "";
   ["psPension", "psHealth", "psCare", "psEmp", "psTax", "psLocal", "psOtherDed"].forEach((id) => (document.getElementById(id).value = ""));
   document.getElementById("psPays").innerHTML = fi.rows.map((r) => `<div class="sub">${esc(r.label)} ${won(r.amount)}</div>`).join("") || `<div class="sub">급여 정보가 없습니다. 아래에서 직접 추가하세요.</div>`;
@@ -81,7 +81,7 @@ export function openContract(ctx) {
   cur = ctx; const { emp, pi } = ctx, g = (id) => document.getElementById(id);
   g("ctStart").value = pi.workStartDate || emp.joinedAt || ""; g("ctEnd").value = emp.contractEndDate || "";
   g("ctProb").value = emp.probationEndDate || ""; g("ctDuties").value = ""; g("ctSign").value = today();
-  g("ctCompany").value = ""; g("ctExtra").value = ""; document.getElementById("dlgContract").showModal();
+  g("ctCompany").value = corpName(emp.corp); g("ctExtra").value = ""; document.getElementById("dlgContract").showModal();
 }
 export function bindPayroll() {
   const g = (id) => document.getElementById(id);

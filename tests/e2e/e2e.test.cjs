@@ -1221,6 +1221,58 @@ const buf = (s) => Buffer.from(s);
     await o.ctx.close();
   }
 
+
+  // ================= Z. 소속 법인 =================
+  {
+    const NOW = "2026-11-04T10:00:00+09:00";
+    const st = J(snapStore); st.employees.emp_0003.joinedAt = "2024-03-02"; delete st.employees.emp_0003.corp;
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
+    await page.goto(BASE + "/index.html#emp/emp_0003"); await page.waitForSelector("#dBtnCert");
+    // 법인 미지정: 증명서에서 직접 고르고 안내가 뜬다
+    await page.click("#dBtnCert");
+    ok("Z no corp: select enabled + hint", !(await page.$eval("#certCompany", (e) => e.disabled)) && (await page.textContent("#certCorpHint")).includes("지정되지 않았습니다"));
+    await page.click("#btnCertCancel");
+    // 소속 법인 지정 → 상세 배지, 발령 기록
+    await page.click("#dBtnEdit"); await page.selectOption("#fCorp", "jade"); await page.click("#btnEmpSave"); await page.waitForTimeout(500);
+    ok("Z corp saved", (await S(page, "employees/emp_0003")).corp === "jade");
+    ok("Z corp change recorded in history", Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/assignments"] || {})).some((a) => a.note === "소속 법인 변경" && a.to === "(주)제이드에듀"));
+    await page.evaluate(() => (location.hash = "#employees")); await page.waitForTimeout(100); await page.evaluate(() => (location.hash = "#emp/emp_0003")); await page.waitForSelector("#dBtnCert");
+    ok("Z badge on detail", (await page.textContent(".tags-row")).includes("(주)제이드에듀"));
+    // 증명서는 법인을 따라간다
+    await page.click("#dBtnCert");
+    ok("Z cert follows corp (locked + ceo/address filled)", (await page.inputValue("#certCompany")) === "(주)제이드에듀" && (await page.$eval("#certCompany", (e) => e.disabled)) && (await page.inputValue("#certCeo")) === "정혜원" && (await page.inputValue("#certAddr")).includes("서초"));
+    const [pop] = await Promise.all([ctx.waitForEvent("page"), page.click("#btnCertGo")]); await pop.waitForLoadState(); await page.waitForTimeout(400);
+    const ph = await pop.content();
+    ok("Z cert content has corp", ph.includes("(주)제이드에듀") && ph.includes("정혜원") && !ph.includes("피크코퍼레이션(주)")); await pop.close();
+    const ci = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/certIssues"] || {}));
+    ok("Z issue history stores corp", ci.some((c) => c.companyName === "(주)제이드에듀"));
+    await page.click("#dBtnCareer");
+    ok("Z career cert follows corp too", (await page.inputValue("#certCompany")) === "(주)제이드에듀"); await page.click("#btnCertCancel");
+    // 법인을 바꾸면 다음 증명서가 바뀐다 (이미 발급한 이력은 그대로)
+    await page.click("#dBtnEdit"); await page.selectOption("#fCorp", "peak"); await page.click("#btnEmpSave"); await page.waitForTimeout(500);
+    await page.evaluate(() => (location.hash = "#employees")); await page.waitForTimeout(100); await page.evaluate(() => (location.hash = "#emp/emp_0003")); await page.waitForSelector("#dBtnCert");
+    await page.click("#dBtnCert"); ok("Z corp change flows to next cert", (await page.inputValue("#certCompany")) === "피크코퍼레이션(주)" && (await page.inputValue("#certCeo")) === "양진혁"); await page.click("#btnCertCancel");
+    // 목록 열·내보내기
+    await page.evaluate(() => (location.hash = "#employees")); await page.waitForSelector("#tblEmp tbody tr");
+    ok("Z list column", (await page.$$eval("#tblEmp thead th", (h) => h.map((x) => x.textContent.trim()))).some((t) => t.includes("소속 법인")) && (await page.textContent("#tblEmp")).includes("피크코퍼레이션(주)"));
+    // 일괄 등록의 ‘소속 법인’ 열
+    await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]");
+    await page.fill("#bulkText", "이름\t이메일\t소속 지점\t소속 법인\n법인A\tca@jarada.kr\t안양 평촌원\t제이드에듀\n법인B\tcb@jarada.kr\t안양 평촌원\t(주)제이드에듀\n법인C\tcc@jarada.kr\t안양 평촌원\t피크\n법인D\tcd@jarada.kr\t안양 평촌원\t삼성");
+    ok("Z bulk corp: unknown flagged", (await page.textContent("#bulkPreview")).includes("소속 법인은 피크코퍼레이션(주) 또는 (주)제이드에듀") && (await page.textContent("#bulkSummary")).includes("등록 가능 3명"));
+    await page.click("#btnBulkSave"); await page.waitForTimeout(900);
+    const all = Object.values(await page.evaluate(() => globalThis.__mockStore.employees));
+    ok("Z bulk corp saved", all.find((e) => e.email === "ca@jarada.kr")?.corp === "jade" && all.find((e) => e.email === "cb@jarada.kr")?.corp === "jade" && all.find((e) => e.email === "cc@jarada.kr")?.corp === "peak");
+    ok("Z no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 급여명세서·계약서 기본 법인
+    const sp = J(snapStore); sp.employees.emp_0003.corp = "jade"; sp["employees/emp_0003/private"] = { ...(sp["employees/emp_0003/private"] || {}), compensation: { baseSalary: "3000000" } };
+    const p = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: sp, files: {}, now: NOW });
+    await p.page.goto(BASE + "/index.html#emp/emp_0003"); await p.page.waitForSelector("#cBtnPayslip");
+    await p.page.click("#cBtnPayslip"); ok("Z payslip default company", (await p.page.inputValue("#psCompany")) === "(주)제이드에듀"); await p.page.click("#btnPsCancel");
+    await p.page.click("#cBtnContract"); ok("Z contract default company", (await p.page.inputValue("#ctCompany")) === "(주)제이드에듀");
+    await p.ctx.close();
+  }
+
   // ================= F. setup.html / 로그인 화면 =================
   {
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore) });

@@ -2,6 +2,7 @@
 import { db } from "./firebase.js";
 import { doc, getDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { state, can, isSuper, isHR, toast, errMsg, orgNames, audit, LEVELS, STATUS } from "./core.js";
+import { corpName } from "./company.js";
 import { PERSONAL_FIELDS, COMP_FIELDS } from "./schema.js";
 import { today } from "./dates.js";
 
@@ -24,7 +25,7 @@ async function pool(items, size, fn, onStep) {
 }
 
 export const BASE_COLUMNS = [
-  ["사번", (e) => e.id], ["이름", (e) => e.name], ["이메일", (e) => e.email], ["소속 지점", (e) => orgNames(e.orgIds)],
+  ["사번", (e) => e.id], ["이름", (e) => e.name], ["이메일", (e) => e.email], ["소속 법인", (e) => corpName(e.corp)], ["소속 지점", (e) => orgNames(e.orgIds)],
   ["권한", (e) => LEVELS[e.level] || e.level], ["상태", (e) => STATUS[e.status] || e.status], ["직책", (e) => e.position],
   ["전번", (e) => e.phone], ["입사일", (e) => e.joinedAt], ["생년월일", (e) => e.birthDate], ["수습 종료일", (e) => e.probationEndDate], ["계약 만료일", (e) => e.contractEndDate],
 ];

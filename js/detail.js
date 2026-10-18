@@ -14,7 +14,7 @@ import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema
 import { mountEmployeeSlips } from "./payslips.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
 import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
-import { STAMP_IMAGES, COMPANY_INFO } from "./company.js";
+import { STAMP_IMAGES, COMPANY_INFO, corpName } from "./company.js";
 
 // 서류/파일 규칙 — storage.rules 와 반드시 같이 바꿀 것
 const PUB_KEYS = PUBLIC_DOCS.map((d) => d.key);
@@ -129,7 +129,7 @@ function draw() {
       </div>
       <div class="label">전번</div>
       <div class="big-phone">${esc(e.phone || "—")}</div>
-      <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} <span class="mono sub">${esc(e.id)}</span></div>
+      <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} ${e.corp ? `<span class="badge o-hq">${esc(corpName(e.corp))}</span>` : ""} <span class="mono sub">${esc(e.id)}</span></div>
       ${mgr ? `<div class="link-line"><span class="sub">등록 링크:</span> <span id="dLinkState"></span>
         <button class="btn btn-secondary btn-sm" id="dBtnLinkNew">재발급</button> <button class="btn btn-secondary btn-sm" id="dBtnLinkOff">폐기</button></div>` : ""}
       <div class="label" style="margin-top:14px">소속 지점 (중복 선택 가능)</div>
@@ -630,7 +630,11 @@ function openCert(type) {
   $("certPurpose").value = "기관제출용";
   $("certApplyDate").value = cur.pi.workStartDate || e.joinedAt || "";
   $("certIssueDate").value = todayStr();
-  $("certCompany").value = ""; $("certCeo").value = ""; $("certAddr").value = "";
+  // 증명서는 소속 법인을 따라간다 (법인이 지정돼 있으면 고정, 바꾸려면 기본 정보 수정에서)
+  const corp = corpName(e.corp), info = COMPANY_INFO[corp];
+  $("certCompany").value = corp; $("certCompany").disabled = !!corp;
+  $("certCeo").value = info?.ceo || ""; $("certAddr").value = info?.address || "";
+  $("certCorpHint").textContent = corp ? `소속 법인(${corp}) 기준으로 발급됩니다. 법인을 바꾸려면 ‘기본 정보 수정’에서 소속 법인을 바꾸세요.` : "소속 법인이 지정되지 않았습니다. ‘기본 정보 수정’에서 지정하면 자동으로 채워집니다. 지금은 직접 고르세요.";
   $("dlgCert").showModal();
 }
 export function bindCertModal() {

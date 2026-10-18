@@ -188,6 +188,11 @@
         <span class="help" id="fLevelHelp"></span>
       </div>
       <div class="field">
+        <label for="fCorp">소속 법인</label>
+        <select id="fCorp"><option value="">(미지정)</option><option value="peak">피크코퍼레이션(주)</option><option value="jade">(주)제이드에듀</option></select>
+        <span class="help">지점과 별개입니다. 재직·경력증명서는 이 법인으로 발급됩니다</span>
+      </div>
+      <div class="field">
         <label for="fPosition">직책</label>
         <input class="input" id="fPosition" maxlength="30" placeholder="예: 원장, 교사, 행정">
       </div>
@@ -342,7 +347,8 @@
     <div class="field"><label for="certPurpose">용도</label><input class="input" id="certPurpose"></div>
     <div class="field"><label for="certApplyDate">근무 시작일</label><input class="input" id="certApplyDate" type="date"></div>
     <div class="field"><label for="certIssueDate">발급일</label><input class="input" id="certIssueDate" type="date"></div>
-    <div class="field full"><label for="certCompany">발급 회사명</label>
+    <div class="field full"><label for="certCompany">발급 회사명 (소속 법인)</label>
+      <span class="help" id="certCorpHint"></span>
       <select id="certCompany"><option value="">(선택 안 함)</option><option value="피크코퍼레이션(주)">피크코퍼레이션(주)</option><option value="(주)제이드에듀">(주)제이드에듀</option></select></div>
     <div class="field"><label for="certCeo">대표자명</label><input class="input" id="certCeo"></div>
     <div class="field"><label for="certAddr">사업장 주소</label><input class="input" id="certAddr"></div>

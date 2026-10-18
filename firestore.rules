@@ -157,6 +157,7 @@ service cloud.firestore {
         && d.orgIds is list && d.orgIds.size() >= 1 && d.orgId == d.orgIds[0] && orgExists(d.orgId)
         && validLevel(d.level)
         && validStatus(d.status)
+        && d.get('corp', '') in ['', 'peak', 'jade']
         && d.get('birthDate', '') is string
         && (d.get('birthDate', '') == '' || d.get('birthDate', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
         && d.get('annualAdjust', 0) is number && d.get('annualAdjust', 0) >= -100 && d.get('annualAdjust', 0) <= 100

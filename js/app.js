@@ -12,6 +12,7 @@ import {
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
   tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
+import { CORPS, corpName, corpFromText } from "./company.js";
 import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
 import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
 import { initAdmin, renderAdmin } from "./admin.js";
@@ -353,6 +354,7 @@ const LIST_COLS = [
   { k: "id", l: "사번", on: true, cls: "mono", v: (e) => esc(e.id), s: (e) => e.id },
   { k: "name", l: "이름", fixed: true, cls: "strong", v: (e) => esc(e.name), s: (e) => e.name },
   { k: "orgs", l: "조직", fixed: true, v: (e) => branchTags(e.orgIds), s: (e) => orgNames(e.orgIds) },
+  { k: "corp", l: "소속 법인", on: true, v: (e) => esc(corpName(e.corp) || "—"), s: (e) => corpName(e.corp) },
   { k: "position", l: "직책", on: true, v: (e) => esc(e.position || "—"), s: (e) => e.position || "" },
   { k: "level", l: "권한", on: true, v: (e) => levelBadge(e.level), s: (e) => e.level },
   { k: "status", l: "상태", fixed: true, v: (e) => statusBadge(e.status), s: (e) => e.status },
@@ -490,6 +492,8 @@ function openEmp(id) {
 
   $("fName").value     = emp?.name || "";
   $("fEmail").value    = emp?.email || "";
+  $("fCorp").value     = emp?.corp || "";
+  $("fCorp").disabled  = locked;
   $("fPosition").value = emp?.position || "";
   $("fPhone").value    = emp?.phone || "";
   $("fJoined").value   = emp ? (emp.joinedAt || "") : todayStr();
@@ -529,6 +533,7 @@ $("formEmp").addEventListener("submit", async (ev) => {
     name:     $("fName").value.trim(),
     email:    $("fEmail").value.trim().toLowerCase(),
     level:    $("fLevel").value,
+    corp:     $("fCorp").value,
     position: $("fPosition").value.trim(),
     phone:    $("fPhone").value.trim(),
     joinedAt: $("fJoined").value,
@@ -674,6 +679,7 @@ const BULK_COLS = [
   { key: "rrn",      label: "주민등록번호",    alias: ["주민등록번호", "주민번호", "주번", "rrn"], rrn: true },
   { key: "rrnFront", label: "주민번호 앞자리", alias: ["주민번호앞자리", "주민등록번호앞자리", "주민앞자리", "주번앞"], rrn: true },
   { key: "rrnBack",  label: "주민번호 뒷자리", alias: ["주민번호뒷자리", "주민등록번호뒷자리", "주민뒷자리", "주번뒤"], rrn: true },
+  { key: "corp",     label: "소속 법인", alias: ["소속법인", "법인", "법인명", "회사", "corp"] },
 ];
 const LEVEL_WORDS  = { 사원: "staff", 직원: "staff", staff: "staff", 팀장: "lead", lead: "lead", 실장: "manager", manager: "manager", 부원장: "admin", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 대표이사: "hr", 대표: "hr", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
@@ -772,6 +778,9 @@ function parseBulk(text) {
     const stRaw = get("status");
     d.status = stRaw ? STATUS_WORDS[nrm(stRaw)] : "active";
     if (!d.status) errors.push(`상태 ‘${stRaw}’ 알 수 없음`);
+    const corpKey = corpFromText(get("corp"));
+    if (corpKey === null) errors.push("소속 법인은 피크코퍼레이션(주) 또는 (주)제이드에듀");
+    d.corp = corpKey || "";
 
     const jd = normDate(get("joinedAt"));
     if (jd === null) errors.push("입사일 형식 오류 (예: 2024-03-02)");
@@ -828,7 +837,7 @@ function parseBulk(text) {
     const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
     if (ex) {
       const patch = {};
-      for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate"]) if (get(k)) patch[k] = d[k];
+      for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate", "corp"]) if (get(k)) patch[k] = d[k];
       if (lvRaw) patch.level = d.level;
       if (stRaw) patch.status = d.status;
       if (names.length) { patch.orgIds = d.orgIds; patch.orgId = d.orgId; }
@@ -854,7 +863,7 @@ function renderBulk() {
     ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>주민번호</th><th>결과</th></tr></thead><tbody>` +
       rows.map((r) => {
         const d = r.update ? r.full : r.data, ok = !r.errors.length;
-        return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}</td><td>${esc(d.email)}</td>
+        return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}${d.corp ? `<div class="sub">${esc(corpName(d.corp))}</div>` : ""}</td><td>${esc(d.email)}</td>
           <td>${esc(d.orgIds.length ? orgNames(d.orgIds) : "—")}</td><td>${esc(d.position || "—")}</td>
           <td>${d.level ? levelBadge(d.level) : "—"}</td><td>${d.status ? statusBadge(d.status) : "—"}</td>
           <td class="sub">${esc(d.joinedAt || "—")}</td><td class="sub">${Object.keys(r.pi).length ? Object.keys(r.pi).length + "개 항목" : "—"}</td>
@@ -934,7 +943,7 @@ $("btnBulkTemplate").onclick = () => {
     { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "사원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
-      baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000", rrn: "900101-1234567", rrnFront: "900101" },
+      baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000", rrn: "900101-1234567", rrnFront: "900101", corp: "피크코퍼레이션(주)" },
     { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "원장", status: "재직", workStartDate: "2020-01-01" },
   ];
   const csv = "\uFEFF" + [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => r[c.key] ?? ""))]

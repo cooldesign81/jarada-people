@@ -495,6 +495,14 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("slip comp[hr]: branch admin still denied", false, () => adm.doc("employees/emp_0003/payslips/s1").get());
   await setPerms(null);
   await t("slip: super deletes", true, () => sup.doc("employees/emp_0003/payslips/s2").delete());
+
+  // ---- 소속 법인(corp) ----
+  await t("corp: hr sets peak", true, () => hr.doc("employees/emp_0005").update({ corp: "peak" }));
+  await t("corp: hr sets jade", true, () => hr.doc("employees/emp_0005").update({ corp: "jade" }));
+  await t("corp: hr clears corp", true, () => hr.doc("employees/emp_0005").update({ corp: "" }));
+  await t("corp: unknown corp denied", false, () => hr.doc("employees/emp_0005").update({ corp: "other" }));
+  await t("corp: super sets", true, () => sup.doc("employees/emp_0005").update({ corp: "peak" }));
+  await t("corp: staff cannot set own corp", false, () => stf.doc("employees/emp_0003").update({ corp: "jade" }));
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);
