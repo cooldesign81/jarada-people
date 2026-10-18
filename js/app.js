@@ -473,7 +473,8 @@ function openEmp(id) {
 
   const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k)));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
-  $("fLevel").value = emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
+  // 본인 문서는 직원 문서에 등급이 비어 있어도 실제 권한(roles)을 보여주고 그대로 저장한다 (안 그러면 저장하다 내 권한이 낮아질 수 있음)
+  $("fLevel").value = self && levels.some(([k]) => k === state.role.level) ? state.role.level : emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
   $("fLevel").disabled = self || locked;
   $("fLevelHelp").textContent = self ? "본인 권한은 변경할 수 없습니다" :
     (isHR() ? "최고관리자·본사 인사: 전체 / 관리자·원장: 소속 지점 / 직원: 본인 정보만" : "관리자·원장: 소속 지점 / 직원: 본인 정보만");

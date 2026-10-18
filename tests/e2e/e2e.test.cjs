@@ -994,6 +994,15 @@ const buf = (s) => Buffer.from(s);
     ok("V no delete button on own page", (await count(page, "#dBtnTrash")) === 0);
     ok("V no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
+    // 본인 직원 문서에 등급이 비어 있어도, 저장하면 실제 권한(최고관리자)으로 채워지고 roles 는 그대로다
+    const sn = J(snapStore); delete sn.employees.emp_0001.level; sn.employees.emp_0001.email = "boss@jarada.kr";
+    const n = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: sn, files: {}, now: NOW });
+    await n.page.goto(BASE + "/index.html#emp/emp_0001"); await n.page.waitForSelector("#dBtnEdit"); await n.page.click("#dBtnEdit");
+    ok("V self level shows real role", (await n.page.inputValue("#fLevel")) === "super" && (await n.page.$eval("#fLevel", (e) => e.disabled)));
+    await n.page.fill("#fName", "양진혁"); await n.page.click("#btnEmpSave"); await n.page.waitForTimeout(500);
+    const e1 = await S(n.page, "employees/emp_0001"), r1 = await S(n.page, "roles/u1");
+    ok("V self save keeps super", e1.level === "super" && e1.name === "양진혁" && r1.level === "super" && r1.employeeId === "emp_0001", JSON.stringify([e1.level, r1]));
+    await n.ctx.close();
     // 계정이 엉뚱한 직원에 연결된 경우 경고 + 다시 연결
     const sl = J(snapStore); sl.roles.u9 = { level: "super", orgId: "hq", employeeId: "emp_0001" };
     const l = await newPage(browser, { user: { uid: "u9", email: "choi@jarada.kr" }, store: sl, files: {}, now: NOW });
