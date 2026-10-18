@@ -372,6 +372,20 @@
   </div>
 </dialog>
 
+<!-- 배포한 명세서의 종류·월 수정 -->
+<dialog id="dlgSlipEdit">
+  <form onsubmit="return false">
+  <div class="dlg-head"><h2>명세서 종류·월 수정</h2></div>
+  <div class="dlg-body">
+    <p class="field full" id="seInfo" style="margin:0"></p>
+    <div class="field"><label for="seType">종류</label><select id="seType"></select></div>
+    <div class="field"><label for="seMonth">귀속 월</label><input class="input" id="seMonth" type="month"></div>
+    <div class="msg error dlg-err" id="seErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnSeCancel">취소</button><button type="button" class="btn btn-primary" id="btnSeSave">저장</button></div>
+  </form>
+</dialog>
+
 <!-- 급여 열람 비밀번호 (직원이 급여 명세서를 열 때마다) -->
 <dialog id="dlgPayPw">
   <form onsubmit="return false" autocomplete="off">

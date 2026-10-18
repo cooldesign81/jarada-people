@@ -440,6 +440,9 @@ service cloud.firestore {
         allow update: if isSelfAccount(empId) && !('viewedAt' in resource.data)
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedAt'])
                       && request.resource.data.viewedAt == request.time;
+        // 배포한 뒤 종류·월을 바로잡는 것은 급여 권한자 (파일·이름 등 나머지는 못 바꾼다)
+        allow update: if capAll('comp', []) && validSlip()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'month', 'updatedAt']);
         allow delete: if capAll('comp', []);
       }
 

@@ -12,6 +12,7 @@ import {
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
 import { mountEmployeeSlips } from "./payslips.js";
+import { birthFromRrn } from "./rrn.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
 import { mountRecords, initRecords, addAssignments, compHistoryHtml, addCompHistory } from "./records.js";
 import { STAMP_IMAGES, COMPANY_INFO, corpName } from "./company.js";
@@ -354,7 +355,13 @@ function bindRrn() {
       if (!canSeeFront()) $("dFront").value = "";
       rrnStatus();
       audit("rrn_save", { targetEmployeeId: cur.id, detail: [front && "앞자리", back && "뒷자리"].filter(Boolean).join("·") });
-      toast("저장했습니다");
+      // 생년월일이 비어 있으면 주민번호로 채운다 (직원 정보를 고칠 권한이 있는 사람이 저장할 때만)
+      let filled = "";
+      if (!cur.emp.birthDate && can("empWrite")) {
+        const f6 = front || cur.front, b1 = (back || cur.back || "")[0] || "", bd = birthFromRrn(f6, b1);
+        if (bd) { try { await updateDoc(doc(db, "employees", cur.id), { birthDate: bd, updatedAt: serverTimestamp() }); cur.emp.birthDate = bd; filled = bd; } catch (e2) { console.warn("생년월일 자동 입력 실패", e2.code || e2); } }
+      }
+      toast(filled ? `저장했습니다 (생년월일 ${filled}도 채웠습니다)` : "저장했습니다");
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
 }

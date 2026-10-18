@@ -543,6 +543,22 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("companyLeave: hr cancels generated leave", true, () => hr.doc("leaveRequests/CL1").update({ status: "cancelled", decisionNote: "회사 지정 휴가 취소", decidedBy: "u_hr", decidedAt: TS(), updatedAt: TS() }));
   await t("companyLeave: employee reads own generated leave", true, () => stf.doc("leaveRequests/CL2").get().catch(() => stf.collection("leaveRequests").where("employeeId", "==", "emp_0003").get()));
   await t("companyLeave: super deletes event", true, () => sup.doc("calendarEvents/cl1").delete());
+
+  // ---- 배포한 명세서 수정 (종류·월만) ----
+  await setPerms(null);
+  await sup.doc("employees/emp_0003/payslips/ed1").set(slip());
+  await t("slip edit: super changes type+month", true, () => sup.doc("employees/emp_0003/payslips/ed1").update({ type: "incentive", month: "2026-11", updatedAt: TS() }));
+  await t("slip edit: super cannot change file path", false, () => sup.doc("employees/emp_0003/payslips/ed1").update({ path: "hr/emp_0003/pay/x.pdf", updatedAt: TS() }));
+  await t("slip edit: super cannot change file name", false, () => sup.doc("employees/emp_0003/payslips/ed1").update({ fileName: "x.pdf" }));
+  await t("slip edit: invalid month denied", false, () => sup.doc("employees/emp_0003/payslips/ed1").update({ month: "11월" }));
+  await t("slip edit: invalid type denied", false, () => sup.doc("employees/emp_0003/payslips/ed1").update({ type: "bonus" }));
+  await t("slip edit: hr denied by default", false, () => hr.doc("employees/emp_0003/payslips/ed1").update({ month: "2026-12" }));
+  await t("slip edit: employee cannot change month", false, () => stf.doc("employees/emp_0003/payslips/ed1").update({ month: "2026-12" }));
+  await t("slip edit: branch admin denied", false, () => adm.doc("employees/emp_0003/payslips/ed1").update({ month: "2026-12" }));
+  await setPerms({ comp: ["hr"] });
+  await t("slip edit comp[hr]: hr can fix month", true, () => hr.doc("employees/emp_0003/payslips/ed1").update({ month: "2026-12", updatedAt: TS() }));
+  await setPerms(null);
+  await t("slip edit: super deletes", true, () => sup.doc("employees/emp_0003/payslips/ed1").delete());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

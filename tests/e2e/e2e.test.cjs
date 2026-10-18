@@ -1424,6 +1424,86 @@ const buf = (s) => Buffer.from(s);
     await ctx.close();
   }
 
+
+  // ================= AB. 주민번호 → 생년월일, 급여 배포 후 수정·삭제 =================
+  {
+    const NOW = "2026-10-18T10:00:00+09:00";
+    const PDF = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
+    const st = J(snapStore);
+    st["employees/emp_0003/private"] = { ...(st["employees/emp_0003/private"] || {}), residentFront: { value: "860701" }, residentBack: { value: "1234567" } };
+    delete st.employees.emp_0003.birthDate;
+    st.employees.emp_0002.joinedAt = "2020-01-01"; delete st.employees.emp_0002.birthDate;
+    st["employees/emp_0002/private"] = { residentFront: { value: "050315" } };            // 앞자리만 (추정)
+    st.employees.emp_0005 = { name: "추정불가", email: "unk@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active" };
+    st["employees/emp_0005/private"] = { residentFront: { value: "150101" } };            // 나이로는 알 수 없음
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
+    // 관리 → 현황 점검 → 생년월일 채우기
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.waitForSelector("#btnBfPlan");
+    await page.click("#btnBfPlan"); await page.waitForSelector("#bfOut table");
+    const txt = await page.textContent("#bfOut");
+    ok("AB plan: exact from back digit", txt.includes("이교사") && txt.includes("1986-07-01") && txt.includes("뒷자리로 확정"));
+    ok("AB plan: estimated from front only", txt.includes("2005-03-15") && txt.includes("나이로 추정"));
+    ok("AB plan: undeterminable counted, digits never shown", txt.includes("계산 불가 1명") && !txt.includes("860701") && !txt.includes("1234567") && !txt.includes("050315"));
+    await page.uncheck('[data-bf]:nth-of-type(1)').catch(() => {});
+    await page.click("#btnBfApply"); await page.waitForTimeout(800);
+    const e3 = await S(page, "employees/emp_0003"), e2 = await S(page, "employees/emp_0002");
+    ok("AB applied birthDate", (e3.birthDate === "1986-07-01" || e2.birthDate === "2005-03-15") && !(await S(page, "employees/emp_0005")).birthDate);
+    ok("AB audit", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "birth_fill"));
+    // 직원 상세에서 주민번호를 저장하면 생년월일이 비어 있을 때 채운다
+    const s2 = J(st); s2.employees.emp_0003.joinedAt = "2024-03-02"; delete s2["employees/emp_0003/private"]; delete s2.employees.emp_0003.birthDate;
+    const p2 = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: s2, files: {}, now: NOW });
+    await p2.page.goto(BASE + "/index.html#emp/emp_0003"); await p2.page.waitForSelector("#dBtnRrn");
+    await p2.page.fill("#dFront", "770513"); await p2.page.fill("#dBack", "2000000"); await p2.page.click("#dBtnRrn"); await p2.page.waitForTimeout(500);
+    ok("AB detail save fills birthDate", (await S(p2.page, "employees/emp_0003")).birthDate === "1977-05-13");
+    ok("AB toast mentions it", (await p2.page.textContent("#toast")).includes("생년월일"));
+    await p2.page.fill("#dFront", "990909"); await p2.page.click("#dBtnRrn"); await p2.page.waitForTimeout(400);
+    ok("AB existing birthDate is not overwritten", (await S(p2.page, "employees/emp_0003")).birthDate === "1977-05-13");
+    await p2.ctx.close();
+    // 일괄 등록: 생년월일 칸이 비어 있으면 주민번호로 채움, 있으면 그대로
+    await page.goto(BASE + "/index.html#employees"); await page.waitForSelector("#tblEmp tbody tr"); await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]");
+    await page.fill("#bulkText", "이름\t이메일\t소속 지점\t주민등록번호\t생년월일\n가\tb1@jarada.kr\t안양 평촌원\t900101-2234567\t\n나\tb2@jarada.kr\t안양 평촌원\t900101-2234567\t1991-02-02");
+    await page.click("#btnBulkSave"); await page.waitForTimeout(900);
+    const all = Object.values(await page.evaluate(() => globalThis.__mockStore.employees));
+    ok("AB bulk fills only empty birthDate", all.find((e) => e.email === "b1@jarada.kr")?.birthDate === "1990-01-01" && all.find((e) => e.email === "b2@jarada.kr")?.birthDate === "1991-02-02");
+    // ----- 급여 배포 후 수정·삭제 -----
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="slips"]'); await page.waitForSelector("#dsZone");
+    await page.selectOption("#dsType", "salary"); await page.fill("#dsMonth", "2026-09");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "최팀장.pdf", mimeType: "application/pdf", buffer: PDF }]);
+    await page.waitForSelector("#btnDsUpload:not([disabled])"); await page.click("#btnDsUpload"); await page.waitForTimeout(1000);
+    await page.selectOption("#dsType", "incentive");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#btnDsUpload:not([disabled])"); await page.click("#btnDsUpload"); await page.waitForTimeout(800);
+    await page.fill("#dsStatMonth", "2026-09"); await page.click("#btnDsStat"); await page.waitForSelector("#dsStat [data-sact]");
+    ok("AB status row actions present", (await count(page, '#dsStat [data-sact="edit"]')) === 3 && (await count(page, '#dsStat [data-sact="replace"]')) === 3 && (await count(page, '#dsStat [data-sact="del"]')) === 3 && (await count(page, "#dsStat [data-delall]")) === 2);
+    // 종류·월 수정: 9월 급여 명세서(이교사)를 10월로
+    await page.click('#dsStat tr:has(a:text("이교사")) td:nth-child(3) [data-sact="edit"]'); await page.waitForSelector("#dlgSlipEdit[open]");
+    ok("AB edit dialog prefilled", (await page.inputValue("#seMonth")) === "2026-09" && (await page.inputValue("#seType")) === "salary");
+    await page.fill("#seMonth", "2026-10"); await page.click("#btnSeSave"); await page.waitForTimeout(700);
+    const sl3 = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/payslips"] || {}));
+    ok("AB month/type updated on the document", sl3.some((x) => x.type === "salary" && x.month === "2026-10") && !sl3.some((x) => x.type === "salary" && x.month === "2026-09"));
+    ok("AB edit audited", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_edit" && l.detail.includes("2026-09") && l.detail.includes("2026-10")));
+    await page.click("#btnDsStat"); await page.waitForSelector("#dsStat [data-sact]");
+    ok("AB list now only shows September items for the others", (await count(page, '#dsStat [data-sact="del"]')) === 2);
+    // 같은 종류·월이 이미 있으면 막는다
+    await page.click('#dsStat tr:has(a:text("이교사")) td:nth-child(4) [data-sact="edit"]'); await page.waitForSelector("#dlgSlipEdit[open]");
+    await page.selectOption("#seType", "salary"); await page.fill("#seMonth", "2026-10"); await page.click("#btnSeSave"); await page.waitForTimeout(400);
+    ok("AB edit blocked when target slot is taken", (await page.textContent("#seErr")).includes("이미") && (await page.$eval("#dlgSlipEdit", (d) => d.open))); await page.click("#btnSeCancel");
+    // 파일 교체
+    const [fc] = await Promise.all([page.waitForEvent("filechooser"), page.click('#dsStat tr:has(a:text("최팀장")) td:nth-child(3) [data-sact="replace"]')]);
+    await fc.setFiles({ name: "최팀장 수정본.pdf", mimeType: "application/pdf", buffer: PDF }); await page.waitForTimeout(900);
+    const sl2 = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0002/payslips"] || {}));
+    ok("AB replace keeps one slip with the new file", sl2.length === 1 && sl2[0].fileName.includes("수정본") && sl2[0].month === "2026-09" && sl2[0].type === "salary");
+    // 개별 삭제
+    await page.click('#dsStat tr:has(a:text("이교사")) td:nth-child(4) [data-sact="del"]'); await page.waitForTimeout(800);
+    ok("AB single delete removes file + doc", !(Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/payslips"] || {})).some((x) => x.type === "incentive")) && !(await FILES(page)).some((f) => f.startsWith("hr/emp_0003/pay/incentive__2026-09")));
+    // 이 달 전체 삭제
+    await page.click("#btnDsStat"); await page.waitForSelector("#dsStat [data-delall]");
+    await page.click('#dsStat [data-delall="salary"]'); await page.waitForTimeout(900);
+    ok("AB delete-all removes that type+month for everyone", (await FILES(page)).filter((f) => f.startsWith("hr/emp_0002/pay/salary__2026-09__")).length === 0 && (await FILES(page)).some((f) => f.startsWith("hr/emp_0003/pay/salary__2026-09__")) /* 월을 고친 문서의 파일은 그대로 */ && Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0002/payslips"] || {})).length === 0);
+    ok("AB delete-all audited", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_delete" && l.detail.includes("전체")));
+    ok("AB no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+  }
+
   // ================= F. setup.html / 로그인 화면 =================
   {
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore) });

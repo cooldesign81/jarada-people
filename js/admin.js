@@ -7,6 +7,7 @@ import {
 import { $, state, can, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
 import { AUDIT_ACTIONS, PERMS, PERM_LEVELS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
 import { today, diffDays } from "./dates.js";
+import { birthFromRrn } from "./rrn.js";
 import { renderDistribute } from "./payslips.js";
 import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
@@ -36,6 +37,37 @@ export async function renderAdmin() {
   ({ slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
 }
 
+// ---------- 생년월일 채우기: 주민번호가 등록돼 있는데 생년월일이 비어 있는 직원 ----------
+function renderBirthFill(el) {
+  const targets = state.employees.filter((e) => e.status !== "resigned" && !e.birthDate);
+  el.innerHTML = `<div class="card"><h2>생년월일 채우기</h2>
+    <p>생년월일이 비어 있는 직원이 <b>${targets.length}명</b> 있습니다. 등록된 <b>주민등록번호</b>로 생년월일을 계산해 채웁니다 (달력의 생일 표시에 쓰입니다). 뒷자리를 볼 수 있으면 정확히, 앞자리만 있으면 나이(14~85세)로 추정하며 추정은 결과에 표시합니다.</p>
+    ${can("empWrite") ? `<button class="btn btn-secondary" id="btnBfPlan" ${targets.length ? "" : "disabled"}>계산하기</button> <span class="sub" id="bfProg"></span>` : `<p class="sub">직원 정보를 수정할 권한이 없어 계산만 볼 수 없습니다.</p>`}<div id="bfOut"></div></div>`;
+  $("btnBfPlan")?.addEventListener("click", async () => {
+    $("btnBfPlan").disabled = true; const rows = []; let i = 0;
+    const seeBack = can("rrnBack");
+    for (let k = 0; k < targets.length; k += 8) await Promise.all(targets.slice(k, k + 8).map(async (e) => {
+      let front = "", back = "";
+      try { const d = await getDoc(doc(db, "employees", e.id, "private", "residentFront")); if (d.exists()) front = d.data().value || ""; } catch {}
+      if (front && seeBack) { try { const d = await getDoc(doc(db, "employees", e.id, "private", "residentBack")); if (d.exists()) back = String(d.data().value || "")[0] || ""; } catch {} }
+      rows.push({ e, front, exact: !!back, birth: front ? birthFromRrn(front, back) : "" });
+      $("bfProg").textContent = `${++i} / ${targets.length}`;
+    }));
+    rows.sort((a, b) => a.e.name.localeCompare(b.e.name, "ko"));
+    const ok = rows.filter((r) => r.birth), noFront = rows.filter((r) => !r.front).length, unknown = rows.filter((r) => r.front && !r.birth).length;
+    $("bfOut").innerHTML = `<p style="margin:10px 0">채울 수 있는 직원 <b>${ok.length}명</b> · 주민번호 앞자리 없음 ${noFront}명 · 계산 불가 ${unknown}명</p>${ok.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" id="bfAll" checked></th><th>이름</th><th>생년월일</th><th>근거</th></tr></thead><tbody>${ok.map((r, n) => `<tr><td><input type="checkbox" data-bf="${n}" checked></td><td class="strong">${esc(r.e.name)}</td><td>${esc(r.birth)}</td><td class="sub">${r.exact ? "뒷자리로 확정" : "나이로 추정 — 확인 필요"}</td></tr>`).join("")}</tbody></table></div><div class="row-actions" style="margin-top:10px"><button class="btn btn-primary" id="btnBfApply">선택한 직원에 채우기</button></div>` : ""}`;
+    $("btnBfPlan").disabled = false;
+    $("bfAll")?.addEventListener("change", () => el.querySelectorAll("[data-bf]").forEach((b) => (b.checked = $("bfAll").checked)));
+    $("btnBfApply")?.addEventListener("click", async () => {
+      const pick = [...el.querySelectorAll("[data-bf]:checked")].map((b) => ok[Number(b.dataset.bf)]);
+      if (!pick.length || !confirm(`${pick.length}명의 생년월일을 채웁니다. 계속할까요?`)) return;
+      let done = 0, fail = 0;
+      for (const r of pick) { try { await updateDoc(doc(db, "employees", r.e.id), { birthDate: r.birth, updatedAt: serverTimestamp() }); r.e.birthDate = r.birth; done++; } catch (e) { console.warn(e.code || e); fail++; } }
+      audit("birth_fill", { detail: `${done}명${fail ? ` (실패 ${fail}명)` : ""}` }); toast(`${done}명의 생년월일을 채웠습니다${fail ? `, ${fail}명 실패` : ""}`, !!fail); renderBirthFill(el);
+    });
+  });
+}
+
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------
 const st = { rows: null, busy: false };
 const keyOf = (name) => name.split("__")[0];
@@ -50,7 +82,8 @@ function renderStatus(body) {
     <p>재직 중인 직원의 필수 서류 제출 여부와 자격증 만료일을 한 번에 확인합니다. 직원 수만큼 읽기가 발생하므로 필요할 때만 실행하세요. 필수 서류는 ‘설정’ 탭에서 바꿉니다.</p>
     <p class="sub">필수 서류: ${req.map((k) => esc(docs.find((d) => d.key === k)?.label || k)).join(", ") || "없음"}${can("secDocs") ? "" : " · 비공개서류는 열람 권한이 없어 제외됩니다."}</p>
     <button class="btn btn-primary" id="btnScan">${st.rows ? "다시 점검" : "점검 시작"}</button> <span class="sub" id="scanProg"></span></div>
-    <div id="scanOut"></div>`;
+    <div id="scanOut"></div><div id="birthFill"></div>`;
+  renderBirthFill($("birthFill"));
   const out = $("scanOut");
   const draw = () => {
     if (!st.rows) return;
