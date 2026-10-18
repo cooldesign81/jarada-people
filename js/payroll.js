@@ -1,4 +1,4 @@
-// 급여명세서, 근로계약서 초안, 퇴직금 예상, 지점별 인건비 (모두 최고관리자 전용)
+// 급여 명세서, 근로계약서 초안, 퇴직금 예상, 지점별 인건비 (모두 최고관리자 전용)
 // ※ 4대보험·세금은 자동 계산하지 않는다 (요율이 해마다 바뀜). 명세서에는 직접 입력한 금액만 담는다.
 import { esc, state, toast } from "./core.js";
 import { today, fmtKo } from "./dates.js";
@@ -15,12 +15,12 @@ td.r,th.r{text-align:right}.total td{font-weight:700;background:#fafafa}.sub{col
 .draft{margin-top:30px;padding:10px 14px;border:1px dashed #999;color:#555;font-size:12px}@media print{body{padding:24px}.draft{display:none}}`;
 const wrap = (title, body) => `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>${CSS}</style></head><body>${body}<script>window.onload=()=>window.print();<\/script></body></html>`;
 
-// ---------- 급여명세서 ----------
+// ---------- 급여 명세서 ----------
 export function buildPayslipHtml(d) {
   const pays = d.pays.map((p) => `<tr><td>${esc(p.label)}</td><td class="r">${won(p.amount)}</td></tr>`).join("");
   const deds = d.deductions.filter((x) => num(x.amount) > 0).map((x) => `<tr><td>${esc(x.label)}</td><td class="r">${won(x.amount)}</td></tr>`).join("");
   const totalPay = d.pays.reduce((s, p) => s + num(p.amount), 0), totalDed = d.deductions.reduce((s, x) => s + num(x.amount), 0);
-  return wrap(`급여명세서 ${d.month} ${d.name}`, `<h1>${esc(d.month.replace("-", "년 "))}월 급여명세서</h1>
+  return wrap(`급여 명세서 ${d.month} ${d.name}`, `<h1>${esc(d.month.replace("-", "년 "))}월 급여 명세서</h1>
     <table><tr><th style="width:90px">성명</th><td>${esc(d.name)}</td><th style="width:90px">사번</th><td>${esc(d.empId)}</td></tr>
     <tr><th>소속</th><td>${esc(d.branch)}</td><th>지급일</th><td>${esc(d.payDate || "-")}</td></tr></table>
     <h2>지급 내역</h2><table>${pays || `<tr><td colspan="2">내역 없음</td></tr>`}<tr class="total"><td>지급 합계</td><td class="r">${won(totalPay)}</td></tr></table>
@@ -94,7 +94,7 @@ export function bindPayroll() {
     if (num(g("psExtra").value) > 0) pays.push({ label: g("psExtraLabel").value.trim() || "추가 지급", amount: num(g("psExtra").value) });
     const deductions = [["국민연금", "psPension"], ["건강보험", "psHealth"], ["장기요양보험", "psCare"], ["고용보험", "psEmp"], ["소득세", "psTax"], ["지방소득세", "psLocal"], ["기타 공제", "psOtherDed"]].map(([label, id]) => ({ label, amount: num(g(id).value) }));
     openPrint(buildPayslipHtml({ month, name: emp.name, empId: emp.id, branch: cur.branch, payDate: g("psPayDate").value, pays, deductions, company: g("psCompany").value }));
-    cur.audit?.("payslip", `${month} 급여명세서`); g("dlgPayslip").close();
+    cur.audit?.("payslip", `${month} 급여 명세서`); g("dlgPayslip").close();
   };
   g("btnCtGo").onclick = () => {
     const { emp, comp, pi } = cur;

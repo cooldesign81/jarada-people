@@ -503,6 +503,29 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("corp: unknown corp denied", false, () => hr.doc("employees/emp_0005").update({ corp: "other" }));
   await t("corp: super sets", true, () => sup.doc("employees/emp_0005").update({ corp: "peak" }));
   await t("corp: staff cannot set own corp", false, () => stf.doc("employees/emp_0003").update({ corp: "jade" }));
+
+  // ---- 급여 열람 비밀번호 (private/payLock) ----
+  const lockDoc = (o = {}) => ({ salt: "c2FsdHNhbHRzYWx0c2FsdA==", hash: "aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g=", iter: 200000, algo: "PBKDF2-SHA256", updatedAt: TS(), ...o });
+  await setPerms(null);
+  await t("payLock: employee (own account) creates", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: employee reads own", true, () => stf.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: employee changes own", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ salt: "YW5vdGhlcnNhbHRhbm90aGVy" })));
+  await t("payLock: extra field denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ pin: "1234" })));
+  await t("payLock: weak iteration count denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ iter: 10 })));
+  await t("payLock: wrong algo denied", false, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc({ algo: "MD5" })));
+  await t("payLock: other staff cannot read", false, () => s5.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: other staff cannot overwrite", false, () => s5.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: link user cannot read", false, () => aok.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: link user cannot write", false, () => aok.doc("employees/emp_0003/private/payLock").set(lockDoc()));
+  await t("payLock: branch admin cannot read", false, () => adm.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: hr cannot read by default", false, () => hr.doc("employees/emp_0003/private/payLock").get());
+  await t("payLock: employee cannot delete own (no self reset)", false, () => stf.doc("employees/emp_0003/private/payLock").delete());
+  await t("payLock: hr cannot reset by default", false, () => hr.doc("employees/emp_0003/private/payLock").delete());
+  await setPerms({ comp: ["hr"] });
+  await t("payLock comp[hr]: hr can reset", true, () => hr.doc("employees/emp_0003/private/payLock").delete());
+  await setPerms(null);
+  await t("payLock: super reads", true, () => stf.doc("employees/emp_0003/private/payLock").set(lockDoc()).then(() => sup.doc("employees/emp_0003/private/payLock").get()));
+  await t("payLock: super resets", true, () => sup.doc("employees/emp_0003/private/payLock").delete());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

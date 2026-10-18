@@ -29,7 +29,7 @@ const NAV = [
   { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
   { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
   { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
-  { id: "payslips",  label: "내 명세서", view: "Payslips",  levels: Object.keys(LEVELS) },
+  { id: "payslips",  label: "내 급여", view: "Payslips",  levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
   { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
@@ -243,7 +243,7 @@ function updateBadges() {
   const n = pendingCount();
   document.querySelectorAll('.tab[data-view="leaves"]').forEach((t) => { t.innerHTML = `휴가${n ? ` <span class="tab-badge">${n}</span>` : ""}`; });
   const sl = unseenSlips();
-  document.querySelectorAll('.tab[data-view="payslips"]').forEach((t) => { t.innerHTML = `내 명세서${sl ? ` <span class="tab-badge">${sl}</span>` : ""}`; });
+  document.querySelectorAll('.tab[data-view="payslips"]').forEach((t) => { t.innerHTML = `내 급여${sl ? ` <span class="tab-badge">${sl}</span>` : ""}`; });
   const u = unreadCount();
   document.querySelectorAll('.tab[data-view="notices"]').forEach((t) => { t.innerHTML = `공지${u ? ` <span class="tab-badge">${u}</span>` : ""}`; });
 }

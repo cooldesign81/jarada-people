@@ -142,7 +142,7 @@
 
   <!-- 내 급여·인센티브 명세서 -->
   <section id="viewPayslips" class="hidden">
-    <div class="page-head"><h1>내 명세서</h1><span class="hint">급여명세서·인센티브 내역서</span></div>
+    <div class="page-head"><h1>내 급여</h1><span class="hint">급여 명세서·급여 세부내역서</span></div>
     <div id="payslipBody"></div>
   </section>
 
@@ -359,9 +359,24 @@
   </div>
 </dialog>
 
-<!-- 급여명세서 (대표 전용) -->
+<!-- 급여 열람 비밀번호 (직원이 급여 명세서를 열 때마다) -->
+<dialog id="dlgPayPw">
+  <form onsubmit="return false" autocomplete="off">
+  <div class="dlg-head"><h2 id="ppTitle">급여 열람 비밀번호</h2></div>
+  <div class="dlg-body">
+    <p class="field full" id="ppDesc" style="margin:0"></p>
+    <div class="field full" id="ppOldWrap"><label for="ppOld" id="ppOldLabel">비밀번호</label><input class="input" id="ppOld" type="password" autocomplete="current-password"></div>
+    <div class="field full hidden" id="ppNewWrap"><label for="ppNew">새 비밀번호 (8자 이상)</label><input class="input" id="ppNew" type="password" autocomplete="new-password"></div>
+    <div class="field full hidden" id="ppNew2Wrap"><label for="ppNew2">새 비밀번호 확인</label><input class="input" id="ppNew2" type="password" autocomplete="new-password"></div>
+    <div class="msg error dlg-err" id="ppErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnPpCancel">취소</button><button type="button" class="btn btn-primary" id="btnPpOk">확인</button></div>
+  </form>
+</dialog>
+
+<!-- 급여 명세서 (대표 전용) -->
 <dialog id="dlgPayslip">
-  <div class="dlg-head"><h2>급여명세서 만들기</h2></div>
+  <div class="dlg-head"><h2>급여 명세서 만들기</h2></div>
   <div class="dlg-body">
     <div class="field"><label for="psMonth">귀속 월</label><input class="input" id="psMonth" type="month"></div>
     <div class="field"><label for="psPayDate">지급일</label><input class="input" id="psPayDate" type="date"></div>

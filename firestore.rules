@@ -286,21 +286,32 @@ service cloud.firestore {
             && d.get('guardianRelation', '') is string && d.get('guardianRelation', '').size() <= 200
             && d.get('guardianPhone', '') is string && d.get('guardianPhone', '').size() <= 200;
         }
+        // 급여 열람 비밀번호(소금+해시). 직원 본인(구글 계정)만 만들고 바꿀 수 있고, 잊었을 때는 급여 권한자가 지워 준다
+        function validPayLock() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['salt', 'hash', 'iter', 'algo', 'updatedAt'])
+            && d.salt is string && d.salt.size() >= 16 && d.salt.size() <= 64
+            && d.hash is string && d.hash.size() >= 32 && d.hash.size() <= 128
+            && d.iter is number && d.iter >= 100000 && d.iter <= 2000000
+            && d.algo == 'PBKDF2-SHA256';
+        }
         function validRrnFront() { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{6}$'); }
         function validRrnBack()  { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{7}$'); }
 
         allow read: if (docId in ['personalInfo', 'flags', 'residentFront'] && ownerOrManager())
                     || (docId == 'residentBack' && capAll('rrnBack', []))
-                    || (docId == 'compensation' && capAll('comp', []));
+                    || (docId == 'compensation' && capAll('comp', []))
+                    || (docId == 'payLock' && (isSelfAccount(empId) || capAll('comp', [])));
 
         allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
                               || (docId == 'flags' && ownerOrManager())
                               || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
                               || (docId == 'residentBack' && (capAll('rrnBack', []) || isSelf(empId)) && validRrnBack() && rrnBackAllowed())
-                              || (docId == 'compensation' && capAll('comp', []));
+                              || (docId == 'compensation' && capAll('comp', []))
+                              || (docId == 'payLock' && isSelfAccount(empId) && validPayLock());
 
-        // 삭제는 대표만 (직원 완전 삭제 시 정리용)
-        allow delete: if isSuper();
+        // 삭제는 대표만 (직원 완전 삭제 시 정리용). 급여 열람 비밀번호는 급여 권한자도 지울 수 있다(초기화)
+        allow delete: if isSuper() || (docId == 'payLock' && capAll('comp', []));
       }
 
       // ---------- 민감: 신원 / 계좌 / 주소 (v0.1, 앱 미사용) ----------

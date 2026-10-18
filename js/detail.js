@@ -162,7 +162,7 @@ function draw() {
     </div>
 
     ${can("comp") ? compHtml() : ""}
-    ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여·인센티브 명세서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>명세서 올리기</a></div><div id="dSlips"></div></div>` : ""}
+    ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여 명세서·세부내역서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>급여 배포로 가기</a></div><div id="dSlips"></div></div>` : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
     <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
@@ -212,7 +212,7 @@ function compHtml() {
     <div id="cHist"></div>
     <div class="notice" id="cSevEst" style="margin:10px 0">${severanceLine(cur.emp, c, cur.pi.resignDate)}</div>
     <div class="row-actions"><button class="btn btn-primary" id="cBtnSave">급여 정보 저장</button>
-      <button class="btn btn-secondary" id="cBtnPayslip" type="button">급여명세서</button><button class="btn btn-secondary" id="cBtnContract" type="button">근로계약서 초안</button></div></div>`;
+      <button class="btn btn-secondary" id="cBtnPayslip" type="button">급여 명세서</button><button class="btn btn-secondary" id="cBtnContract" type="button">근로계약서 초안</button></div></div>`;
 }
 
 // ---------- 상단: 지점/링크/증명서 ----------
@@ -601,7 +601,7 @@ function addEtcDraft() {
 // 직원 완전 삭제 시 하위 데이터/파일 정리 (최고관리자)
 export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips"];
 export async function deleteEmployeeData(empId) {
-  for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation"]) {
+  for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation", "payLock"]) {
     try { await deleteDoc(doc(db, "employees", empId, "private", n)); } catch (e) { console.warn("삭제 실패", n, e.code || e); }
   }
   for (const sc of SUBCOLLECTIONS) {

@@ -822,7 +822,7 @@ const buf = (s) => Buffer.from(s);
     await page.fill("#psPension", "135000"); await page.fill("#psTax", "50000"); await page.selectOption("#psCompany", "피크코퍼레이션(주)");
     const [ps] = await Promise.all([ctx.waitForEvent("page"), page.click("#btnPsGo")]); await ps.waitForLoadState();
     const ph = await ps.content();
-    ok("Q payslip content", ph.includes("급여명세서") && ph.includes("이교사") && ph.includes("3,000,000원") && ph.includes("135,000원") && ph.includes("실수령액") && ph.includes("2,965,000원"), ph.slice(ph.indexOf("<body"), ph.indexOf("<body") + 300));
+    ok("Q payslip content", ph.includes("급여 명세서") && ph.includes("이교사") && ph.includes("3,000,000원") && ph.includes("135,000원") && ph.includes("실수령액") && ph.includes("2,965,000원"), ph.slice(ph.indexOf("<body"), ph.indexOf("<body") + 300));
     await ps.close();
     await page.click("#cBtnContract"); await page.waitForSelector("#dlgContract[open]");
     ok("Q contract prefilled", (await page.inputValue("#ctStart")) === "2024-03-02" && (await page.inputValue("#ctEnd")) === "2027-02-28");
@@ -1082,7 +1082,7 @@ const buf = (s) => Buffer.from(s);
   }
 
 
-  // ================= X. 급여·인센티브 명세서 배포 / 내 명세서 =================
+  // ================= X. 급여 명세서·세부내역서 배포 / 내 급여 (열람 비밀번호) =================
   {
     const NOW = "2026-11-04T10:00:00+09:00";
     const PDF = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
@@ -1092,80 +1092,141 @@ const buf = (s) => Buffer.from(s);
     st.employees.emp_0006 = { name: "박민", email: "pm2@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active" };
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs");
+    ok("X tab is named 급여 배포", (await page.textContent('#adminTabs [data-t="slips"]')).includes("급여 배포"));
     await page.click('#adminTabs [data-t="slips"]'); await page.waitForSelector("#dsZone");
+    ok("X type options use the new names", (await page.$$eval("#dsType option", (o) => o.map((x) => x.textContent))).join("|") === "급여 명세서|급여 세부내역서");
+    await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-10");
     await page.setInputFiles("#dsFiles", [
-      { name: "2026-10_급여명세서_이교사.pdf", mimeType: "application/pdf", buffer: PDF },
-      { name: "emp_0002 인센티브 202610.png", mimeType: "image/png", buffer: PNG },
-      { name: "박민_급여.pdf", mimeType: "application/pdf", buffer: PDF },
+      { name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF },
+      { name: "최팀장_스캔.png", mimeType: "image/png", buffer: PNG },
+      { name: "박민.pdf", mimeType: "application/pdf", buffer: PDF },
       { name: "scan001.pdf", mimeType: "application/pdf", buffer: PDF },
       { name: "메모.txt", mimeType: "text/plain", buffer: Buffer.from("x") },
+      { name: "이교사 (2).pdf", mimeType: "application/pdf", buffer: PDF },
     ]);
     await page.waitForSelector("#dsPreview table");
-    const val = (i, f) => page.$eval(`[data-f="${f}"][data-i="${i}"]`, (e) => e.value);
-    ok("X auto-match: name/type/month", (await val(0, "emp")) === "emp_0003" && (await val(0, "type")) === "salary" && (await val(0, "month")) === "2026-10");
-    ok("X auto-match: id + incentive + compact month", (await val(1, "emp")) === "emp_0002" && (await val(1, "type")) === "incentive" && (await val(1, "month")) === "2026-10");
-    ok("X ambiguous name is not guessed", (await val(2, "emp")) === "" && (await page.textContent("#dsPreview")).includes("동명이인"));
-    ok("X unmatched file needs selection + bad type rejected", (await val(3, "emp")) === "" && (await page.textContent("#dsPreview")).includes("PDF·이미지 파일만"));
-    ok("X upload disabled until ready", (await page.textContent("#btnDsUpload")).includes("2건"));
-    await page.selectOption('[data-f="emp"][data-i="2"]', "emp_0006"); await page.selectOption('[data-f="emp"][data-i="3"]', "emp_0003"); await page.selectOption('[data-f="type"][data-i="3"]', "incentive");
-    await page.fill('[data-f="month"][data-i="3"]', "2026-09");
-    ok("X after manual fix 4 ready", (await page.textContent("#btnDsUpload")).includes("4건"));
+    const val = (i) => page.$eval(`[data-emp="${i}"]`, (e) => e.value);
+    ok("X name-only filenames are matched", (await val(0)) === "emp_0003" && (await val(1)) === "emp_0002");
+    ok("X ambiguous / unknown / bad type handled", (await val(2)) === "" && (await page.textContent("#dsPreview")).includes("동명이인") && (await val(3)) === "" && (await page.textContent("#dsPreview")).includes("PDF·이미지 파일만"));
+    ok("X summary shows chosen type + month", (await page.textContent("#dsPreview")).includes("2026년 10월 급여 세부내역서"));
+    ok("X second file of same employee is blocked", (await page.textContent("#dsPreview")).includes("같은 직원의 파일이 이미 목록에 있습니다"));
+    ok("X only 2 ready", (await page.textContent("#btnDsUpload")).includes("2건"));
+    await page.selectOption('[data-emp="2"]', "emp_0006"); await page.selectOption('[data-emp="3"]', "emp_0003");
+    await page.click('[data-rm="5"]'); await page.waitForTimeout(100);
+    ok("X still unique after fix: emp_0003 twice -> one blocked", (await page.textContent("#dsPreview")).includes("같은 직원의 파일이 이미 목록에 있습니다") && (await page.textContent("#btnDsUpload")).includes("3건"));
+    await page.click('[data-rm="3"]'); await page.waitForTimeout(100);
+    await page.fill("#dsMonth", ""); await page.waitForTimeout(100);
+    ok("X upload disabled without month", await page.$eval("#btnDsUpload", (b) => b.disabled));
+    await page.fill("#dsMonth", "2026-10"); await page.waitForTimeout(100);
     await page.click("#btnDsUpload"); await page.waitForTimeout(1200);
     const files = await FILES(page), slips3 = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/payslips"] || {}));
-    ok("X files stored under hr/{id}/pay", files.filter((f) => f.startsWith("hr/emp_0003/pay/")).length === 2 && files.some((f) => f.startsWith("hr/emp_0002/pay/incentive__2026-10__")) && files.some((f) => f.startsWith("hr/emp_0006/pay/salary__2026-10__")), files.join(","));
-    ok("X metadata saved", slips3.length === 2 && slips3.some((x) => x.type === "salary" && x.month === "2026-10" && x.contentType === "application/pdf") && slips3.some((x) => x.type === "incentive" && x.month === "2026-09"), JSON.stringify(slips3).slice(0, 300));
-    ok("X audit upload", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_upload" && l.detail.includes("4건")));
-    // 같은 직원·종류·월에 다시 올리면 교체
-    await page.setInputFiles("#dsFiles", [{ name: "2026-10 급여 이교사 (수정).pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#btnDsUpload:not([disabled])");
-    await page.click("#btnDsUpload"); await page.waitForTimeout(900);
-    const slips3b = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/payslips"] || {}));
-    ok("X re-upload replaces same type+month", slips3b.filter((x) => x.type === "salary" && x.month === "2026-10").length === 1 && slips3b.some((x) => x.fileName.includes("수정")) && (await FILES(page)).filter((f) => f.startsWith("hr/emp_0003/pay/salary__2026-10")).length === 1);
-    // 배포 현황
+    ok("X files stored with chosen type+month", files.some((f) => f.startsWith("hr/emp_0003/pay/incentive__2026-10__")) && files.some((f) => f.startsWith("hr/emp_0002/pay/incentive__2026-10__")) && files.some((f) => f.startsWith("hr/emp_0006/pay/incentive__2026-10__")), files.join(","));
+    ok("X metadata saved", slips3.length === 1 && slips3[0].type === "incentive" && slips3[0].month === "2026-10" && slips3[0].contentType === "application/pdf", JSON.stringify(slips3).slice(0, 300));
+    ok("X audit upload mentions type+month", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_upload" && l.detail.includes("2026년 10월 급여 세부내역서") && l.detail.includes("3건")));
+    // 급여 명세서(salary)는 다른 종류로 따로 올리고, 같은 직원·종류·월에 다시 올리면 교체
+    await page.selectOption("#dsType", "salary");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#btnDsUpload:not([disabled])");
+    await page.click("#btnDsUpload"); await page.waitForTimeout(800);
+    await page.setInputFiles("#dsFiles", [{ name: "이교사 수정본.pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#btnDsUpload:not([disabled])");
+    await page.click("#btnDsUpload"); await page.waitForTimeout(800);
+    const s3 = Object.values(await page.evaluate(() => globalThis.__mockStore["employees/emp_0003/payslips"] || {}));
+    ok("X types coexist, re-upload replaces same type+month", s3.filter((x) => x.type === "salary").length === 1 && s3.filter((x) => x.type === "incentive").length === 1 && s3.find((x) => x.type === "salary").fileName.includes("수정본") && (await FILES(page)).filter((f) => f.startsWith("hr/emp_0003/pay/salary__2026-10")).length === 1);
     await page.fill("#dsStatMonth", "2026-10"); await page.click("#btnDsStat"); await page.waitForSelector("#dsStat table");
     const stat = await page.textContent("#dsStat");
-    ok("X status table", stat.includes("받은 직원") && stat.includes("이교사") && stat.includes("미열람"), stat.slice(0, 200));
-    // 직원 상세에서 목록·삭제
+    ok("X status table with new names", stat.includes("받은 직원") && stat.includes("이교사") && stat.includes("미열람") && stat.includes("급여 세부내역서"), stat.slice(0, 200));
     await page.goto(BASE + "/index.html#emp/emp_0003"); await page.waitForSelector("#dSlips table");
-    ok("X detail lists slips", (await count(page, "#dSlips [data-sdel]")) === 2);
+    ok("X detail lists slips + lock status", (await count(page, "#dSlips [data-sdel]")) === 2 && (await page.textContent("#dSlips")).includes("아직 설정 안 함"));
     await page.click('#dSlips [data-sdel]'); await page.waitForTimeout(600);
-    ok("X detail delete removes file+doc", (await count(page, "#dSlips [data-sdel]")) === 1);
+    ok("X detail delete", (await count(page, "#dSlips [data-sdel]")) === 1);
     ok("X no errors (admin)", errors.length === 0, errors.join(" | "));
     await ctx.close();
-    // 직원(구글 로그인): 내 명세서
+    // 직원(구글 로그인): 내 급여 + 열람 비밀번호
     const se = J(st); se.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     se["employees/emp_0003/payslips"] = {
-      p1: { type: "salary", month: "2026-10", path: "hr/emp_0003/pay/salary__2026-10__1__a.pdf", fileName: "10월 급여.pdf", size: 2048, contentType: "application/pdf", createdAt: { seconds: 1793000000, nanoseconds: 0 } },
-      p2: { type: "incentive", month: "2026-10", path: "hr/emp_0003/pay/incentive__2026-10__2__b.png", fileName: "인센티브.png", size: 1024, contentType: "image/png", createdAt: { seconds: 1793000100, nanoseconds: 0 }, viewedAt: { seconds: 1793001000, nanoseconds: 0 } },
-      p3: { type: "salary", month: "2026-09", path: "hr/emp_0003/pay/salary__2026-09__3__c.pdf", fileName: "9월.pdf", size: 500, contentType: "application/pdf", createdAt: { seconds: 1792000000, nanoseconds: 0 } },
+      p1: { type: "salary", month: "2026-10", path: "hr/emp_0003/pay/salary__2026-10__1__a.pdf", fileName: "이교사.pdf", size: 2048, contentType: "application/pdf", createdAt: { seconds: 1793000000, nanoseconds: 0 } },
+      p2: { type: "incentive", month: "2026-10", path: "hr/emp_0003/pay/incentive__2026-10__2__b.png", fileName: "이교사.png", size: 1024, contentType: "image/png", createdAt: { seconds: 1793000100, nanoseconds: 0 }, viewedAt: { seconds: 1793001000, nanoseconds: 0 } },
+      p3: { type: "salary", month: "2026-09", path: "hr/emp_0003/pay/salary__2026-09__3__c.pdf", fileName: "이교사.pdf", size: 500, contentType: "application/pdf", createdAt: { seconds: 1792000000, nanoseconds: 0 } },
     };
     const sf = { "hr/emp_0003/pay/salary__2026-10__1__a.pdf": { size: 1 }, "hr/emp_0003/pay/incentive__2026-10__2__b.png": { size: 1 }, "hr/emp_0003/pay/salary__2026-09__3__c.pdf": { size: 1 } };
     const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: se, files: sf, now: NOW });
     await e.page.goto(BASE + "/index.html#dash"); await e.page.waitForSelector("#nav .tab");
-    ok("X employee tab badge shows unseen count", (await e.page.textContent('.tab[data-view="payslips"]')).includes("내 명세서") && (await e.page.textContent('.tab[data-view="payslips"]')).includes("2"));
+    const tabTxt = await e.page.textContent('.tab[data-view="payslips"]');
+    ok("X employee tab is 내 급여 with unseen badge", tabTxt.includes("내 급여") && tabTxt.includes("2"));
     await e.page.click('.tab[data-view="payslips"]'); await e.page.waitForSelector("#payslipBody .slip-row");
-    ok("X employee sees own slips grouped by month", (await count(e.page, "#payslipBody .slip-row")) === 3 && (await e.page.textContent("#payslipBody")).includes("2026년 10월") && (await e.page.textContent("#payslipBody")).includes("2026년 9월"));
-    ok("X new-badge on unseen only", (await count(e.page, "#payslipBody [data-new]")) === 2);
-    const [pop] = await Promise.all([e.ctx.waitForEvent("page").catch(() => null), e.page.click('[data-view="p1"]')]); await e.page.waitForTimeout(500);
-    ok("X view opens file + records viewedAt", (await S(e.page, "employees/emp_0003/payslips/p1")).viewedAt && (await count(e.page, '[data-view="p1"]')) === 1 && (await count(e.page, "#payslipBody [data-new]")) === 1);
-    ok("X badge decreases after viewing", (await e.page.textContent('.tab[data-view="payslips"]')).includes("1") && !(await e.page.textContent('.tab[data-view="payslips"]')).includes("2"));
-    ok("X audit view", Object.values(await e.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_view" && l.targetEmployeeId === "emp_0003"));
+    ok("X page shows 2 month groups and type names", (await count(e.page, "#payslipBody .slip-row")) === 3 && (await e.page.textContent("#payslipBody")).includes("급여 명세서") && (await e.page.textContent("#payslipBody")).includes("급여 세부내역서"));
+    ok("X prompts to set a password when none", (await e.page.textContent("#btnPayPwChange")).includes("비밀번호 설정"));
+    // 처음 열면 비밀번호 설정을 요구한다
+    await e.page.click('[data-view="p1"]'); await e.page.waitForSelector("#dlgPayPw[open]");
+    ok("X first open asks to SET password (no file opened yet)", (await e.page.textContent("#ppTitle")).includes("설정") && !(await S(e.page, "employees/emp_0003/payslips/p1")).viewedAt);
+    await e.page.fill("#ppNew", "12345678"); await e.page.fill("#ppNew2", "12345678"); await e.page.click("#btnPpOk");
+    ok("X weak password rejected", (await e.page.textContent("#ppErr")).includes("숫자만"));
+    await e.page.fill("#ppNew", "short1"); await e.page.fill("#ppNew2", "short1"); await e.page.click("#btnPpOk");
+    ok("X too short rejected", (await e.page.textContent("#ppErr")).includes("8자"));
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass8"); await e.page.click("#btnPpOk");
+    ok("X mismatch rejected", (await e.page.textContent("#ppErr")).includes("일치"));
+    await e.page.fill("#ppNew2", "Secret-pass9");
+    const [pop1] = await Promise.all([e.ctx.waitForEvent("page").catch(() => null), e.page.click("#btnPpOk")]); await e.page.waitForTimeout(700);
+    const lockDoc = await S(e.page, "employees/emp_0003/private/payLock");
+    ok("X lock stored as salted hash only", lockDoc && lockDoc.algo === "PBKDF2-SHA256" && lockDoc.hash && lockDoc.salt && !JSON.stringify(lockDoc).includes("Secret-pass9"), JSON.stringify(lockDoc).slice(0, 120));
+    ok("X after setting: file opens + viewedAt", !!(await S(e.page, "employees/emp_0003/payslips/p1")).viewedAt && !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
+    // 두 번째부터는 열 때마다 비밀번호를 묻는다
+    await e.page.click('[data-view="p3"]'); await e.page.waitForSelector("#dlgPayPw[open]");
+    ok("X every open asks for the password", (await e.page.textContent("#ppTitle")).includes("급여 열람 비밀번호") && !(await e.page.textContent("#ppTitle")).includes("설정") && !(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt);
+    await e.page.fill("#ppOld", "wrong-pass-1"); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(600);
+    ok("X wrong password does not open", (await e.page.textContent("#ppErr")).includes("맞지 않습니다") && !(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt && (await e.page.$eval("#dlgPayPw", (d) => d.open)));
+    await e.page.fill("#ppOld", "Secret-pass9"); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(700);
+    ok("X correct password opens + records viewedAt", !!(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt && !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
+    await e.page.click('[data-dl="p2"]'); await e.page.waitForSelector("#dlgPayPw[open]");
+    ok("X download also asks", (await e.page.textContent("#ppTitle")).includes("급여 열람 비밀번호")); await e.page.click("#btnPpCancel"); await e.page.waitForTimeout(200);
+    ok("X cancel does nothing", !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
+    // 5번 틀리면 1분 잠금
+    await e.page.click('[data-view="p2"]'); await e.page.waitForSelector("#dlgPayPw[open]");
+    for (let i = 0; i < 5; i++) { await e.page.fill("#ppOld", "bad-attempt-" + i); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(450); }
+    ok("X 5 wrong tries block for a minute", (await e.page.textContent("#ppErr")).includes("1분"));
+    await e.page.fill("#ppOld", "Secret-pass9"); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(300);
+    ok("X blocked even with the right password", (await e.page.textContent("#ppErr")).includes("초 뒤에 다시") && (await e.page.$eval("#dlgPayPw", (d) => d.open)));
+    ok("X lockout audited", Object.values(await e.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "paylock_fail"));
+    await e.page.click("#btnPpCancel");
+    ok("X audit view recorded", Object.values(await e.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_view" && l.targetEmployeeId === "emp_0003"));
     ok("X employee has no admin slips tab / detail card", (await count(e.page, "#dsZone")) === 0);
     ok("X no errors (employee)", e.errors.length === 0, e.errors.join(" | "));
     await e.ctx.close();
-    // 등록 링크로 들어온 화면에는 명세서가 없다
+    // 비밀번호 변경 / 초기화
+    const sc = J(se); sc["employees/emp_0003/private"] = { payLock: lockDoc };
+    const c = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: sc, files: sf, now: NOW });
+    await c.page.goto(BASE + "/index.html#payslips"); await c.page.waitForSelector("#btnPayPwChange");
+    ok("X change button when set", (await c.page.textContent("#btnPayPwChange")).includes("비밀번호 변경"));
+    await c.page.click("#btnPayPwChange"); await c.page.waitForSelector("#dlgPayPw[open]");
+    await c.page.fill("#ppOld", "nope-nope-1"); await c.page.fill("#ppNew", "Another-pass7"); await c.page.fill("#ppNew2", "Another-pass7"); await c.page.click("#btnPpOk"); await c.page.waitForTimeout(500);
+    ok("X change needs the current password", (await c.page.textContent("#ppErr")).includes("맞지 않습니다"));
+    await c.page.fill("#ppOld", "Secret-pass9"); await c.page.click("#btnPpOk"); await c.page.waitForTimeout(700);
+    const l2 = await S(c.page, "employees/emp_0003/private/payLock");
+    ok("X password changed (new salt/hash)", l2.hash !== lockDoc.hash && l2.salt !== lockDoc.salt);
+    await c.page.click('[data-view="p1"]'); await c.page.waitForSelector("#dlgPayPw[open]"); await c.page.fill("#ppOld", "Secret-pass9"); await c.page.click("#btnPpOk"); await c.page.waitForTimeout(400);
+    ok("X old password no longer works", (await c.page.textContent("#ppErr")).includes("맞지 않습니다"));
+    await c.page.fill("#ppOld", "Another-pass7"); await c.page.click("#btnPpOk"); await c.page.waitForTimeout(500);
+    ok("X new password works", !(await c.page.$eval("#dlgPayPw", (d) => d.open)));
+    await c.ctx.close();
+    // 관리자가 초기화 → 직원이 다시 설정
+    const sr = J(se); sr["employees/emp_0003/private"] = { payLock: lockDoc };
+    const r = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: sr, files: sf, now: NOW });
+    await r.page.goto(BASE + "/index.html#emp/emp_0003"); await r.page.waitForSelector("[data-lockreset]");
+    await r.page.click("[data-lockreset]"); await r.page.waitForTimeout(500);
+    ok("X admin reset removes lock + audit", !(await S(r.page, "employees/emp_0003/private/payLock")) && Object.values(await r.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "paylock_reset"));
+    await r.ctx.close();
+    // 등록 링크로 들어온 화면에는 급여가 없다
     const sl = J(se); sl.roles.anon9 = { level: "staff", employeeId: "emp_0003", selfToken: "tok" }; sl.employees.emp_0003.selfToken = "tok";
     const l = await newPage(browser, { user: { uid: "anon9", email: "", isAnonymous: true }, store: sl, files: sf, now: NOW });
     await l.page.goto(BASE + "/index.html?self=emp_0003&t=tok"); await l.page.waitForSelector(".emp-name"); await l.page.waitForTimeout(400);
-    ok("X link-mode page shows no payslips", !(await l.page.textContent("#detailRoot")).includes("명세서") && (await count(l.page, ".tab[data-view=payslips]")) === 0);
+    ok("X link-mode page shows no payslips", !(await l.page.textContent("#detailRoot")).includes("급여 명세서") && (await count(l.page, ".tab[data-view=payslips]")) === 0);
     await l.ctx.close();
     // 급여 권한이 없는 대표이사는 배포 탭이 없다
     const sh = J(st); sh.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {}, now: NOW });
     await h.page.goto(BASE + "/index.html#admin"); await h.page.waitForSelector("#adminTabs");
-    ok("X hr without comp has no 명세서 배포 tab", (await count(h.page, '#adminTabs [data-t="slips"]')) === 0);
+    ok("X hr without comp has no 급여 배포 tab", (await count(h.page, '#adminTabs [data-t="slips"]')) === 0);
     await h.ctx.close();
   }
-
 
   // ================= Y. 일괄 등록: 주민등록번호 =================
   {
