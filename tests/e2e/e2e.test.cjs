@@ -1166,6 +1166,61 @@ const buf = (s) => Buffer.from(s);
     await h.ctx.close();
   }
 
+
+  // ================= Y. 일괄 등록: 주민등록번호 =================
+  {
+    const NOW = "2026-11-04T10:00:00+09:00";
+    const st = J(snapStore);
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
+    await page.goto(BASE + "/index.html#employees"); await page.waitForSelector("#tblEmp tbody tr"); await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]");
+    await page.fill("#bulkText", [
+      "이름\t이메일\t소속 지점\t주민등록번호",
+      "가나다\tr1@jarada.kr\t안양 평촌원\t900101-1234567",
+      "라마바\tr2@jarada.kr\t안양 평촌원\t10101-3000000",
+      "사아자\tr3@jarada.kr\t안양 평촌원\t9013011234567",
+      "차카타\tr4@jarada.kr\t안양 평촌원\t850505",
+      "파하갸\tr5@jarada.kr\t안양 평촌원\t900101-9234567",
+    ].join("\n"));
+    const prev = await page.textContent("#bulkPreview");
+    ok("Y preview never shows digits", !prev.includes("900101") && !prev.includes("1234567") && !prev.includes("3000000") && prev.includes("앞 ✔"));
+    ok("Y invalid ones flagged", prev.includes("월·일이 올바르지 않습니다") && prev.includes("1~8로 시작") && (await page.textContent("#bulkSummary")).includes("등록 가능 3명"), await page.textContent("#bulkSummary"));
+    await page.click("#btnBulkSave"); await page.waitForTimeout(1000);
+    const byMail = async (m) => { const all = await page.evaluate(() => globalThis.__mockStore.employees); const id = Object.keys(all).find((k) => all[k].email === m); return id; };
+    const priv = (id) => page.evaluate((i) => globalThis.__mockStore["employees/" + i + "/private"] || {}, id);
+    const i1 = await byMail("r1@jarada.kr"), p1 = await priv(i1);
+    ok("Y front+back saved with flags", p1.residentFront?.value === "900101" && p1.residentBack?.value === "1234567" && p1.flags?.residentFront === true && p1.flags?.residentBack === true, JSON.stringify(p1));
+    const p2 = await priv(await byMail("r2@jarada.kr"));
+    ok("Y excel-stripped leading zeros restored", p2.residentFront?.value === "010101" && p2.residentBack?.value === "3000000", JSON.stringify(p2));
+    const p4 = await priv(await byMail("r4@jarada.kr"));
+    ok("Y front-only row saves front only", p4.residentFront?.value === "850505" && !p4.residentBack && p4.flags?.residentBack === undefined, JSON.stringify(p4));
+    ok("Y invalid rows not created", !(await byMail("r3@jarada.kr")) && !(await byMail("r5@jarada.kr")));
+    ok("Y audit rrn_save + bulk detail", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "rrn_save" && l.detail.includes("3명")));
+    ok("Y textarea cleared after save", (await page.inputValue("#bulkText")) === "");
+    // 기존 직원 수정 모드로 주민번호 추가
+    await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]"); await page.check("#bulkUpdate"); await page.fill("#bulkText", "이메일\t주민번호 앞자리\t주민번호 뒷자리\nlee@jarada.kr\t810825\t2345678");
+    await page.waitForTimeout(150); ok("Y update row accepted", (await page.textContent("#bulkPreview")).includes("수정 (emp_0003)"));
+    await page.click("#btnBulkSave"); await page.waitForTimeout(800);
+    const p3 = await priv("emp_0003");
+    ok("Y update adds rrn to existing employee", p3.residentFront?.value === "810825" && p3.residentBack?.value === "2345678" && p3.flags?.residentBack === true, JSON.stringify(p3).slice(0, 200));
+    ok("Y no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 뒷자리 권한이 없으면(대표이사 기본) 뒷자리가 있는 줄은 오류, 앞자리만은 가능
+    const sh = J(snapStore); sh.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {}, now: NOW });
+    await h.page.goto(BASE + "/index.html#employees"); await h.page.waitForSelector("#tblEmp tbody tr"); await h.page.click("#btnBulk"); await h.page.waitForSelector("#dlgBulk[open]");
+    await h.page.fill("#bulkText", "이름\t이메일\t소속 지점\t주민등록번호\n뒷자리포함\th1@jarada.kr\t안양 평촌원\t900101-1234567\n앞자리만\th2@jarada.kr\t안양 평촌원\t900101");
+    const hp = await h.page.textContent("#bulkPreview");
+    ok("Y hr without rrnBack: back digits rejected, front-only ok", hp.includes("뒷자리를 저장할 권한이 없습니다") && (await h.page.textContent("#bulkSummary")).includes("등록 가능 1명"));
+    await h.ctx.close();
+    // 설정에서 뒷자리 수집을 끄면 대표라도 뒷자리 줄은 오류
+    const so = J(snapStore); so.settings = { ...(so.settings || {}), app: { rrnBackEnabled: false } };
+    const o = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: so, files: {}, now: NOW });
+    await o.page.goto(BASE + "/index.html#employees"); await o.page.waitForSelector("#tblEmp tbody tr"); await o.page.click("#btnBulk"); await o.page.waitForSelector("#dlgBulk[open]");
+    await o.page.fill("#bulkText", "이름\t이메일\t소속 지점\t주민등록번호\n끔\to1@jarada.kr\t안양 평촌원\t900101-1234567");
+    ok("Y rrnBack disabled in settings", (await o.page.textContent("#bulkPreview")).includes("수집이 꺼져 있습니다"));
+    await o.ctx.close();
+  }
+
   // ================= F. setup.html / 로그인 화면 =================
   {
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore) });

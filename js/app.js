@@ -670,6 +670,10 @@ const BULK_COLS = [
   { key: "incentiveAmount",    label: "인센티브 금액", alias: ["인센티브금액", "인센티브-금액"], comp: true, num: true },
   { key: "otherSalary", label: "기타 급여", alias: ["기타급여"], comp: true },
   { key: "memo",        label: "급여 메모", alias: ["급여메모"], comp: true, long: true },
+  // 주민등록번호 (private/residentFront·residentBack). 하나로 붙여 쓰거나(900101-1234567) 앞·뒤를 나눠 쓴다
+  { key: "rrn",      label: "주민등록번호",    alias: ["주민등록번호", "주민번호", "주번", "rrn"], rrn: true },
+  { key: "rrnFront", label: "주민번호 앞자리", alias: ["주민번호앞자리", "주민등록번호앞자리", "주민앞자리", "주번앞"], rrn: true },
+  { key: "rrnBack",  label: "주민번호 뒷자리", alias: ["주민번호뒷자리", "주민등록번호뒷자리", "주민뒷자리", "주번뒤"], rrn: true },
 ];
 const LEVEL_WORDS  = { 사원: "staff", 직원: "staff", staff: "staff", 팀장: "lead", lead: "lead", 실장: "manager", manager: "manager", 부원장: "admin", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 대표이사: "hr", 대표: "hr", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
@@ -721,8 +725,8 @@ function parseBulk(text) {
   if (hasHeader) {
     colIdx = {};
     head.forEach((k, i) => { if (k && !(k in colIdx)) colIdx[k] = i; });
-    if (!("name" in colIdx) || !("email" in colIdx))
-      return { rows: [], fatal: "제목 줄에 ‘이름’과 ‘이메일’ 열이 모두 있어야 합니다." };
+    if (!("email" in colIdx) || (!("name" in colIdx) && !(isHR() && $("bulkUpdate").checked)))
+      return { rows: [], fatal: "제목 줄에 ‘이름’과 ‘이메일’ 열이 모두 있어야 합니다. (기존 직원 수정을 켜면 이메일 열만 있어도 됩니다)" };
   } else {
     colIdx = Object.fromEntries(BULK_COLS.map((c, i) => [c.key, i]));
   }
@@ -807,6 +811,19 @@ function parseBulk(text) {
       if (v) comp[c.key] = v;
     }
     if (Object.keys(comp).length && !can("comp")) errors.push("급여 정보를 등록할 권한이 없습니다");
+    // 주민등록번호: 엑셀이 앞의 0을 지운 경우(숫자 5·12자리)는 0을 채워 읽는다. 화면에는 숫자를 보여 주지 않는다
+    const rrn = { front: "", back: "" };
+    {
+      const dg = (v) => String(v ?? "").replace(/\D/g, "");
+      let both = dg(get("rrn")), f = dg(get("rrnFront")), b = dg(get("rrnBack"));
+      if (both) { if (both.length === 12) both = "0" + both; if (both.length === 13) { f = f || both.slice(0, 6); b = b || both.slice(6); } else if (both.length >= 5 && both.length <= 6) f = f || both.padStart(6, "0"); else errors.push("주민등록번호는 13자리(또는 앞 6자리)여야 합니다"); }
+      if (f.length === 5) f = "0" + f;
+      if (f && !/^\d{6}$/.test(f)) errors.push("주민번호 앞자리는 숫자 6자리");
+      else if (f && !(Number(f.slice(2, 4)) >= 1 && Number(f.slice(2, 4)) <= 12 && Number(f.slice(4, 6)) >= 1 && Number(f.slice(4, 6)) <= 31)) errors.push("주민번호 앞자리의 월·일이 올바르지 않습니다");
+      if (b && !/^[1-8]\d{6}$/.test(b)) errors.push("주민번호 뒷자리는 1~8로 시작하는 숫자 7자리");
+      if (b && !(can("rrnBack") && state.settings?.rrnBackEnabled !== false)) { errors.push(state.settings?.rrnBackEnabled === false ? "주민번호 뒷자리 수집이 꺼져 있습니다 (관리 → 설정)" : "주민번호 뒷자리를 저장할 권한이 없습니다 (뒷자리 칸을 비우세요)"); b = ""; }
+      if (!errors.some((x) => x.startsWith("주민"))) { rrn.front = f; rrn.back = b; }
+    }
     // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
     const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
     if (ex) {
@@ -816,9 +833,9 @@ function parseBulk(text) {
       if (stRaw) patch.status = d.status;
       if (names.length) { patch.orgIds = d.orgIds; patch.orgId = d.orgId; }
       if (ex.level === "super" && !isSuper()) errors.push("최고관리자 계정은 수정할 수 없습니다");
-      return { line, data: patch, pi, comp, errors: errors.filter((x) => !/소속 지점 미지정|이름 없음/.test(x)), update: ex, full: { ...ex, ...patch } };
+      return { line, data: patch, pi, comp, rrn, errors: errors.filter((x) => !/소속 지점 미지정|이름 없음/.test(x)), update: ex, full: { ...ex, ...patch } };
     }
-    return { line, data: d, pi, comp, errors };
+    return { line, data: d, pi, comp, rrn, errors };
   });
   return { rows, fatal: "" };
 }
@@ -834,7 +851,7 @@ function renderBulk() {
     : "";
   $("bulkPreviewWrap").classList.toggle("hidden", !rows.length);
   $("bulkPreview").innerHTML = rows.length
-    ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>결과</th></tr></thead><tbody>` +
+    ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>주민번호</th><th>결과</th></tr></thead><tbody>` +
       rows.map((r) => {
         const d = r.update ? r.full : r.data, ok = !r.errors.length;
         return `<tr class="${ok ? "" : "bad"}"><td class="sub">${r.line}</td><td class="strong">${esc(d.name)}</td><td>${esc(d.email)}</td>
@@ -842,6 +859,7 @@ function renderBulk() {
           <td>${d.level ? levelBadge(d.level) : "—"}</td><td>${d.status ? statusBadge(d.status) : "—"}</td>
           <td class="sub">${esc(d.joinedAt || "—")}</td><td class="sub">${Object.keys(r.pi).length ? Object.keys(r.pi).length + "개 항목" : "—"}</td>
           <td class="sub">${Object.keys(r.comp).length ? Object.keys(r.comp).length + "개 항목" : "—"}</td>
+          <td class="sub">${r.rrn.front || r.rrn.back ? `${r.rrn.front ? "앞 ✔" : ""} ${r.rrn.back ? "뒤 ✔" : ""}` : "—"}</td>
           <td class="res ${ok ? "ok" : "bad"}">${ok ? (r.update ? `수정 (${esc(r.update.id)})` : "정상") : esc(r.errors.join(" · "))}</td></tr>`;
       }).join("") + `</tbody>`
     : "";
@@ -911,12 +929,12 @@ $("btnBulkTemplate").onclick = () => {
   const o = state.orgs.find((x) => x.type !== "hq") || state.orgs[0];
   const sample = o?.name || "본사";
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  const cols = BULK_COLS.filter((c) => can("comp") || !c.comp);
+  const cols = BULK_COLS.filter((c) => (can("comp") || !c.comp) && (!c.rrn || c.key === (can("rrnBack") && state.settings?.rrnBackEnabled !== false ? "rrn" : "rrnFront")));
   const rows = [
     { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "사원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
-      baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
+      baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000", rrn: "900101-1234567", rrnFront: "900101" },
     { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "원장", status: "재직", workStartDate: "2020-01-01" },
   ];
   const csv = "\uFEFF" + [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => r[c.key] ?? ""))]
@@ -963,7 +981,9 @@ $("btnBulkSave").onclick = async () => {
   try {
     btn.textContent = "사번 확보 중…";
     const ids = okRows.length ? await reserveEmployeeIds(okRows.length) : [];
-    const CHUNK = 130;   // 직원 1명당 문서 최대 3개(직원 + 개인정보 + 급여) → 배치당 최대 390건
+    // 직원 1명당 문서 최대 6개(직원 + 개인정보 + 급여 + 주민번호 앞·뒤 + 표시) → 배치당 최대 420건.
+    // 지점 관리자는 문서마다 규칙이 직원 문서를 조회하므로(한 번에 20건 한도) 작게 나눈다
+    const CHUNK = isHR() ? 70 : 8;
     for (let i = 0; i < okRows.length; i += CHUNK) {
       btn.textContent = `등록 중… ${saved}/${okRows.length}`;
       const batch = writeBatch(db);
@@ -977,6 +997,12 @@ $("btnBulkSave").onclick = async () => {
             { ...r.comp, updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" });
         if (Object.keys(r.pi).length)
           batch.set(doc(db, "employees", id, "private", "personalInfo"), { ...r.pi, updatedAt: serverTimestamp() });
+        if (r.rrn.front || r.rrn.back) {
+          const meta = { updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" };
+          if (r.rrn.front) batch.set(doc(db, "employees", id, "private", "residentFront"), { value: r.rrn.front, ...meta });
+          if (r.rrn.back) batch.set(doc(db, "employees", id, "private", "residentBack"), { value: r.rrn.back, ...meta });
+          batch.set(doc(db, "employees", id, "private", "flags"), { ...(r.rrn.front ? { residentFront: true } : {}), ...(r.rrn.back ? { residentBack: true } : {}) }, { merge: true });
+        }
       });
       await batch.commit();
       saved += Math.min(CHUNK, okRows.length - i);
@@ -987,6 +1013,12 @@ $("btnBulkSave").onclick = async () => {
       const ex = r.update, id = ex.id;
       if (Object.keys(r.data).length) await updateDoc(doc(db, "employees", id), { ...r.data, updatedAt: serverTimestamp() });
       if (Object.keys(r.pi).length) await setDoc(doc(db, "employees", id, "private", "personalInfo"), { ...r.pi, updatedAt: serverTimestamp() }, { merge: true });
+      if (r.rrn.front || r.rrn.back) {
+        const meta = { updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" };
+        if (r.rrn.front) await setDoc(doc(db, "employees", id, "private", "residentFront"), { value: r.rrn.front, ...meta });
+        if (r.rrn.back) await setDoc(doc(db, "employees", id, "private", "residentBack"), { value: r.rrn.back, ...meta });
+        await setDoc(doc(db, "employees", id, "private", "flags"), { ...(r.rrn.front ? { residentFront: true } : {}), ...(r.rrn.back ? { residentBack: true } : {}) }, { merge: true });
+      }
       if (Object.keys(r.comp).length) await setDoc(doc(db, "employees", id, "private", "compensation"), { ...r.comp, updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" }, { merge: true });
       const after = { ...ex, ...r.data };
       if (ex.level !== after.level || ex.orgId !== after.orgId || ex.status !== after.status) await syncRoles(id, after);
@@ -994,7 +1026,10 @@ $("btnBulkSave").onclick = async () => {
       if (changes.length) await addAssignments({ ...ex, orgId: after.orgId }, changes);
       updated++;
     }
-    audit("bulk_import", { detail: `등록 ${saved}명${updated ? ` · 수정 ${updated}명` : ""}` });
+    const nRrn = [...okRows, ...updRows].filter((r) => r.rrn.front || r.rrn.back).length;
+    audit("bulk_import", { detail: `등록 ${saved}명${updated ? ` · 수정 ${updated}명` : ""}${nRrn ? ` · 주민번호 ${nRrn}명` : ""}` });
+    if (nRrn) audit("rrn_save", { detail: `일괄 등록 ${nRrn}명` });
+    $("bulkText").value = ""; $("bulkFile").value = "";   // 주민번호 등이 입력칸에 남지 않게
     toast(`${saved ? `${saved}명을 등록` : ""}${saved && updated ? ", " : ""}${updated ? `${updated}명을 수정` : ""}했습니다`);
     $("dlgBulk").close();
   } catch (e) {
