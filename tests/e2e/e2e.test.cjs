@@ -959,6 +959,22 @@ const buf = (s) => Buffer.from(s);
     await a.ctx.close();
   }
 
+
+  // ================= U. 모바일(390px)에서 가로 넘침 없음 =================
+  {
+    const NOW = "2026-11-04T10:00:00+09:00";
+    const st = J(snapStore); st.notices = { n1: { title: "긴 제목 ".repeat(12), body: "내용", scope: "all", orgIds: [], pinned: true, createdBy: "u1", createdByName: "김대표", createdAt: { seconds: 1793000000, nanoseconds: 0 } } };
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), viewport: { width: 390, height: 844 }, now: NOW });
+    for (const h of ["dash", "calendar", "leaves", "notices", "employees", "orgs", "admin", "emp/emp_0003"]) {
+      await page.goto(BASE + "/index.html#" + h); await page.waitForTimeout(500);
+      const w = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+      ok("U mobile no overflow #" + h, w[0] <= w[1] + 1, w.join(">"));
+      await shot(page, "U-" + h.replace("/", "-"));
+    }
+    ok("U no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+  }
+
   // ================= F. setup.html / 로그인 화면 =================
   {
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore) });
