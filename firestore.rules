@@ -6,7 +6,7 @@ rules_version = '2';
 // v0.1(기존 게시본)을 그대로 이어받고, 직원·조직 관리 앱에 필요한 부분을 합쳤다.
 //
 // 전제 1) 권한은 roles/{uid} 문서 한 장으로 결정한다.
-//         { level: 'super'|'hr'|'edu'|'principal'|'manager'|'admin'|'staff',
+//         { level: 'super'|'hr'|'edu'|'principal'|'manager'|'lead'|'admin'|'staff',
 //           orgId: 'hq', employeeId: 'emp_0001' }
 //         · super          대표 — 전체
 //         · hr / edu       본사 인사 / 교육팀 — 모든 지점
@@ -67,7 +67,7 @@ service cloud.firestore {
 
     // 지점 관리자 계열 (읽기): 원장 / 실장 / admin
     function isOrgMgr() {
-      return hasRole() && me().level in ['admin', 'principal', 'manager'];
+      return hasRole() && me().level in ['admin', 'principal', 'manager', 'lead'];
     }
 
     // 지점 관리자 계열 (쓰기): 원장 / admin
@@ -119,14 +119,14 @@ service cloud.firestore {
     }
 
     function validLevel(l) {
-      return l in ['super', 'hr', 'edu', 'principal', 'manager', 'admin', 'staff'];
+      return l in ['super', 'hr', 'edu', 'principal', 'manager', 'lead', 'admin', 'staff'];
     }
     function validStatus(s) {
       return s in ['active', 'leave', 'resigned'];
     }
     // 지점 관리자가 부여할 수 있는 등급 (본사 등급은 불가)
     function orgLevel(l) {
-      return l in ['staff', 'manager', 'admin', 'principal'];
+      return l in ['staff', 'lead', 'manager', 'admin', 'principal'];
     }
 
     function validEmployee() {

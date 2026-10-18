@@ -22,6 +22,8 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
     await set("roles/u_adm", { level: "admin", orgId: "banpo", employeeId: "emp_0004" });
     await set("roles/u_mgr", { level: "manager", orgId: "anyang", employeeId: "emp_m" });
     await set("roles/u_staff", { level: "staff", orgId: "anyang", employeeId: "emp_0003" });
+    await set("roles/u_lead", { level: "lead", orgId: "anyang", employeeId: "emp_l" });
+    await set("employees/emp_l", emp({ name: "팀장", email: "lead@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "lead" }));
     await set("roles/u_bstaff", { level: "staff", orgId: "banpo", employeeId: "emp_b" });
     await set("roles/u_hrtarget", { level: "hr", orgId: "banpo", employeeId: "emp_x" });
     await set("roles/u_banstaff2", { level: "staff", orgId: "banpo", employeeId: "emp_s2" });
@@ -397,6 +399,20 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("noticeReads: admin lists own org only", true, () => adm.collection("noticeReads").where("orgId", "==", "banpo").get());
   await t("noticeReads: admin unfiltered list denied", false, () => adm.collection("noticeReads").get());
   await t("noticeReads: staff list denied", false, () => stf.collection("noticeReads").get());
+
+  // ---- 팀장(lead): 실장과 같은 조회·휴가 승인 권한, 쓰기는 불가 ----
+  const lead = as("u_lead", "lead@jarada.kr");
+  await t("lead: reads employee of own org", true, () => lead.doc("employees/emp_0005").get());
+  await t("lead: cannot read employee of other org only", false, () => lead.doc("employees/emp_0004").get());
+  await t("lead: cannot create employee", false, () => lead.doc("employees/emp_9").set(emp({ name: "x", orgId: "anyang", orgIds: ["anyang"] })));
+  await t("lead: cannot update employee", false, () => lead.doc("employees/emp_0005").update({ position: "x" }));
+  await t("lead: cannot read compensation", false, () => lead.doc("employees/emp_0003/private/compensation").get());
+  await t("lead: cannot read personal info", false, () => lead.doc("employees/emp_0003/private/personalInfo").get());
+  await t("lead: reads leave of own org (query)", true, () => lead.collection("leaveRequests").where("orgId", "==", "anyang").get());
+  await t("lead: approves leave of own org", true, async () => { await env.withSecurityRulesDisabled((c) => c.firestore().doc("leaveRequests/LL1").set(LV("emp_0005"))); return lead.doc("leaveRequests/LL1").update({ status: "approved", decidedBy: "u_lead", decidedAt: TS(), updatedAt: TS() }); });
+  await t("hr can grant lead level", true, () => hr.doc("employees/emp_0006").update({ level: "lead" }));
+  await t("admin(banpo) can grant lead level", true, () => adm.doc("employees/emp_0004").update({ level: "admin", position: "x" }));
+  await t("level value outside list denied", false, () => hr.doc("employees/emp_0006").update({ level: "ceo" }));
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);

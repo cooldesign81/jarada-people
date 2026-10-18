@@ -140,7 +140,8 @@ table.tbl{ width:100%; border-collapse:collapse; font-size:14px; }
 .badge.s-resigned{ background:#EEEEEE; color:var(--text-sub); }
 .badge.l-super{ background:var(--slot-navy); color:#fff; }
 .badge.l-admin{ background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); }
-.badge.l-staff, .badge.l-manager{ background:#F0F0F0; color:var(--text); }
+.badge.l-staff{ background:#F0F0F0; color:var(--text); }
+.badge.l-manager, .badge.l-lead{ background:#FFF4E8; color:#D9480F; }
 .badge.l-principal{ background:#fff; border:1px solid var(--brand-orange); color:var(--brand-orange); }
 .badge.l-hr, .badge.l-edu{ background:#fff; border:1px solid var(--slot-navy); color:var(--slot-navy); }
 .badge.o-hq{ background:#F0F0F0; color:var(--text); }

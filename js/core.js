@@ -6,8 +6,8 @@ import {
 
 export const $ = (id) => document.getElementById(id);
 
-export const LEVELS    = { super: "최고관리자", hr: "본사 인사", edu: "교육팀", principal: "원장", admin: "관리자", manager: "실장", staff: "직원" };
-export const ORG_LEVELS = ["staff", "manager", "admin", "principal"];   // 지점 관리자가 부여할 수 있는 등급
+export const LEVELS    = { super: "최고관리자", hr: "대표이사", principal: "원장", admin: "부원장", manager: "실장", lead: "팀장", staff: "사원", edu: "교육팀" };   // 교육팀(edu)은 예전 등급: 기존 데이터만 표시하고 새로 부여하지는 않음
+export const ORG_LEVELS = ["staff", "lead", "manager", "admin", "principal"];   // 지점 관리자가 부여할 수 있는 등급
 export const STATUS    = { active: "재직", leave: "휴직", resigned: "퇴직" };
 export const ORG_TYPES = { hq: "본사", branch: "지점" };
 
@@ -23,7 +23,7 @@ export const isSuper   = () => state.role?.level === "super";
 export const isHR      = () => ["super", "hr"].includes(state.role?.level);          // 모든 지점 관리
 export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level);   // 소속 지점 관리
 export const canManage = () => isHR() || isAdmin();
-export const isMgr     = () => ["admin", "principal", "manager"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
+export const isMgr     = () => ["admin", "principal", "manager", "lead"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
 export const canApprove = () => isHR() || isMgr();
 
 export function esc(s) {

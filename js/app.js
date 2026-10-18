@@ -471,13 +471,13 @@ function openEmp(id) {
     : [state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (state.orgs.find((o) => o.active !== false)?.id || "")].filter(Boolean);
   renderOrgChecks($("fOrgs"), { selected: defOrgs, disabled: isAdmin() || locked, onlyActive: !emp });
 
-  const levels = Object.entries(LEVELS).filter(([k]) => isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k)));
+  const levels = Object.entries(LEVELS).filter(([k]) => (k !== "edu" || emp?.level === "edu") && (isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k))));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   // 본인 문서는 직원 문서에 등급이 비어 있어도 실제 권한(roles)을 보여주고 그대로 저장한다 (안 그러면 저장하다 내 권한이 낮아질 수 있음)
   $("fLevel").value = self && levels.some(([k]) => k === state.role.level) ? state.role.level : emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
   $("fLevel").disabled = self || locked;
   $("fLevelHelp").textContent = self ? "본인 권한은 변경할 수 없습니다" :
-    (isHR() ? "최고관리자·본사 인사: 전체 / 관리자·원장: 소속 지점 / 직원: 본인 정보만" : "관리자·원장: 소속 지점 / 직원: 본인 정보만");
+    (isHR() ? "최고관리자: 전체(급여 포함) / 대표이사: 전체 지점 / 원장·부원장: 소속 지점 관리 / 실장·팀장: 소속 지점 조회·휴가 승인 / 사원: 본인 정보만" : "원장·부원장: 소속 지점 관리 / 실장·팀장: 소속 지점 조회·휴가 승인 / 사원: 본인 정보만");
 
   $("fName").value     = emp?.name || "";
   $("fEmail").value    = emp?.email || "";
@@ -505,7 +505,7 @@ function validateEmp(d, emp) {
   if (!LEVELS[d.level]) return "권한을 선택하세요.";
   if (!STATUS[d.status]) return "상태를 선택하세요.";
   if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
-    return "지점 관리자는 소속 지점 직원만, 직원·실장·관리자·원장 권한으로 등록할 수 있습니다.";
+    return "지점 관리자는 소속 지점 직원만, 사원·팀장·실장·부원장·원장 등급으로 등록할 수 있습니다.";
   if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
   const dup = [...state.employees, ...state.trash].find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
@@ -662,7 +662,7 @@ const BULK_COLS = [
   { key: "otherSalary", label: "기타 급여", alias: ["기타급여"], comp: true },
   { key: "memo",        label: "급여 메모", alias: ["급여메모"], comp: true, long: true },
 ];
-const LEVEL_WORDS  = { 직원: "staff", staff: "staff", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 실장: "manager", manager: "manager", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
+const LEVEL_WORDS  = { 사원: "staff", 직원: "staff", staff: "staff", 팀장: "lead", lead: "lead", 실장: "manager", manager: "manager", 부원장: "admin", 관리자: "admin", admin: "admin", 원장: "principal", principal: "principal", 대표이사: "hr", 대표: "hr", 본사인사: "hr", 인사: "hr", hr: "hr", 교육팀: "edu", 교육: "edu", edu: "edu", 최고관리자: "super", super: "super" };
 const STATUS_WORDS = { 재직: "active", 재직중: "active", active: "active", 휴직: "leave", leave: "leave", 퇴직: "resigned", 퇴사: "resigned", resigned: "resigned" };
 const bulk = { rows: [], busy: false };
 const nrm = (s) => String(s ?? "").replace(/\s+/g, "").toLowerCase();
@@ -784,7 +784,7 @@ function parseBulk(text) {
     }
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
-    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 직원·실장·관리자·원장 권한만 부여");
+    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 사원·팀장·실장·부원장·원장 등급만 부여");
     if (isAdmin() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
       errors.push("관리자는 소속 조직 직원만 등록 가능");
     // 급여 열 (숫자 칸은 1,000,000 / 100만원처럼 쉼표·‘원’이 있어도 숫자만 뽑음)
@@ -904,11 +904,11 @@ $("btnBulkTemplate").onclick = () => {
   const csvCell = (v) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const cols = BULK_COLS.filter((c) => isSuper() || !c.comp);
   const rows = [
-    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "직원", status: "재직", birthDate: "1995-05-21",
+    { name: "홍길동", email: "hong@gmail.com", org: sample, position: "교사", phone: "010-1234-5678", joinedAt: "2024-03-02", level: "사원", status: "재직", birthDate: "1995-05-21",
       address: "서울시 서초구 …", bankAccount: "신한 110-000-000000", guardianName: "홍부모", guardianRelation: "부", guardianPhone: "010-0000-0000",
       eduStartDate: "2024-02-01", workStartDate: "2024-03-02", insuranceRegDate: "2024-03-02",
       baseSalary: "2500000", mealAllowance: "100000", additionalLabel1: "자기 계발비", additionalSalary1: "50000", additionalLabel2: "차량 지원금", additionalSalary2: "100000" },
-    { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "관리자", status: "재직", workStartDate: "2020-01-01" },
+    { name: "김원장", email: "kim@gmail.com", org: sample, position: "원장", phone: "010-9876-5432", joinedAt: "2020-01-01", level: "원장", status: "재직", workStartDate: "2020-01-01" },
   ];
   const csv = "\uFEFF" + [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => r[c.key] ?? ""))]
     .map((r) => r.map(csvCell).join(",")).join("\r\n");
