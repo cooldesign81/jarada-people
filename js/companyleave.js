@@ -3,7 +3,7 @@
 // 취소하면 그 건들을 ‘취소’로 바꿔 연차가 되돌아간다.
 import { db, auth } from "./firebase.js";
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, esc, toast, errMsg, audit, orgNames } from "./core.js";
+import { $, state, canSeeBalance, esc, toast, errMsg, audit, orgNames } from "./core.js";
 import { countDaysWith } from "./leave-calc.js";
 import { holidaysFor, annualBalance, loadLeaves } from "./leave.js";
 import { fmtKo } from "./dates.js";
@@ -46,9 +46,9 @@ export function openCompanyLeaveDialog(ev, after) {
   if (!plan.days) { $("clInfo").innerHTML = `<div class="msg error" style="margin:0">이 기간에는 연차로 쓸 평일이 없습니다 (주말·공휴일만 있음).</div>${holNote}`; $("clTable").innerHTML = ""; $("btnClApply").disabled = true; $("dlgCompanyLeave").showModal(); return; }
   $("clInfo").innerHTML = `<b>${esc(periodText(ev))}</b> · 연차 <b>${plan.days}일</b> 차감 · 대상 ${esc(ev.orgIds?.length ? orgNames(ev.orgIds) : "전체 지점")} 재직 직원<br><span class="sub">주말·공휴일은 빼고 계산합니다. 연차가 모자란 직원, 이미 겹치는 휴가가 있는 직원은 기본으로 빠져 있으니 필요하면 직접 체크하세요. (연차가 부족한 직원을 체크하면 잔여가 마이너스가 됩니다)</span>`;
   $("clInfo").innerHTML += holNote;
-  $("clTable").innerHTML = `<thead><tr><th><input type="checkbox" id="clAll" title="전체 선택"></th><th>이름</th><th>소속</th><th class="num">차감</th><th class="num">현재 잔여</th><th class="num">차감 후</th><th>비고</th></tr></thead><tbody>${plan.rows.map((r, i) => `<tr class="${r.skip ? "sub" : ""}">
+  $("clTable").innerHTML = `<thead><tr><th><input type="checkbox" id="clAll" title="전체 선택"></th><th>이름</th><th>소속</th><th class="num">차감</th>${canSeeBalance() ? '<th class="num">현재 잔여</th><th class="num">차감 후</th>' : ""}<th>비고</th></tr></thead><tbody>${plan.rows.map((r, i) => `<tr class="${r.skip ? "sub" : ""}">
     <td><input type="checkbox" data-cl="${i}" ${r.checked ? "checked" : ""} ${r.skip ? "disabled" : ""}></td><td class="strong">${esc(r.emp.name)}</td><td class="sub">${esc(orgNames(r.emp.orgIds))}</td>
-    <td class="num">${r.skip ? "—" : r.days}</td><td class="num">${r.remaining === null ? "—" : r.remaining}</td><td class="num ${r.short ? "bad" : ""}">${r.remaining === null || r.skip ? "—" : Math.round((r.remaining - r.days) * 10) / 10}</td>
+    <td class="num">${r.skip ? "—" : r.days}</td>${canSeeBalance() ? `<td class="num">${r.remaining === null ? "—" : r.remaining}</td><td class="num ${r.short ? "bad" : ""}">${r.remaining === null || r.skip ? "—" : Math.round((r.remaining - r.days) * 10) / 10}</td>` : ""}
     <td class="sub ${r.short ? "bad" : ""}">${esc(r.skip || (r.short ? "연차 부족" : ""))}</td></tr>`).join("")}</tbody>`;
   const boxes = () => [...$("clTable").querySelectorAll("[data-cl]:not(:disabled)")];
   const sync = () => { const n = boxes().filter((b) => b.checked).length; $("btnClApply").textContent = n ? `${n}명 연차 차감` : "차감할 직원을 선택하세요"; $("btnClApply").disabled = !n; };

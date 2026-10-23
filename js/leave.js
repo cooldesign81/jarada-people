@@ -4,7 +4,7 @@ import {
   collection, doc, getDocs, addDoc, updateDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, state, can, isHR, isAdmin, isMgr, canApprove, canManage, esc, toast, errMsg, orgNames, branchTags, audit, toEmp
+  $, state, can, isHR, isAdmin, isMgr, canApprove, canManage, canSeeBalance, esc, toast, errMsg, orgNames, branchTags, audit, toEmp
 } from "./core.js";
 import { addDays, addMonths, addYears, eachDay, fmtKo, isWeekend, isYmd, today, monthKey } from "./dates.js";
 import { holidayMap } from "./holidays.js";
@@ -59,7 +59,10 @@ export function renderLeaves() {
   const root = $("leavesRoot");
   const me = state.me;
   const parts = [];
-  if (me) {
+  if (me && !canSeeBalance()) {
+    // 최고관리자·대표이사가 아니면 남은 연차·계산 내용·안내 문구를 보여 주지 않는다
+    parts.push(`<div class="page-head" style="margin:0 0 12px"><span></span><button class="btn btn-primary" id="lvBtnNew">휴가 신청</button></div>`);
+  } else if (me) {
     const b = annualBalance(me);
     parts.push(`<div class="card"><div class="head-top"><h2 style="margin:0">내 연차</h2><button class="btn btn-primary" id="lvBtnNew">휴가 신청</button></div>
       ${b.ok ? `<div class="kpis" style="margin:12px 0 0">
@@ -82,7 +85,7 @@ export function renderLeaves() {
         : `<tbody><tr><td class="empty">승인을 기다리는 휴가가 없습니다.</td></tr></tbody>`}</table></div></div>`);
   }
   // 직원별 연차 현황
-  if (canManage() || (isMgr() && state.employees.length > 1)) {
+  if (canSeeBalance()) {
     const emps = state.employees.filter((e) => e.status !== "resigned").sort((a, b) => a.name.localeCompare(b.name, "ko"));
     parts.push(`<div class="card flush"><div class="card-head"><h2>직원별 연차 현황</h2><span class="sub">입사일 기준 법정 연차 · 개근 가정</span></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>입사일</th><th>구분</th><th class="num">발생</th><th class="num">사용</th><th class="num">대기</th><th class="num">조정</th><th class="num">잔여</th>${canManage() ? "<th></th>" : ""}</tr></thead><tbody>${
@@ -158,7 +161,7 @@ function lvRefresh() {
   const days = countDays($("lvType").value, start, end);
   let info = days ? `<strong>${days}일</strong> (주말·휴일 제외)` : `<span class="msg error" style="margin:0">선택한 기간에 휴가로 쓸 평일이 없습니다.</span>`;
   const emp = lvEmp();
-  if (emp && t?.deduct) {
+  if (emp && t?.deduct && canSeeBalance()) {
     const b = annualBalance(emp, isYmd(start) ? start : today());
     if (b.ok) info += ` · 연차 잔여 ${b.remaining}일${days ? ` → 신청 후 ${Math.round((b.remaining - days) * 10) / 10}일` : ""}`;
   }
@@ -206,7 +209,7 @@ async function cancelLeave(id) {
 let deciding = null;
 export function openDecision(id) {
   const l = state.leaves.find((x) => x.id === id); if (!l) return; deciding = l;
-  const b = (() => { const e = state.employees.find((x) => x.id === l.employeeId); return e && LEAVE_TYPES[l.type]?.deduct ? annualBalance(e, l.startDate) : null; })();
+  const b = (() => { const e = state.employees.find((x) => x.id === l.employeeId); return e && canSeeBalance() && LEAVE_TYPES[l.type]?.deduct ? annualBalance(e, l.startDate) : null; })();
   $("dcInfo").innerHTML = `<div class="dl"><dt>직원</dt><dd>${esc(l.employeeName)} ${branchTags(l.orgIds)}</dd><dt>종류</dt><dd>${esc(LEAVE_TYPES[l.type]?.label || l.type)}</dd>
     <dt>기간</dt><dd>${periodText(l)}</dd><dt>사유</dt><dd>${esc(l.reason || "—")}</dd><dt>상태</dt><dd>${LEAVE_STATUS[l.status] || l.status}</dd>
     ${b?.ok ? `<dt>연차 잔여</dt><dd>${b.remaining}일 (발생 ${b.granted} · 사용 ${b.used}${b.pending ? ` · 대기 ${b.pending}` : ""})</dd>` : ""}</div>`;

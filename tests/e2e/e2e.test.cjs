@@ -483,12 +483,13 @@ const buf = (s) => Buffer.from(s);
     ok("K staff cannot add events / org filter hidden", !(await vis(s.page, "#btnEventNew")) && !(await vis(s.page, "#calOrg")));
     await s.page.evaluate(() => (location.hash = "#leaves")); await s.page.waitForSelector("#lvBtnNew");
     const stxt = await s.page.textContent("#leavesRoot");
-    ok("K staff: my annual card only", stxt.includes("내 연차") && !stxt.includes("승인 대기 ") && !stxt.includes("직원별 연차 현황"), stxt.slice(0, 160));
-    ok("K staff balance", stxt.includes("2년 근속") && stxt.includes("15"));
+    ok("K staff: 신청 버튼만, 연차 현황·문의 안내 없음", stxt.includes("휴가 신청") && !stxt.includes("문의") && !stxt.includes("내 연차") && !stxt.includes("승인 대기 ") && !stxt.includes("직원별 연차 현황"), stxt.slice(0, 160));
+    ok("K staff: 잔여·발생·근속 계산이 보이지 않음", !stxt.includes("잔여") && !stxt.includes("2년 근속") && !stxt.includes("올해 발생") && !stxt.includes("개근"), stxt.slice(0, 200));
     await s.page.click("#lvBtnNew"); await s.page.waitForSelector("#dlgLeave[open]");
     ok("K staff dialog: no employee select", !(await vis(s.page, "#lvEmpWrap")) && !(await vis(s.page, "#lvApproveWrap")));
     await s.page.selectOption("#lvType", "half_pm");
     ok("K half-day hides end date", !(await vis(s.page, "#lvEndWrap")));
+    ok("K staff dialog: 연차 잔여 미표시", !(await s.page.textContent("#lvInfo")).includes("잔여"), await s.page.textContent("#lvInfo"));
     await s.page.fill("#lvStart", "2026-12-02"); await s.page.click("#btnLvSave"); await s.page.waitForTimeout(300);
     const mine = Object.values(await s.page.evaluate(() => globalThis.__mockStore.leaveRequests)).find((x) => x.startDate === "2026-12-02");
     ok("K staff request is submitted", mine && mine.status === "submitted" && mine.days === 0.5 && mine.type === "half_pm" && mine.endDate === "2026-12-02", JSON.stringify(mine));
@@ -1394,12 +1395,21 @@ const buf = (s) => Buffer.from(s);
     const dayTxt = (await page.textContent("#dayList").catch(() => "")) || "";
     ok("AA calendar shows the event once, not per employee", dayTxt.includes("하계 휴가") && !dayTxt.includes("이교사"), dayTxt.slice(0, 120));
     if (await vis(page, "#dlgDay")) await page.click("#btnDayClose");
-    // 직원 화면: 내 연차 잔여가 줄었다
+    // 직원 화면: 차감 내역은 휴가 내역에 보이지만 잔여·발생 같은 연차 계산은 보이지 않는다
     const mine = J(await page.evaluate(() => globalThis.__mockStore)); mine.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const s = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: mine, files: {}, now: NOW });
     await s.page.goto(BASE + "/index.html#leaves"); await s.page.waitForSelector("#viewLeaves:not(.hidden)"); await s.page.waitForTimeout(400);
     const lt = await s.page.textContent("#viewLeaves");
-    ok("AA employee sees reduced balance + the deduction row", lt.includes("사용") && lt.includes("5일") && lt.includes("회사 지정 휴가"), lt.slice(0, 300));
+    ok("AA employee sees the deduction row but no balance", lt.includes("회사 지정 휴가") && !lt.includes("잔여") && !lt.includes("올해 발생"), lt.slice(0, 300));
+    // 원장·실장(승인 권한자)도 남은 연차·연차 현황은 볼 수 없고, 대표이사는 볼 수 있다
+    for (const [lv, expect] of [["principal", false], ["manager", false], ["hr", true]]) {
+      const st2 = J(await page.evaluate(() => globalThis.__mockStore)); st2.roles.u3 = { level: lv, orgId: "anyang", employeeId: "emp_0003" };
+      const p2 = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: st2, files: {}, now: NOW });
+      await p2.page.goto(BASE + "/index.html#leaves"); await p2.page.waitForSelector("#viewLeaves:not(.hidden)"); await p2.page.waitForTimeout(400);
+      const t2 = await p2.page.textContent("#viewLeaves");
+      ok(`AA ${lv}: 연차 잔여·현황 ${expect ? "보임" : "숨김"}`, (t2.includes("직원별 연차 현황") && t2.includes("잔여")) === expect, t2.slice(0, 200));
+      await p2.ctx.close();
+    }
     await s.ctx.close();
     // 취소: 일정 수정창에서 ‘차감 취소’ → 연차 복구
     await page.evaluate(() => (location.hash = "#calendar")); await page.waitForTimeout(300);
