@@ -26,10 +26,10 @@ import { addAssignments, diffEmployee } from "./records.js";
 import { initCalendar, renderCalendar } from "./calendar.js";
 
 const NAV = [
+  { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
   { id: "dash",      label: "대시보드", view: "Dash",      levels: ["super", "hr", "admin", "principal"] },
   { id: "calendar",  label: "달력",     view: "Calendar",  levels: Object.keys(LEVELS) },
   { id: "leaves",    label: "휴가",     view: "Leaves",    levels: Object.keys(LEVELS) },
-  { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
   { id: "payslips",  label: "내 급여", view: "Payslips",  levels: Object.keys(LEVELS) },
   { id: "employees", label: "직원",     view: "Employees", levels: ["super", "hr", "admin", "principal"] },
   { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
