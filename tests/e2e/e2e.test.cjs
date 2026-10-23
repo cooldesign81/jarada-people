@@ -1395,12 +1395,12 @@ const buf = (s) => Buffer.from(s);
     const dayTxt = (await page.textContent("#dayList").catch(() => "")) || "";
     ok("AA calendar shows the event once, not per employee", dayTxt.includes("하계 휴가") && !dayTxt.includes("이교사"), dayTxt.slice(0, 120));
     if (await vis(page, "#dlgDay")) await page.click("#btnDayClose");
-    // 직원 화면: 내 연차 잔여가 줄었다
+    // 직원 화면: 차감 내역은 휴가 내역에 보이지만 잔여·발생 같은 연차 계산은 보이지 않는다
     const mine = J(await page.evaluate(() => globalThis.__mockStore)); mine.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const s = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: mine, files: {}, now: NOW });
     await s.page.goto(BASE + "/index.html#leaves"); await s.page.waitForSelector("#viewLeaves:not(.hidden)"); await s.page.waitForTimeout(400);
     const lt = await s.page.textContent("#viewLeaves");
-    ok("AA employee sees reduced balance + the deduction row", lt.includes("사용") && lt.includes("5일") && lt.includes("회사 지정 휴가"), lt.slice(0, 300));
+    ok("AA employee sees the deduction row but no balance", lt.includes("회사 지정 휴가") && !lt.includes("잔여") && !lt.includes("올해 발생"), lt.slice(0, 300));
     await s.ctx.close();
     // 취소: 일정 수정창에서 ‘차감 취소’ → 연차 복구
     await page.evaluate(() => (location.hash = "#calendar")); await page.waitForTimeout(300);
