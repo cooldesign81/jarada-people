@@ -10,6 +10,7 @@ import { today, diffDays } from "./dates.js";
 import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
+import { matUser, matSignIn, loadManagers, saveManagers, normEmail, validEmail, MAX_MANAGERS } from "./materials.js";
 
 let ctx = { reload: async () => {}, rerender: () => {} };
 export function initAdmin(c) { ctx = { ...ctx, ...c }; }
@@ -177,6 +178,12 @@ function renderSettings(body) {
     <div class="card"><h2>필수 서류</h2><p>‘현황 점검’에서 제출 여부를 확인할 서류입니다.</p>
       <div class="chk-group">${[...PUBLIC_DOCS, ...SECRET_DOCS].map((d) => `<label class="chk"><input type="checkbox" name="stReq" value="${d.key}" ${(s.requiredDocs || DEFAULT_REQUIRED_DOCS).includes(d.key) ? "checked" : ""}> ${esc(d.label)}</label>`).join("")}</div></div>
     <button class="btn btn-primary" id="btnStSave">설정 저장</button>`;
+  body.insertAdjacentHTML("beforeend", `
+    <div class="card" id="stMat"><h2>재료 관리자 (자라다 재료 관리 앱)</h2>
+      <p>재료 관리 앱의 <b>계정관리</b>(쇼핑몰 주소·아이디·비밀번호 보관함)를 열고 고칠 수 있는 구글 계정을 지정합니다. 여기 없는 계정은 보안 규칙에서 막힙니다. 이 설정은 재료 앱 쪽 Firebase 프로젝트에 저장되므로, 아래에서 <b>최고관리자 구글 계정으로 한 번 더 연결</b>해야 합니다. 보관함의 비밀번호는 별도로 정하며 이 화면에서는 보이지 않습니다.</p>
+      <div id="matBody" class="sub">불러오는 중…</div></div>
+  `);
+  renderMaterialManagers();
   $("btnStSave").onclick = async () => {
     const days = Number($("stLinkDays").value);
     if (!(days >= 1 && days <= 365)) return toast("유효 기간은 1~365일입니다.", true);
@@ -220,4 +227,49 @@ function renderTrash(body) {
       audit("emp_purge", { detail: `${e.name} (${e.id})` }); toast("완전히 삭제했습니다"); await ctx.reload(); renderAdmin(); }
     catch (err) { console.error(err); toast(errMsg(err), true); }
   }));
+}
+
+// ---------- 재료 관리자 지정 (재료 앱 프로젝트) ----------
+async function renderMaterialManagers() {
+  const box = $("matBody"); if (!box) return;
+  let user = null;
+  try { user = await matUser(); } catch (e) { console.warn(e); }
+  if (!user) {
+    box.innerHTML = `<button class="btn" id="matLogin">재료 앱 프로젝트에 최고관리자 계정으로 연결</button> <span class="sub">구글 로그인 창이 열립니다.</span>`;
+    $("matLogin").onclick = async () => {
+      try { await matSignIn(); renderMaterialManagers(); } catch (e) { console.error(e); toast(e?.code === "auth/popup-closed-by-user" ? "로그인 창이 닫혔습니다." : "연결하지 못했습니다: " + (e?.code || e?.message || e), true); }
+    };
+    return;
+  }
+  let cur;
+  try { cur = await loadManagers(); }
+  catch (e) {
+    console.error(e);
+    const denied = String(e?.code || "").includes("permission-denied");
+    box.innerHTML = `<p class="sub" style="color:#b3261e">${denied ? `재료 앱 규칙이 <b>${esc(user.email || "")}</b> 계정을 최고관리자로 인정하지 않습니다. 재료 앱 보안 규칙(FIRESTORE_RULES.md)의 최고관리자 이메일 목록과 게시 여부를 확인하세요.` : esc(errMsg(e))}</p><button class="btn" id="matRetry">다시 시도</button>`;
+    $("matRetry").onclick = () => renderMaterialManagers();
+    return;
+  }
+  let list = cur.emails.slice();
+  const draw = () => {
+    box.innerHTML = `<p class="sub">연결된 계정: ${esc(user.email || "")}</p>
+      <div id="matList" style="margin:8px 0">${list.length ? list.map((m, i) => `<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><span>${esc(m)}</span><button class="btn btn-sm" data-i="${i}">제거</button></div>`).join("") : `<span class="sub">지정된 재료 관리자가 없습니다. 최고관리자만 계정관리를 열 수 있습니다.</span>`}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="min-width:240px"><label for="matNew">추가할 구글 이메일</label><input class="input" id="matNew" type="email" placeholder="name@gmail.com"></div><button class="btn" id="matAdd">추가</button></div>
+      <div style="margin-top:12px"><button class="btn btn-primary" id="matSave">재료 관리자 저장</button></div>`;
+    box.querySelectorAll("[data-i]").forEach((b) => b.onclick = () => { list.splice(Number(b.dataset.i), 1); draw(); });
+    const add = () => {
+      const v = normEmail($("matNew").value);
+      if (!validEmail(v)) return toast("이메일 형식이 올바르지 않습니다.", true);
+      if (list.includes(v)) return toast("이미 지정돼 있습니다.", true);
+      if (list.length >= MAX_MANAGERS) return toast(`최대 ${MAX_MANAGERS}명까지 지정할 수 있습니다.`, true);
+      list.push(v); draw();
+    };
+    $("matAdd").onclick = add;
+    $("matNew").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+    $("matSave").onclick = async () => {
+      try { list = await saveManagers(list, user.email); audit("material_managers_change", { detail: list.join(", ") || "(없음)" }); toast("저장했습니다"); draw(); }
+      catch (e) { console.error(e); toast(errMsg(e), true); }
+    };
+  };
+  draw();
 }
