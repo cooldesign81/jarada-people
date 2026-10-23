@@ -37,6 +37,8 @@ const canSeeBack = () => can("rrnBack");
 const backOff = () => state.settings?.rrnBackEnabled === false;     // 설정에서 뒷자리 수집을 껐는지
 const canSeeFront = () => isOwnPage() || canManage();
 const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : can("secDocs"));
+// 본인 페이지(내 정보)에서는 서류를 ‘내 서류’ 메뉴로 뺀다. 다른 직원 상세와 등록 링크 화면에서는 그대로 둔다
+const docsInDetail = () => state.selfMode || !isOwnPage();
 const canUploadKey = (key) => isOwnPage() || (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : can("secDocs"));
 
 // ---------- 유틸 ----------
@@ -73,6 +75,7 @@ export async function renderDetail(empId) {
   const root = $("detailRoot");
   const token = ++cur.token;
   cur.id = empId;
+  $("docsRoot").innerHTML = "";   // 같은 요소 id 가 두 화면에 겹치지 않게
   root.innerHTML = `<div class="card"><p class="msg" style="margin:0">불러오는 중…</p></div>`;
   const cached = state.employees.find((e) => e.id === empId);
   let emp = null;
@@ -101,12 +104,36 @@ export async function renderDetail(empId) {
   draw();
   const seen = [back && "주민번호 뒷자리", comp && "급여"].filter(Boolean);
   if (seen.length && !isOwnPage()) audit("view_sensitive", { targetEmployeeId: empId, detail: seen.join(", ") });
-  if (isHR() || isAdmin()) {
-    const [pub, sec] = await Promise.all([listFolder("pub"), can("secDocs") ? listFolder("sec") : []]);
-    if (token !== cur.token) return;
-    cur.files = { pub, sec }; cur.filesLoaded = true;
-    drawFiles();
-  }
+  if (docsInDetail()) await loadFiles(token);
+}
+async function loadFiles(token) {
+  if (!(isHR() || isAdmin())) return;
+  const [pub, sec] = await Promise.all([listFolder("pub"), can("secDocs") ? listFolder("sec") : []]);
+  if (token !== cur.token) return;
+  cur.files = { pub, sec }; cur.filesLoaded = true;
+  drawFiles();
+}
+
+// ---------- 내 서류 (내 정보와 따로 둔 메뉴) ----------
+export async function renderMyDocs(empId) {
+  const root = $("docsRoot");
+  const token = ++cur.token;
+  cur.id = empId;
+  $("detailRoot").innerHTML = "";
+  root.innerHTML = `<div class="card"><p class="msg" style="margin:0">불러오는 중…</p></div>`;
+  let emp = null;
+  try { const s = await getDoc(doc(db, "employees", empId)); if (s.exists()) emp = toEmp(s); } catch (e) { console.warn(e); }
+  emp = emp || state.employees.find((e) => e.id === empId);
+  if (token !== cur.token) return;
+  if (!emp) { root.innerHTML = `<div class="card"><h2>직원 정보를 찾을 수 없습니다</h2></div>`; return; }
+  cur.emp = emp;
+  const flags = await get(...priv("flags"));
+  if (token !== cur.token) return;
+  Object.assign(cur, { flags: flags || {}, files: { pub: [], sec: [] }, filesLoaded: false });
+  root.innerHTML = `<div class="notice" style="margin-bottom:16px">올린 서류는 담당 관리자(비공개서류는 최고관리자)만 열람할 수 있습니다. 파일은 30MB 이하로 올려 주세요.</div>${docsHtml()}`;
+  if (can("secDocs")) bindEval();
+  drawFiles();
+  await loadFiles(token);
 }
 
 // ---------- 그리기 ----------
@@ -166,7 +193,22 @@ function draw() {
     ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여 명세서·세부내역서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>급여 배포로 가기</a></div><div id="dSlips"></div></div>` : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
-    <div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
+    ${docsInDetail() ? docsHtml() : ""}
+  `;
+  renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
+  rrnStatus();
+  bindHead(); bindRrn(); bindPi();
+  if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
+  if (docsInDetail()) { if (can("secDocs")) bindEval(); drawFiles(); }
+  if (!state.selfMode && $("dRecords")) {
+    const tk = cur.token;
+    mountRecords($("dRecords"), e).then(() => { if (tk === cur.token && $("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
+  }
+}
+
+// 서류 카드들 (내 정보 화면 또는 내 서류 화면에 그린다)
+function docsHtml() {
+  return `<div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
     <div class="card"><h3 class="sec-title">비공개서류 (주민등록등본·통장사본·사업자등록확인서·고용보험 관련서류)</h3><div id="dSec"></div></div>
     ${can("secDocs") ? `
     <div class="card"><h3 class="sec-title">인사 평가 파일</h3>
@@ -174,18 +216,7 @@ function draw() {
         <input type="file" id="dEvalInput" multiple hidden></div>
       <div id="dEval" style="margin-top:12px"></div></div>
     <div class="card"><h3 class="sec-title">기타</h3><div id="dEtc"></div>
-      <button class="btn btn-secondary" id="dBtnEtc" style="margin-top:8px">+ 항목 추가</button></div>` : ""}
-  `;
-  renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
-  rrnStatus();
-  bindHead(); bindRrn(); bindPi();
-  if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
-  if (can("secDocs")) bindEval();
-  drawFiles();
-  if (!state.selfMode && $("dRecords")) {
-    const tk = cur.token;
-    mountRecords($("dRecords"), e).then(() => { if (tk === cur.token && $("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
-  }
+      <button class="btn btn-secondary" id="dBtnEtc" style="margin-top:8px">+ 항목 추가</button></div>` : ""}`;
 }
 
 // 추가급여 1~3: 항목명(직접 입력) + 금액. 예전 단일 ‘추가급여’ 값은 추가급여1 로 이어받음
