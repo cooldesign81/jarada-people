@@ -26,6 +26,7 @@ export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level
 export const canManage = () => isHR() || isAdmin();
 export const isMgr     = () => ["admin", "principal", "manager", "lead"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
 export const canApprove = () => isHR() || isMgr();
+export const canSeeBalance = () => isHR();   // 남은 연차·연차 계산은 최고관리자·대표이사만 본다
 // 관리 → 권한 설정에서 정한 기능 권한 (최고관리자는 항상 true). 규칙(firestore.rules)이 실제로 막고, 이 값은 화면 표시용
 export function can(cap) {
   if (isSuper()) return true;
