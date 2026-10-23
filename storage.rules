@@ -7,6 +7,7 @@ rules_version = '2';
 //   hr/{직원사번}/pub/{키}__{시각}__{원본이름}   공개서류: resume, portfolio, criminalRecord, diploma
 //   hr/{직원사번}/pub/photo__0__profile.jpg      프로필 사진 (본인도 보고 바꿀 수 있음)
 //   hr/{직원사번}/pay/{종류}__{YYYY-MM}__{시각}__{원본이름}   급여·인센티브 명세서 (본인 계정과 급여 권한자만)
+//   hr/{직원사번}/leave/{notice|proof}__{휴가ID}__{시각}__{원본이름}   예비군 소집 통지서·훈련 참석 확인서 (본인, 본사 인사, 해당 지점 관리자·실장·팀장)
 //   hr/{직원사번}/sec/{키}__{시각}__{원본이름}   비공개서류: residentCopy, bankbookCopy, businessRegistration, employmentInsuranceDoc
 //                                                인사평가(eval), 기타(etc)
 //
@@ -51,6 +52,11 @@ service firebase.storage {
       return isAdmin() && firestore.exists(empPath(empId))
         && role().orgId in orgsOf(firestore.get(empPath(empId)).data);
     }
+    // 소속 지점의 원장·부원장·실장·팀장 (휴가를 승인하는 사람)
+    function mgrOf(empId) {
+      return roleExists() && role().level in ['admin', 'principal', 'manager', 'lead'] && firestore.exists(empPath(empId))
+        && role().orgId in orgsOf(firestore.get(empPath(empId)).data);
+    }
     function small() { return request.resource.size < 30 * 1024 * 1024; }
 
     match /hr/{empId}/pub/{file} {
@@ -73,6 +79,16 @@ service firebase.storage {
         && request.resource.size < 10 * 1024 * 1024
         && (request.resource.contentType == 'application/pdf' || request.resource.contentType.matches('image/.*'))
         && file.matches('(salary|incentive)__[0-9]{4}-[0-9]{2}__[0-9]+__.*');
+    }
+
+    // 예비군 서류 (PDF·이미지, 10MB 이하). 올리고 지우는 것은 본인·본사 인사·해당 지점 원장/부원장, 보는 것은 승인하는 관리자까지
+    match /hr/{empId}/leave/{file} {
+      allow read: if isHR() || mgrOf(empId) || isSelf(empId);
+      allow delete: if isHR() || adminOf(empId) || isSelf(empId);
+      allow create: if (isHR() || adminOf(empId) || isSelf(empId))
+        && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType == 'application/pdf' || request.resource.contentType.matches('image/.*'))
+        && file.matches('(notice|proof)__[A-Za-z0-9]+__[0-9]+__.*');
     }
 
     match /hr/{empId}/sec/{file} {

@@ -17,6 +17,7 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   u_super: { lvl: "super", org: "hq", eid: "emp_0001" }, u_hr: { lvl: "hr", org: "hq", eid: "emp_h" },
   u_adm: { lvl: "admin", org: "banpo", eid: "emp_0004", emp_emp_0003: ["anyang", "banpo"], emp_emp_0005: ["anyang"] },
   u_adm2: { lvl: "admin", org: "anyang", eid: "emp_a2", emp_emp_0003: ["anyang", "banpo"], emp_emp_0005: ["anyang"] },
+  u_mgr: { lvl: "manager", org: "anyang", eid: "emp_m", emp_emp_0003: ["anyang", "banpo"], emp_emp_0005: ["anyang"] },
   u_staff: { lvl: "staff", org: "anyang", eid: "emp_0003" }, u_other: { lvl: "staff", org: "banpo", eid: "emp_b" } };
 const S = (uid) => env.authenticatedContext(uid, CL[uid]).storage();
   const sup = S("u_super"), hr = S("u_hr"), adm = S("u_adm"), adm2 = S("u_adm2"), stf = S("u_staff"), oth = S("u_other"), anon = env.unauthenticatedContext().storage();
@@ -110,6 +111,27 @@ const S = (uid) => env.authenticatedContext(uid, CL[uid]).storage();
   await t("pay comp on: hr reads", true, () => hrPay.ref("hr/emp_0003/pay/salary__2026-11__11__h.pdf").getDownloadURL());
   await t("pay comp on: hr deletes", true, () => hrPay.ref("hr/emp_0003/pay/salary__2026-11__11__h.pdf").delete());
   await t("pay: super deletes", true, () => sup.ref(PAY).delete());
+
+  // 예비군 서류 (hr/{사번}/leave/)
+  const LVN = "hr/emp_0003/leave/notice__AbC123__5__통지서.pdf", LVP = "hr/emp_0003/leave/proof__AbC123__6__확인서.jpg";
+  const mgr = S("u_mgr");
+  await t("leave att: employee uploads own notice", true, () => putAs(stf, LVN));
+  await t("leave att: employee uploads own proof (image)", true, () => putAs(stf, LVP, "image/jpeg"));
+  await t("leave att: employee reads own", true, () => stf.ref(LVN).getDownloadURL());
+  await t("leave att: other employee cannot read", false, () => oth.ref(LVN).getDownloadURL());
+  await t("leave att: other employee cannot upload for someone", false, () => putAs(oth, "hr/emp_0003/leave/notice__AbC123__7__x.pdf"));
+  await t("leave att: branch admin reads", true, () => adm.ref(LVN).getDownloadURL());
+  await t("leave att: out-of-branch admin cannot read", false, () => adm2.ref("hr/emp_0004/leave/notice__AbC123__8__x.pdf").getDownloadURL());
+  await t("leave att: 실장 of the branch reads", true, () => mgr.ref(LVN).getDownloadURL());
+  await t("leave att: 실장 cannot upload", false, () => putAs(mgr, "hr/emp_0003/leave/notice__AbC123__9__x.pdf"));
+  await t("leave att: hr reads", true, () => hr.ref(LVN).getDownloadURL());
+  await t("leave att: super uploads", true, () => putAs(sup, "hr/emp_0003/leave/notice__AbC123__10__y.pdf"));
+  await t("leave att: bad content type", false, () => putAs(stf, "hr/emp_0003/leave/notice__AbC123__11__z.zip", "application/zip"));
+  await t("leave att: bad file name", false, () => putAs(stf, "hr/emp_0003/leave/통지서.pdf"));
+  await t("leave att: over 10MB", false, () => putAs(stf, "hr/emp_0003/leave/proof__AbC123__12__big.pdf", "application/pdf", 10 * 1024 * 1024 + 1));
+  await t("leave att: employee deletes own", true, () => stf.ref(LVP).delete());
+  await t("leave att: 실장 cannot delete", false, () => mgr.ref(LVN).delete());
+  await t("leave att: unauthenticated cannot read", false, () => anon.ref(LVN).getDownloadURL());
   await env.cleanup();
   console.log(results.filter((r) => r.startsWith("FAIL")).join("\n") || "(no failures)");
   console.log(`\n${results.length - failures}/${results.length} passed`);
