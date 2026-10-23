@@ -14,7 +14,7 @@ import {
 } from "./core.js";
 import { CORPS, corpName, corpFromText } from "./company.js";
 import { birthFromRrn } from "./rrn.js";
-import { initDetail, renderDetail, bindCertModal, deleteEmployeeData } from "./detail.js";
+import { initDetail, renderDetail, renderMyDocs, bindCertModal, deleteEmployeeData } from "./detail.js";
 import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
 import { initAdmin, renderAdmin } from "./admin.js";
 import { exportEmployees } from "./export.js";
@@ -35,8 +35,9 @@ const NAV = [
   { id: "admin",     label: "관리",     view: "Admin",     levels: ["super", "hr", "admin", "principal"] },
   { id: "orgs",      label: "조직",     view: "Orgs",      levels: Object.keys(LEVELS) },
   { id: "me",        label: "내 정보",  view: "Me",        levels: Object.keys(LEVELS) },
+  { id: "docs",      label: "내 서류",  view: "Docs",      levels: Object.keys(LEVELS) },
 ];
-const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Payslips", "Employees", "Orgs", "Admin", "Me", "Detail"];
+const VIEWS = ["Login", "Loading", "NoRole", "Dash", "Calendar", "Leaves", "Notices", "Payslips", "Employees", "Orgs", "Admin", "Me", "Docs", "Detail"];
 function showView(name) {
   VIEWS.forEach((v) => $("view" + v).classList.toggle("hidden", v !== name));
 }
@@ -288,7 +289,7 @@ function route() {
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
   showView(nav.view);
-  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, payslips: renderMyPayslips, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe })[nav.id]();
+  ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, payslips: renderMyPayslips, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe, docs: renderDocs })[nav.id]();
   updateBadges();
 }
 window.addEventListener("hashchange", route);
@@ -1133,6 +1134,13 @@ $("formOrg").addEventListener("submit", async (ev) => {
     $("btnOrgSave").disabled = false;
   }
 });
+
+// ---------- 내 서류 ----------
+function renderDocs() {
+  const me = state.me;
+  if (me) { renderMyDocs(me.id); return; }
+  $("docsRoot").innerHTML = `<div class="card"><p class="msg" style="margin:0">연결된 직원 정보가 없습니다. 먼저 ‘내 정보’에서 직원 정보를 등록하거나 관리자에게 연결을 요청하세요.</p></div>`;
+}
 
 // ---------- 내 정보 ----------
 function renderMe() {
