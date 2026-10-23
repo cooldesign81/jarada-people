@@ -7,10 +7,12 @@ export const LEAVE_TYPES = {
   half_pm:   { label: "오후 반차",   deduct: 0.5, cat: "annual", half: true },
   sick:      { label: "병가",        cat: "leave" },
   family:    { label: "경조휴가",    cat: "leave" },
-  official:  { label: "공가",        cat: "leave" },
+  official:  { label: "예비군",      cat: "leave", attach: true },   // 소집 통지서·훈련 참석 확인서를 첨부한다 (저장 키는 예전 ‘공가’ 그대로)
   childcare: { label: "출산·육아",   cat: "leave" },
   other:     { label: "기타 휴가",   cat: "leave" },
 };
+// 예비군 휴가에 첨부하는 서류
+export const ATTACH_KINDS = { notice: "소집 통지서", proof: "훈련 참석 확인서" };
 export const LEAVE_STATUS = { submitted: "승인 대기", approved: "승인", rejected: "반려", cancelled: "취소" };
 export const statusBadgeCls = { submitted: "s-leave", approved: "s-active", rejected: "off", cancelled: "off" };
 

@@ -492,6 +492,19 @@ service cloud.firestore {
     // 직원 본인이 신청(submitted)하고, 지점 관리자·본사가 승인/반려한다. 본인 신청은 본인이 승인할 수 없다(대표 제외).
     match /leaveRequests/{requestId} {
       function leaveMgr(d) { return isOrgMgr() && (d.orgId == me().orgId || me().orgId in d.orgIds); }
+      // 예비군 휴가의 첨부 서류 (소집 통지서 notice · 훈련 참석 확인서 proof). 파일은 Storage hr/{사번}/leave/
+      function validAtt(x, empId) {
+        return x is map && x.keys().hasOnly(['path', 'name', 'size', 'contentType'])
+          && x.path is string && x.path.size() <= 300 && x.path.matches('^hr/' + empId + '/leave/.*')
+          && x.name is string && x.name.size() <= 200
+          && x.size is number && x.size > 0 && x.size <= 10 * 1024 * 1024
+          && x.contentType is string && (x.contentType == 'application/pdf' || x.contentType.matches('^image/.*'));
+      }
+      function validAttachments(a, empId) {
+        return a is map && a.keys().hasOnly(['notice', 'proof'])
+          && (!('notice' in a) || validAtt(a.notice, empId))
+          && (!('proof' in a) || validAtt(a.proof, empId));
+      }
       function validLeave() {
         let d = request.resource.data;
         return d.employeeId is string && exists(empPath(d.employeeId))
@@ -502,7 +515,8 @@ service cloud.firestore {
           && d.startDate is string && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
           && d.endDate is string && d.endDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && d.endDate >= d.startDate
           && d.days is number && d.days >= 0 && d.days <= 365
-          && d.get('reason', '') is string && d.get('reason', '').size() <= 500;
+          && d.get('reason', '') is string && d.get('reason', '').size() <= 500
+          && validAttachments(d.get('attachments', {}), d.employeeId);
       }
 
       allow read: if isHR()
@@ -533,6 +547,12 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['status', 'type', 'startDate', 'endDate', 'days', 'reason', 'updatedAt'])
                     && validLeave();
+
+      // 예비군 서류 첨부·교체·삭제: 본인 또는 관리자 (승인 전후 모두 — 훈련 참석 확인서는 훈련 뒤에 올린다)
+      allow update: if (isSelf(resource.data.employeeId) || isHR() || orgAdminOfEmp(resource.data.employeeId))
+                    && resource.data.type == 'official' && resource.data.status in ['submitted', 'approved']
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attachments', 'updatedAt'])
+                    && validAttachments(request.resource.data.get('attachments', {}), resource.data.employeeId);
 
       allow delete: if isSuper();
     }

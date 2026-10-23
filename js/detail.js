@@ -617,7 +617,7 @@ export async function deleteEmployeeData(empId) {
   }
   try { const q = await getDocs(query(collection(db, "leaveRequests"), where("employeeId", "==", empId))); await Promise.all(q.docs.map((d) => deleteDoc(d.ref))); }
   catch (e) { console.warn("휴가 기록 삭제 실패", e.code || e); }
-  for (const folder of ["pub", "sec", "pay"]) {
+  for (const folder of ["pub", "sec", "pay", "leave"]) {
     try {
       const res = await listAll(ref(storage, `hr/${empId}/${folder}`));
       for (const it of res.items) { try { await deleteObject(it); } catch {} }

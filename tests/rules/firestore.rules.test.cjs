@@ -204,6 +204,24 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("leave: admin cannot register for out-of-scope emp", false, () => adm.doc("leaveRequests/Lx9").set(LV("emp_0005", { status: "approved" })));
   await t("leave: hr registers approved", true, () => hr.doc("leaveRequests/L3").set(LV("emp_0005", { status: "approved", startDate: "2026-11-10", endDate: "2026-11-10", days: 1 })));
   await t("leave: manager(실장) cannot register", false, () => mgr.doc("leaveRequests/Lx10").set(LV("emp_0005")));
+  // 예비군 서류 첨부 (attachments)
+  const ATT = (n = "통지서.pdf", o = {}) => ({ path: "hr/emp_0003/leave/notice__R1__5__" + n, name: n, size: 1000, contentType: "application/pdf", ...o });
+  await t("leave: self creates 예비군(official) request", true, () => stf.doc("leaveRequests/R1").set(LV("emp_0003", { type: "official", startDate: "2026-11-24", endDate: "2026-11-24", days: 1 })));
+  await t("leave att: self attaches notice", true, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT() }, updatedAt: TS() }));
+  await t("leave att: self adds proof later", true, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT(), proof: ATT("확인서.jpg", { path: "hr/emp_0003/leave/proof__R1__6__확인서.jpg", contentType: "image/jpeg" }) }, updatedAt: TS() }));
+  await t("leave att: self removes one", true, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT() }, updatedAt: TS() }));
+  await t("leave att: path of another employee rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("a.pdf", { path: "hr/emp_0005/leave/notice__R1__5__a.pdf" }) }, updatedAt: TS() }));
+  await t("leave att: path outside leave folder rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("a.pdf", { path: "hr/emp_0003/sec/notice__R1__5__a.pdf" }) }, updatedAt: TS() }));
+  await t("leave att: unknown kind rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { other: ATT() }, updatedAt: TS() }));
+  await t("leave att: extra field rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("a.pdf", { url: "http://x" }) }, updatedAt: TS() }));
+  await t("leave att: bad content type rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("a.zip", { contentType: "application/zip" }) }, updatedAt: TS() }));
+  await t("leave att: oversize rejected", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("a.pdf", { size: 11 * 1024 * 1024 }) }, updatedAt: TS() }));
+  await t("leave att: cannot change other fields together", false, () => stf.doc("leaveRequests/R1").update({ attachments: { notice: ATT("n2.pdf") }, reason: "x", updatedAt: TS() }));
+  await t("leave att: other staff cannot attach", false, () => s5.doc("leaveRequests/R1").update({ attachments: { notice: ATT("n4.pdf") }, updatedAt: TS() }));
+  await t("leave att: manager(실장) cannot attach", false, () => mgr.doc("leaveRequests/R1").update({ attachments: { notice: ATT("n3.pdf") }, updatedAt: TS() }));
+  await t("leave att: admin of the branch can attach", true, () => adm.doc("leaveRequests/R1").update({ attachments: { notice: ATT("n5.pdf") }, updatedAt: TS() }));
+  await t("leave att: hr can attach", true, () => hr.doc("leaveRequests/R1").update({ attachments: { notice: ATT("n6.pdf") }, updatedAt: TS() }));
+  await t("leave att: not for other types (annual)", false, () => stf.doc("leaveRequests/L1").update({ attachments: { notice: ATT("a.pdf", { path: "hr/emp_0003/leave/notice__L1__5__a.pdf" }) }, updatedAt: TS() }));
   await t("leave: self reads own", true, () => stf.doc("leaveRequests/L1").get());
   await t("leave: self query by employeeId", true, () => stf.collection("leaveRequests").where("employeeId", "==", "emp_0003").get());
   await t("leave: other staff cannot read", false, () => s5.doc("leaveRequests/L1").get());

@@ -33,7 +33,7 @@ export const AUDIT_ACTIONS = {
   emp_create: "직원 등록", emp_update: "직원 수정", emp_trash: "직원 휴지통 이동", emp_restore: "직원 복원", emp_purge: "직원 완전 삭제",
   branch_save: "지점 변경", bulk_import: "일괄 등록", export: "엑셀 내보내기", backup: "전체 백업", settings_change: "설정 변경", rrn_back_purge: "주민번호 뒷자리 일괄 삭제",
   link_create: "등록 링크 발급", link_revoke: "등록 링크 폐기",
-  leave_request: "휴가 신청", leave_register: "휴가 대리 등록", leave_approved: "휴가 승인", leave_rejected: "휴가 반려", leave_cancelled: "휴가 취소 처리", leave_cancel: "휴가 신청 취소",
+  leave_request: "휴가 신청", leave_register: "휴가 대리 등록", leave_approved: "휴가 승인", leave_rejected: "휴가 반려", leave_cancelled: "휴가 취소 처리", leave_cancel: "휴가 신청 취소", leave_attach: "예비군 서류 첨부", leave_attach_delete: "예비군 서류 삭제", leave_attach_view: "예비군 서류 열람",
   annual_adjust: "연차 조정", event_create: "일정 등록", event_update: "일정 수정", event_delete: "일정 삭제",
   emp_bulk_change: "직원 일괄 변경", notice_create: "공지 작성", notice_update: "공지 수정", notice_delete: "공지 삭제",
   birth_fill: "생년월일 일괄 채우기", company_leave_apply: "회사 지정 휴가 연차 차감", company_leave_revoke: "회사 지정 휴가 차감 취소", paylock_set: "급여 열람 비밀번호 설정", paylock_change: "급여 열람 비밀번호 변경", paylock_reset: "급여 열람 비밀번호 초기화", paylock_fail: "급여 열람 비밀번호 연속 실패",

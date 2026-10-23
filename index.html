@@ -252,10 +252,22 @@
     <div class="field" id="lvEndWrap"><label for="lvEnd">종료일</label><input class="input" id="lvEnd" type="date"></div>
     <div class="field full"><label for="lvReason">사유</label><textarea id="lvReason" maxlength="500" placeholder="선택 입력"></textarea></div>
     <div class="field full"><div class="notice" id="lvInfo"></div></div>
+    <div class="full hidden" id="lvAttachWrap" style="display:grid;gap:10px">
+      <div class="field"><label for="lvFileNotice">소집 통지서 (PDF·이미지)</label><input class="input" id="lvFileNotice" type="file" accept="application/pdf,image/*"></div>
+      <div class="field"><label for="lvFileProof">훈련 참석 확인서 (PDF·이미지)</label><input class="input" id="lvFileProof" type="file" accept="application/pdf,image/*">
+        <span class="help">소집 통지서는 지금, 훈련 참석 확인서는 훈련을 마친 뒤 휴가 내역의 ‘서류’ 버튼으로 올려도 됩니다. 파일은 10MB 이하입니다.</span></div>
+    </div>
     <label class="check full hidden" id="lvApproveWrap"><input type="checkbox" id="lvApprove"> 바로 승인 처리 (관리자가 대신 등록)</label>
     <div class="msg error dlg-err" id="lvErr"></div>
   </div>
   <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnLvCancel">취소</button><button type="button" class="btn btn-primary" id="btnLvSave">신청</button></div>
+</dialog>
+
+<!-- 예비군 서류 첨부 -->
+<dialog id="dlgLeaveAtt">
+  <div class="dlg-head"><h2>예비군 서류</h2></div>
+  <div class="bulk-body"><div id="laInfo" class="sub"></div><div id="laBody"></div><div class="msg error" id="laErr"></div></div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnLaClose">닫기</button></div>
 </dialog>
 
 <!-- 휴가 승인 -->
