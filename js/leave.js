@@ -59,7 +59,11 @@ export function renderLeaves() {
   const root = $("leavesRoot");
   const me = state.me;
   const parts = [];
-  if (me) {
+  if (me && !canApprove()) {
+    // 일반 직원에게는 남은 연차·계산 내용을 보여 주지 않는다 (관리자만 확인)
+    parts.push(`<div class="card"><div class="head-top"><h2 style="margin:0">휴가 신청</h2><button class="btn btn-primary" id="lvBtnNew">휴가 신청</button></div>
+      <p class="msg" style="margin:8px 0 0">남은 연차는 관리자에게 문의하세요. 신청한 휴가의 처리 상태는 아래 휴가 내역에서 확인할 수 있습니다.</p></div>`);
+  } else if (me) {
     const b = annualBalance(me);
     parts.push(`<div class="card"><div class="head-top"><h2 style="margin:0">내 연차</h2><button class="btn btn-primary" id="lvBtnNew">휴가 신청</button></div>
       ${b.ok ? `<div class="kpis" style="margin:12px 0 0">
@@ -158,7 +162,7 @@ function lvRefresh() {
   const days = countDays($("lvType").value, start, end);
   let info = days ? `<strong>${days}일</strong> (주말·휴일 제외)` : `<span class="msg error" style="margin:0">선택한 기간에 휴가로 쓸 평일이 없습니다.</span>`;
   const emp = lvEmp();
-  if (emp && t?.deduct) {
+  if (emp && t?.deduct && canApprove()) {
     const b = annualBalance(emp, isYmd(start) ? start : today());
     if (b.ok) info += ` · 연차 잔여 ${b.remaining}일${days ? ` → 신청 후 ${Math.round((b.remaining - days) * 10) / 10}일` : ""}`;
   }
