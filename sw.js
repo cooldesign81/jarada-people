@@ -1,6 +1,6 @@
 // 자라다 People 서비스 워커: 앱 화면(html·css·js)만 보관해 두고, 인터넷이 끊겼을 때 화면 껍데기를 띄운다.
 // 직원 정보(Firebase 데이터)는 절대 보관하지 않는다. 다른 사이트(Firebase, 폰트)로 가는 요청은 건드리지 않는다.
-const CACHE = "jarada-shell-v1";
+const CACHE = "jarada-shell-v2";
 const SHELL = ["./", "./index.html", "./css/app.css", "./manifest.webmanifest", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
