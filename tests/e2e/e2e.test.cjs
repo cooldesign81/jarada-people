@@ -1481,6 +1481,7 @@ const buf = (s) => Buffer.from(s);
     st["employees/emp_0002/private"] = { residentFront: { value: "050315" } };            // 앞자리만 (추정)
     st.employees.emp_0005 = { name: "추정불가", email: "unk@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active" };
     st["employees/emp_0005/private"] = { residentFront: { value: "150101" } };            // 나이로는 알 수 없음
+    st.employees.emp_0006 = { name: "생일만", email: "bday@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "resigned", birthDate: "1992-11-30" };   // 앞자리 없음 → 채움 대상(퇴직 포함)
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
     // 관리 → 현황 점검 → 생년월일 채우기
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.waitForSelector("#btnBfPlan");
@@ -1502,6 +1503,16 @@ const buf = (s) => Buffer.from(s);
     const wp = await S(page, "employees/emp_0002/private/personalInfo");
     ok("AB 근로시작일 = 입사일로 저장", wp && wp.workStartDate === "2020-01-01", JSON.stringify(wp));
     ok("AB 근로시작일 채우기 감사로그", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "workstart_fill"));
+    // 관리 → 현황 점검 → 주민번호 앞자리 채우기 (생년월일로)
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.waitForSelector("#btnFfPlan");
+    await page.click("#btnFfPlan"); await page.waitForSelector("#btnFfApply");
+    const ftxt = await page.textContent("#ffOut");
+    ok("AB 앞자리 채우기 미리보기: 비어 있는 직원만", ftxt.includes("생일만") && ftxt.includes("1992-11-30") && !ftxt.includes("추정불가") && !ftxt.includes("921130"), ftxt.slice(0, 200));
+    await page.click("#btnFfApply"); await page.waitForTimeout(800);
+    const ff = await S(page, "employees/emp_0006/private/residentFront"), ffl = await S(page, "employees/emp_0006/private/flags");
+    ok("AB 앞자리 = 생년월일 YYMMDD", ff && ff.value === "921130" && ffl && ffl.residentFront === true, JSON.stringify(ff));
+    ok("AB 이미 있는 앞자리는 그대로", (await S(page, "employees/emp_0005/private/residentFront")).value === "150101");
+    ok("AB 앞자리 채우기 감사로그", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "rrn_front_fill"));
     // 직원 상세 위쪽에 입사일·생년월일, 개인정보의 근로시작일은 입사일로 채워 보임
     await page.goto(BASE + "/index.html#emp/emp_0002"); await page.waitForSelector("#dBtnPi");
     const head = await page.textContent("#detailRoot .card");
