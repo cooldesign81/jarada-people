@@ -68,6 +68,68 @@ function renderBirthFill(el) {
   });
 }
 
+// ---------- 주민번호 앞자리 채우기: 생년월일(YYYY-MM-DD)로 앞 6자리(YYMMDD)를 만든다. 이미 등록된 앞자리는 그대로 둔다 ----------
+const frontFromBirth = (b) => (/^\d{4}-\d{2}-\d{2}$/.test(b || "") ? b.slice(2, 4) + b.slice(5, 7) + b.slice(8, 10) : "");
+function renderFrontFill(el) {
+  const targets = state.employees.filter((e) => frontFromBirth(e.birthDate));
+  el.innerHTML = `<div class="card"><h2>주민번호 앞자리 채우기</h2>
+    <p>생년월일이 있는 직원 <b>${targets.length}명</b> 중 <b>주민등록번호 앞자리가 비어 있는 직원</b>의 앞 6자리를 생년월일로 채웁니다 (1990-05-21 → 900521). 뒷자리는 건드리지 않고, 이미 등록된 앞자리는 그대로 둡니다. 퇴직 직원도 포함합니다. 직원 수만큼 읽기가 발생합니다.</p>
+    ${can("empWrite") ? `<button class="btn btn-secondary" id="btnFfPlan" ${targets.length ? "" : "disabled"}>확인하기</button> <span class="sub" id="ffProg"></span><div id="ffOut"></div>` : `<p class="sub">직원 정보를 수정할 권한이 없습니다.</p>`}</div>`;
+  $("btnFfPlan")?.addEventListener("click", async () => {
+    $("btnFfPlan").disabled = true; const need = []; let i = 0, skipped = 0;
+    for (let k = 0; k < targets.length; k += 8) await Promise.all(targets.slice(k, k + 8).map(async (e) => {
+      let has = "", ok = true;
+      try { const d = await getDoc(doc(db, "employees", e.id, "private", "residentFront")); if (d.exists()) has = d.data().value || ""; } catch { ok = false; }
+      if (!ok) skipped++; else if (!has) need.push(e);
+      $("ffProg").textContent = `${++i} / ${targets.length}`;
+    }));
+    need.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    $("ffOut").innerHTML = need.length ? `<p style="margin:10px 0">앞자리가 비어 있는 직원 <b>${need.length}명</b>${skipped ? ` · 읽지 못한 직원 ${skipped}명(권한 없음)` : ""}</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>생년월일</th></tr></thead><tbody>${need.map((e) => `<tr><td class="strong">${esc(e.name)}</td><td>${branchTags(e.orgIds)}</td><td class="sub">${esc(e.birthDate)}</td></tr>`).join("")}</tbody></table></div>
+      <button class="btn btn-primary" id="btnFfApply" style="margin-top:10px">${need.length}명 채우기</button>` : `<p style="margin:10px 0">비어 있는 직원이 없습니다.${skipped ? ` (읽지 못한 직원 ${skipped}명)` : ""}</p>`;
+    $("btnFfPlan").disabled = false;
+    $("btnFfApply")?.addEventListener("click", async () => {
+      if (!confirm(`${need.length}명의 주민등록번호 앞자리를 생년월일로 채웁니다. 계속할까요?`)) return;
+      let done = 0, fail = 0;
+      for (const e of need) {
+        try {
+          const meta = { updatedAt: serverTimestamp(), updatedBy: state.user?.email || "" };
+          await setDoc(doc(db, "employees", e.id, "private", "residentFront"), { value: frontFromBirth(e.birthDate), ...meta });
+          await setDoc(doc(db, "employees", e.id, "private", "flags"), { residentFront: true }, { merge: true });
+          done++;
+        } catch (x) { console.warn(x.code || x); fail++; }
+      }
+      audit("rrn_front_fill", { detail: `${done}명${fail ? ` (실패 ${fail}명)` : ""}` }); toast(`${done}명의 주민번호 앞자리를 채웠습니다${fail ? `, ${fail}명 실패` : ""}`, !!fail); renderFrontFill(el);
+    });
+  });
+}
+
+// ---------- 근로시작일 채우기: 근로시작일은 입사일과 같으므로 비어 있는 직원을 입사일로 채운다 ----------
+function renderWorkFill(el) {
+  const targets = state.employees.filter((e) => e.joinedAt);
+  el.innerHTML = `<div class="card"><h2>근로시작일 채우기</h2>
+    <p>근로시작일은 입사일과 같습니다. 개인정보의 <b>근로시작일</b>이 비어 있는 직원을 <b>입사일</b>로 채웁니다. 이미 값이 있는 직원은 그대로 둡니다. 직원 수(${targets.length}명)만큼 읽기가 발생합니다.</p>
+    ${can("empWrite") ? `<button class="btn btn-secondary" id="btnWfPlan" ${targets.length ? "" : "disabled"}>확인하기</button> <span class="sub" id="wfProg"></span><div id="wfOut"></div>` : `<p class="sub">직원 정보를 수정할 권한이 없습니다.</p>`}</div>`;
+  $("btnWfPlan")?.addEventListener("click", async () => {
+    $("btnWfPlan").disabled = true; const need = []; let i = 0;
+    for (let k = 0; k < targets.length; k += 8) await Promise.all(targets.slice(k, k + 8).map(async (e) => {
+      let has = "", ok = true;
+      try { const d = await getDoc(doc(db, "employees", e.id, "private", "personalInfo")); if (d.exists()) has = d.data().workStartDate || ""; } catch { ok = false; }
+      if (ok && !has) need.push(e);
+      $("wfProg").textContent = `${++i} / ${targets.length}`;
+    }));
+    need.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    $("wfOut").innerHTML = need.length ? `<p style="margin:10px 0">근로시작일이 비어 있는 직원 <b>${need.length}명</b></p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>입사일 → 근로시작일</th></tr></thead><tbody>${need.map((e) => `<tr><td class="strong">${esc(e.name)}</td><td class="sub">${esc(e.joinedAt)}</td></tr>`).join("")}</tbody></table></div>
+      <button class="btn btn-primary" id="btnWfApply" style="margin-top:10px">${need.length}명 채우기</button>` : `<p style="margin:10px 0">비어 있는 직원이 없습니다.</p>`;
+    $("btnWfPlan").disabled = false;
+    $("btnWfApply")?.addEventListener("click", async () => {
+      if (!confirm(`${need.length}명의 근로시작일을 입사일로 채웁니다. 계속할까요?`)) return;
+      let done = 0, fail = 0;
+      for (const e of need) { try { await setDoc(doc(db, "employees", e.id, "private", "personalInfo"), { workStartDate: e.joinedAt, updatedAt: serverTimestamp() }, { merge: true }); done++; } catch (x) { console.warn(x.code || x); fail++; } }
+      audit("workstart_fill", { detail: `${done}명${fail ? ` (실패 ${fail}명)` : ""}` }); toast(`${done}명의 근로시작일을 채웠습니다${fail ? `, ${fail}명 실패` : ""}`, !!fail); renderWorkFill(el);
+    });
+  });
+}
+
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------
 const st = { rows: null, busy: false };
 const keyOf = (name) => name.split("__")[0];
@@ -82,8 +144,8 @@ function renderStatus(body) {
     <p>재직 중인 직원의 필수 서류 제출 여부와 자격증 만료일을 한 번에 확인합니다. 직원 수만큼 읽기가 발생하므로 필요할 때만 실행하세요. 필수 서류는 ‘설정’ 탭에서 바꿉니다.</p>
     <p class="sub">필수 서류: ${req.map((k) => esc(docs.find((d) => d.key === k)?.label || k)).join(", ") || "없음"}${can("secDocs") ? "" : " · 비공개서류는 열람 권한이 없어 제외됩니다."}</p>
     <button class="btn btn-primary" id="btnScan">${st.rows ? "다시 점검" : "점검 시작"}</button> <span class="sub" id="scanProg"></span></div>
-    <div id="scanOut"></div><div id="birthFill"></div>`;
-  renderBirthFill($("birthFill"));
+    <div id="scanOut"></div><div id="birthFill"></div><div id="workFill"></div><div id="frontFill"></div>`;
+  renderBirthFill($("birthFill")); renderWorkFill($("workFill")); renderFrontFill($("frontFill"));
   const out = $("scanOut");
   const draw = () => {
     if (!st.rows) return;

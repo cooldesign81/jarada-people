@@ -111,8 +111,9 @@ const buf = (s) => Buffer.from(s);
     const bc = await S(page, "employees/emp_0003/private/compensation");
     ok("B bulk compensation", bc && bc.baseSalary === "3000000" && bc.additionalLabel1 === "자기 계발비" && bc.additionalSalary1 === "100000" && !bc.additionalLabel2, JSON.stringify(bc));
     ok("B bulk no comp for 0004", !(await S(page, "employees/emp_0004/private/compensation")));
-    ok("B bulk no pi for 0004", !(await S(page, "employees/emp_0004/private/personalInfo")));
-    ok("B bulk batch sizes", JSON.stringify(await page.evaluate(() => globalThis.__batches)) === "[4]", JSON.stringify(await page.evaluate(() => globalThis.__batches)));
+    const p4 = await S(page, "employees/emp_0004/private/personalInfo"), emp4 = await S(page, "employees/emp_0004");
+    ok("B bulk 근로시작일 = 입사일 (칸이 비어 있을 때만 채움)", emp4.joinedAt && p4 && p4.workStartDate === emp4.joinedAt && Object.keys(p4).filter((k) => k !== "updatedAt").length === 1, JSON.stringify(p4));
+    ok("B bulk batch sizes", JSON.stringify(await page.evaluate(() => globalThis.__batches)) === "[5]", JSON.stringify(await page.evaluate(() => globalThis.__batches)));
     ok("B bulk counter", (await S(page, "meta/counters")).employee === 4);
     ok("B list rows & tags", (await count(page, "#tblEmp tbody tr")) === 4 && (await count(page, "#tblEmp .branch-tag")) >= 5);
     await shot(page, "G2-employees");
@@ -933,13 +934,13 @@ const buf = (s) => Buffer.from(s);
     await page.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!r?.active; }, null, { timeout: 8000 });
     ok("S service worker active", true);
     await page.reload(); await page.waitForTimeout(500);
-    const cached = await page.evaluate(async () => { const c = await caches.open("jarada-shell-v1"); return (await c.keys()).map((k) => new URL(k.url).pathname); });
+    const cached = await page.evaluate(async () => { const name = (await caches.keys()).find((k) => k.startsWith("jarada-shell-")); const c = await caches.open(name); return (await c.keys()).map((k) => new URL(k.url).pathname); });
     ok("S shell cached", cached.includes("/index.html") && cached.includes("/css/app.css"), cached.join(","));
     ok("S no firebase/cross-origin entries cached", !cached.some((p) => p.includes("firebasejs")));
     await ctx.setOffline(true);
     await page.goto(BASE + "/index.html?self=emp_0003&t=abc123"); await page.waitForTimeout(500);
     ok("S offline shell loads", (await page.title()) === "자라다 People");
-    const keys = await page.evaluate(async () => { const c = await caches.open("jarada-shell-v1"); return (await c.keys()).map((k) => k.url); });
+    const keys = await page.evaluate(async () => { const name = (await caches.keys()).find((k) => k.startsWith("jarada-shell-")); const c = await caches.open(name); return (await c.keys()).map((k) => k.url); });
     ok("S link token not stored in cache", !keys.some((u) => u.includes("abc123") || u.includes("self=")));
     await ctx.close();
   }
@@ -1298,6 +1299,20 @@ const buf = (s) => Buffer.from(s);
     await page.click("#btnBulkSave"); await page.waitForTimeout(800);
     const p3 = await priv("emp_0003");
     ok("Y update adds rrn to existing employee", p3.residentFront?.value === "810825" && p3.residentBack?.value === "2345678" && p3.flags?.residentBack === true, JSON.stringify(p3).slice(0, 200));
+    // 이메일 칸을 비워 두고 이름으로 기존 직원을 찾아 주민번호만 넣는다
+    await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]"); await page.uncheck("#bulkUpdate");
+    await page.fill("#bulkText", "이름\t이메일\t주민등록번호\n이교사\t\t861010-2345678");
+    await page.waitForTimeout(150);
+    ok("Y 이름으로 찾기: 수정 모드가 꺼져 있으면 안내", (await page.textContent("#bulkPreview")).includes("기존 직원 정보를 수정’을 켜면 이름으로 찾아"), await page.textContent("#bulkPreview"));
+    await page.check("#bulkUpdate"); await page.waitForTimeout(150);
+    ok("Y 이름으로 찾기: 이메일 없이도 기존 직원으로 인식", (await page.textContent("#bulkPreview")).includes("수정 (emp_0003)"), await page.textContent("#bulkPreview"));
+    await page.fill("#bulkText", "이름\t주민등록번호\n이교사\t861010-2345678\n없는사람\t900101-1234567");
+    await page.waitForTimeout(150);
+    const nt = await page.textContent("#bulkPreview");
+    ok("Y 이름만 있는 파일(이메일 열 없음)도 가능, 없는 이름은 오류", nt.includes("수정 (emp_0003)") && nt.includes("같은 이름의 기존 직원도 없습니다") && (await page.textContent("#bulkSummary")).includes("기존 직원 수정 1명"), nt);
+    await page.click("#btnBulkSave"); await page.waitForTimeout(800);
+    const pn = await priv("emp_0003");
+    ok("Y 이름으로 찾아 주민번호 저장", pn.residentFront?.value === "861010" && pn.residentBack?.value === "2345678", JSON.stringify(pn).slice(0, 200));
     ok("Y no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
     // 뒷자리 권한이 없으면(대표이사 기본) 뒷자리가 있는 줄은 오류, 앞자리만은 가능
@@ -1480,6 +1495,7 @@ const buf = (s) => Buffer.from(s);
     st["employees/emp_0002/private"] = { residentFront: { value: "050315" } };            // 앞자리만 (추정)
     st.employees.emp_0005 = { name: "추정불가", email: "unk@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active" };
     st["employees/emp_0005/private"] = { residentFront: { value: "150101" } };            // 나이로는 알 수 없음
+    st.employees.emp_0006 = { name: "생일만", email: "bday@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "resigned", birthDate: "1992-11-30" };   // 앞자리 없음 → 채움 대상(퇴직 포함)
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: {}, now: NOW });
     // 관리 → 현황 점검 → 생년월일 채우기
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.waitForSelector("#btnBfPlan");
@@ -1493,6 +1509,29 @@ const buf = (s) => Buffer.from(s);
     const e3 = await S(page, "employees/emp_0003"), e2 = await S(page, "employees/emp_0002");
     ok("AB applied birthDate", (e3.birthDate === "1986-07-01" || e2.birthDate === "2005-03-15") && !(await S(page, "employees/emp_0005")).birthDate);
     ok("AB audit", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "birth_fill"));
+    // 관리 → 현황 점검 → 근로시작일 채우기 (입사일과 같다)
+    await page.waitForSelector("#btnWfPlan"); await page.click("#btnWfPlan"); await page.waitForSelector("#btnWfApply");
+    const wtxt = await page.textContent("#wfOut");
+    ok("AB 근로시작일 채우기 미리보기", wtxt.includes("근로시작일이 비어 있는 직원") && wtxt.includes("2020-01-01"), wtxt.slice(0, 200));
+    await page.click("#btnWfApply"); await page.waitForTimeout(800);
+    const wp = await S(page, "employees/emp_0002/private/personalInfo");
+    ok("AB 근로시작일 = 입사일로 저장", wp && wp.workStartDate === "2020-01-01", JSON.stringify(wp));
+    ok("AB 근로시작일 채우기 감사로그", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "workstart_fill"));
+    // 관리 → 현황 점검 → 주민번호 앞자리 채우기 (생년월일로)
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.waitForSelector("#btnFfPlan");
+    await page.click("#btnFfPlan"); await page.waitForSelector("#btnFfApply");
+    const ftxt = await page.textContent("#ffOut");
+    ok("AB 앞자리 채우기 미리보기: 비어 있는 직원만", ftxt.includes("생일만") && ftxt.includes("1992-11-30") && !ftxt.includes("추정불가") && !ftxt.includes("921130"), ftxt.slice(0, 200));
+    await page.click("#btnFfApply"); await page.waitForTimeout(800);
+    const ff = await S(page, "employees/emp_0006/private/residentFront"), ffl = await S(page, "employees/emp_0006/private/flags");
+    ok("AB 앞자리 = 생년월일 YYMMDD", ff && ff.value === "921130" && ffl && ffl.residentFront === true, JSON.stringify(ff));
+    ok("AB 이미 있는 앞자리는 그대로", (await S(page, "employees/emp_0005/private/residentFront")).value === "150101");
+    ok("AB 앞자리 채우기 감사로그", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "rrn_front_fill"));
+    // 직원 상세 위쪽에 입사일·생년월일, 개인정보의 근로시작일은 입사일로 채워 보임
+    await page.goto(BASE + "/index.html#emp/emp_0002"); await page.waitForSelector("#dBtnPi");
+    const head = await page.textContent("#detailRoot .card");
+    ok("AB 상세 위쪽에 입사일·생년월일", head.includes("입사일") && head.includes("2020-01-01") && head.includes("생년월일"), head.slice(0, 200));
+    ok("AB 근로시작일 칸이 입사일로 채워짐", (await page.inputValue('[data-pi="workStartDate"]')) === "2020-01-01");
     // 직원 상세에서 주민번호를 저장하면 생년월일이 비어 있을 때 채운다
     const s2 = J(st); s2.employees.emp_0003.joinedAt = "2024-03-02"; delete s2["employees/emp_0003/private"]; delete s2.employees.emp_0003.birthDate;
     const p2 = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: s2, files: {}, now: NOW });
