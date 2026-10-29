@@ -733,8 +733,9 @@ function parseBulk(text) {
   if (hasHeader) {
     colIdx = {};
     head.forEach((k, i) => { if (k && !(k in colIdx)) colIdx[k] = i; });
-    if (!("email" in colIdx) || (!("name" in colIdx) && !(isHR() && $("bulkUpdate").checked)))
-      return { rows: [], fatal: "제목 줄에 ‘이름’과 ‘이메일’ 열이 모두 있어야 합니다. (기존 직원 수정을 켜면 이메일 열만 있어도 됩니다)" };
+    const upd = isHR() && $("bulkUpdate").checked;
+    if (upd ? !("email" in colIdx) && !("name" in colIdx) : !("email" in colIdx && "name" in colIdx))
+      return { rows: [], fatal: "제목 줄에 ‘이름’과 ‘이메일’ 열이 모두 있어야 합니다. (기존 직원 수정을 켜면 이름 열이나 이메일 열 하나만 있어도 됩니다)" };
   } else {
     colIdx = Object.fromEntries(BULK_COLS.map((c, i) => [c.key, i]));
   }
@@ -744,6 +745,7 @@ function parseBulk(text) {
   const defOrg = $("bulkOrg").value;
   const seen = new Map(); // 이메일 -> 먼저 나온 행 번호
   const existing = new Map(state.employees.map((e) => [e.email, e]));
+  const byName = new Map(); state.employees.forEach((e) => byName.set(e.name, [...(byName.get(e.name) || []), e]));
   const findOrg = (t) => state.orgs.find((o) => nrm(o.id) === nrm(t) || nrm(o.name) === nrm(t));
   const upsert = isHR() && $("bulkUpdate").checked;
   const rows = body.map((cells, idx) => {
@@ -756,9 +758,17 @@ function parseBulk(text) {
     };
     if (!d.name) errors.push("이름 없음");
     else if (d.name.length > 40) errors.push("이름이 40자 초과");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) errors.push("이메일 형식 오류");
+    // 기존 직원 수정을 켠 상태에서 이메일 칸이 비어 있으면 이름으로 기존 직원을 찾는다 (같은 이름이 한 명일 때만)
+    let byNameEx = null;
+    if (!d.email && d.name) {
+      const same = byName.get(d.name) || [];
+      if (upsert) {
+        if (same.length === 1) { byNameEx = same[0]; d.email = byNameEx.email; }
+        else errors.push(same.length ? `이메일이 비어 있고 같은 이름의 직원이 ${same.length}명입니다 — 이메일로 구분하세요` : "이메일이 비어 있고 같은 이름의 기존 직원도 없습니다");
+      } else errors.push(same.length ? "이메일이 비어 있습니다 — ‘기존 직원 정보를 수정’을 켜면 이름으로 찾아 수정합니다" : "이메일 형식 오류");
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) errors.push("이메일 형식 오류");
     else if (existing.has(d.email) && !upsert) errors.push(`이미 등록된 이메일 (${existing.get(d.email).id}) — 기존 직원 수정을 켜면 갱신됩니다`);
-    else if (seen.has(d.email)) errors.push(`${seen.get(d.email)}행과 이메일 중복`);
+    if (d.email && seen.has(d.email) && !errors.length) errors.push(byNameEx ? `${seen.get(d.email)}행과 같은 직원입니다` : `${seen.get(d.email)}행과 이메일 중복`);
     if (d.email && !seen.has(d.email)) seen.set(d.email, line);
 
     // 소속 지점: 이름 또는 ID, 여러 곳이면 / ; · | , 로 구분 (첫 번째가 대표 지점)
@@ -841,7 +851,7 @@ function parseBulk(text) {
     const rrnBirth = rrn.front ? birthFromRrn(rrn.front, rrn.back[0] || "") : "";
     if (!d.birthDate && rrnBirth) d.birthDate = rrnBirth;
     // 기존 직원 수정: 비워 둔 칸은 건드리지 않고, 채운 칸만 덮어쓴다
-    const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? existing.get(d.email) : null;
+    const ex = upsert && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email) ? (byNameEx || existing.get(d.email)) : null;
     if (ex) {
       const patch = {};
       for (const k of ["name", "position", "phone", "joinedAt", "birthDate", "probationEndDate", "contractEndDate", "corp"]) if (get(k)) patch[k] = d[k];

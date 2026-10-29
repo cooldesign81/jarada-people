@@ -1299,6 +1299,20 @@ const buf = (s) => Buffer.from(s);
     await page.click("#btnBulkSave"); await page.waitForTimeout(800);
     const p3 = await priv("emp_0003");
     ok("Y update adds rrn to existing employee", p3.residentFront?.value === "810825" && p3.residentBack?.value === "2345678" && p3.flags?.residentBack === true, JSON.stringify(p3).slice(0, 200));
+    // 이메일 칸을 비워 두고 이름으로 기존 직원을 찾아 주민번호만 넣는다
+    await page.click("#btnBulk"); await page.waitForSelector("#dlgBulk[open]"); await page.uncheck("#bulkUpdate");
+    await page.fill("#bulkText", "이름\t이메일\t주민등록번호\n이교사\t\t861010-2345678");
+    await page.waitForTimeout(150);
+    ok("Y 이름으로 찾기: 수정 모드가 꺼져 있으면 안내", (await page.textContent("#bulkPreview")).includes("기존 직원 정보를 수정’을 켜면 이름으로 찾아"), await page.textContent("#bulkPreview"));
+    await page.check("#bulkUpdate"); await page.waitForTimeout(150);
+    ok("Y 이름으로 찾기: 이메일 없이도 기존 직원으로 인식", (await page.textContent("#bulkPreview")).includes("수정 (emp_0003)"), await page.textContent("#bulkPreview"));
+    await page.fill("#bulkText", "이름\t주민등록번호\n이교사\t861010-2345678\n없는사람\t900101-1234567");
+    await page.waitForTimeout(150);
+    const nt = await page.textContent("#bulkPreview");
+    ok("Y 이름만 있는 파일(이메일 열 없음)도 가능, 없는 이름은 오류", nt.includes("수정 (emp_0003)") && nt.includes("같은 이름의 기존 직원도 없습니다") && (await page.textContent("#bulkSummary")).includes("기존 직원 수정 1명"), nt);
+    await page.click("#btnBulkSave"); await page.waitForTimeout(800);
+    const pn = await priv("emp_0003");
+    ok("Y 이름으로 찾아 주민번호 저장", pn.residentFront?.value === "861010" && pn.residentBack?.value === "2345678", JSON.stringify(pn).slice(0, 200));
     ok("Y no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
     // 뒷자리 권한이 없으면(대표이사 기본) 뒷자리가 있는 줄은 오류, 앞자리만은 가능
