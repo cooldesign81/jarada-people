@@ -806,6 +806,8 @@ function parseBulk(text) {
       else if (v.length > 200) errors.push(`${c.label}이 200자 초과`);
       if (v) pi[c.key] = v;
     }
+    // 근로시작일은 입사일과 같다: 입사일만 있고 근로시작일 칸이 비어 있으면 입사일로 채운다
+    if (!pi.workStartDate && d.joinedAt) pi.workStartDate = d.joinedAt;
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
     if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 사원·팀장·실장·부원장·원장 등급만 부여");

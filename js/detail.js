@@ -157,6 +157,7 @@ function draw() {
       </div>
       <div class="label">전번</div>
       <div class="big-phone">${esc(e.phone || "—")}</div>
+      <div class="sub" style="margin:6px 0 2px">입사일 <b>${esc(e.joinedAt || "—")}</b> · 생년월일 <b>${esc(e.birthDate || "—")}</b></div>
       <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} ${e.corp ? `<span class="badge o-hq">${esc(corpName(e.corp))}</span>` : ""} <span class="mono sub">${esc(e.id)}</span></div>
       ${mgr ? `<div class="link-line"><span class="sub">등록 링크:</span> <span id="dLinkState"></span>
         <button class="btn btn-secondary btn-sm" id="dBtnLinkNew">재발급</button> <button class="btn btn-secondary btn-sm" id="dBtnLinkOff">폐기</button></div>` : ""}
@@ -184,7 +185,7 @@ function draw() {
         <div class="field half"><label>이메일</label><input class="input" value="${esc(e.email || "")}" disabled>
           <span class="help">로그인에 쓰는 이메일입니다. ${canManage() ? "‘기본 정보 수정’에서 바꿀 수 있습니다." : "바꾸려면 관리자에게 요청하세요."}</span></div>
         ${PERSONAL_FIELDS.map((f) => `<div class="field ${f.half ? "half" : ""}"><label>${f.label}</label>
-          <input class="input" data-pi="${f.key}" type="${f.type || "text"}" maxlength="200" value="${esc(cur.pi[f.key] || "")}"></div>`).join("")}
+          <input class="input" data-pi="${f.key}" type="${f.type || "text"}" maxlength="200" value="${esc(cur.pi[f.key] || (f.key === "workStartDate" ? e.joinedAt || "" : ""))}">${f.key === "workStartDate" ? `<span class="help">입사일과 같습니다. 비어 있으면 입사일이 들어가며, 저장하면 기록됩니다.</span>` : ""}</div>`).join("")}
       </div>
       <button class="btn btn-primary" id="dBtnPi" style="margin-top:12px">개인정보 저장</button>
     </div>
