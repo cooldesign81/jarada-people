@@ -6,6 +6,9 @@ export const isYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && ymd(p
 export const today = () => ymd(new Date());
 export const dow = (s) => parse(s).getDay();                 // 0=일 … 6=토
 export const isWeekend = (s) => dow(s) === 0 || dow(s) === 6;
+// 회사 휴무 요일: 일요일·월요일 (토요일은 근무일). 공휴일은 따로 holidays 에서 뺀다. 법정 대체공휴일 계산은 토·일 기준이라 isWeekend 를 그대로 쓴다
+export const REST_WEEKDAYS = [0, 1];
+export const isRestDay = (s) => REST_WEEKDAYS.includes(dow(s));
 export function addDays(s, n) { const d = parse(s); d.setDate(d.getDate() + n); return ymd(d); }
 export function addMonths(s, n) {                           // 말일 보정 (1/31 + 1개월 = 2/28)
   const d = parse(s), day = d.getDate();
