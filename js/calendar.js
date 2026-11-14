@@ -1,18 +1,34 @@
 // 달력: 생일, 연차, 휴가, 휴일, 일정
 import { db, auth } from "./firebase.js";
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, serverTimestamp
+  collection, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, isHR, isAdmin, canManage, canApprove, esc, toast, errMsg, orgName, renderOrgChecks, readOrgChecks, audit } from "./core.js";
+import { $, state, isHR, isAdmin, canManage, canApprove, canSeeBalance, esc, toast, errMsg, orgName, renderOrgChecks, readOrgChecks, audit } from "./core.js";
 import { addDays, daysInMonth, dow, eachDay, fmtKo, isYmd, pad, today, weekdayKo, parse } from "./dates.js";
 import { isCompanyLeave, appliedLeaves, openCompanyLeaveDialog, revokeCompanyLeave } from "./companyleave.js";
+import { annualMilestones } from "./leave-calc.js";
 import { LEAVE_TYPES, LEAVE_STATUS, holidaysFor, loadEvents, openLeaveDialog, openDecision, canDecide } from "./leave.js";
 
 const CATS = {
-  birthday: { label: "생일" }, annual: { label: "연차·반차" }, leave: { label: "휴가" }, holiday: { label: "휴일" }, event: { label: "일정·행사" },
+  birthday: { label: "생일" }, annual: { label: "연차·반차" }, leave: { label: "휴가" }, holiday: { label: "휴일" }, event: { label: "일정·행사" }, accrual: { label: "연차 변경" }, hire: { label: "입사·퇴사" },
 };
 const cal = { y: 0, m: 0, org: "", cats: new Set(Object.keys(CATS)), loaded: false };
 let ctx = { rerender: () => {} };
+// 퇴사일은 개인정보(private/personalInfo.resignDate)에 있어 퇴직 직원만 한 번씩 읽어 둔다 (직원 정보를 볼 수 있는 관리자만)
+const resignDates = new Map(); let resignLoading = false;
+async function loadResignDates() {
+  const need = state.employees.filter((e) => e.status === "resigned" && !resignDates.has(e.id));
+  if (resignLoading || !need.length) return;
+  resignLoading = true;
+  try {
+    for (let i = 0; i < need.length; i += 8) await Promise.all(need.slice(i, i + 8).map(async (e) => {
+      let v = "";
+      try { const s = await getDoc(doc(db, "employees", e.id, "private", "personalInfo")); if (s.exists()) v = s.data().resignDate || ""; } catch {}
+      resignDates.set(e.id, v);
+    }));
+  } finally { resignLoading = false; }
+  if (need.some((e) => resignDates.get(e.id))) renderCalendar();
+}
 export function initCalendar(c) { ctx = { ...ctx, ...c }; }
 
 function ensureMonth() { if (!cal.y) { const t = today(); cal.y = Number(t.slice(0, 4)); cal.m = Number(t.slice(5, 7)); } }
@@ -36,6 +52,27 @@ function buildEvents(from, to) {
       let md = e.birthDate.slice(5);
       if (md === "02-29" && daysInMonth(y, 2) < 29) md = "02-28";
       add(`${y}-${md}`, { cat: "birthday", title: e.name, sub: "생일", empId: e.id });
+    }
+  }
+  // 연차가 바뀌는 날 (입사 기념일, 1년 미만은 매달) — 남은 연차·계산과 같이 최고관리자·대표이사만 본다
+  if (canSeeBalance()) {
+    for (const e of state.employees) {
+      if (e.status === "resigned" || !isYmd(e.joinedAt) || !inOrg(e.orgIds)) continue;
+      for (const m of annualMilestones(e.joinedAt, from, to)) {
+        const sub = m.kind === "month" ? `${m.months}개월 · 연차 +1일 (누적 ${m.granted}일)`
+          : m.years === 1 ? "1주년 · 연차 15일 발생"
+          : `${m.years}주년 · 연차 ${m.after}일${m.after > m.before ? ` (+${m.after - m.before})` : ""}`;
+        add(m.date, { cat: "accrual", title: e.name, sub, empId: e.id });
+      }
+    }
+  }
+  // 입사·퇴사 기록 (관리자만). 퇴사일은 개인정보에 퇴사일을 입력한 직원만 나온다
+  if (canManage()) {
+    for (const e of state.employees) {
+      if (!inOrg(e.orgIds)) continue;
+      if (isYmd(e.joinedAt)) add(e.joinedAt, { cat: "hire", title: e.name, sub: "입사", empId: e.id });
+      const rd = e.status === "resigned" ? resignDates.get(e.id) : "";
+      if (isYmd(rd)) add(rd, { cat: "hire", title: e.name, sub: "퇴사", empId: e.id });
     }
   }
   // 휴가·연차 (승인 + 승인 대기). 주말·휴일은 건너뜀
@@ -67,13 +104,14 @@ export async function renderCalendar() {
   const { first, last } = monthDates();
   const gridStart = addDays(first, -dow(first)), gridEnd = addDays(last, 6 - dow(last));
   const events = buildEvents(gridStart, gridEnd);
+  if (canManage()) loadResignDates();
   $("calTitle").textContent = `${cal.y}년 ${cal.m}월`;
   // 지점 필터
   const orgSel = $("calOrg");
   orgSel.classList.toggle("hidden", !isHR());
   if (isHR()) { orgSel.innerHTML = `<option value="">전체 지점</option>` + state.orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join(""); orgSel.value = cal.org; }
   $("btnEventNew").classList.toggle("hidden", !canManage());
-  $("calFilters").innerHTML = Object.entries(CATS).map(([k, v]) => `<label class="cal-chk cat-${k}"><input type="checkbox" data-cat="${k}" ${cal.cats.has(k) ? "checked" : ""}><span class="dot"></span>${v.label}</label>`).join("");
+  $("calFilters").innerHTML = Object.entries(CATS).filter(([k]) => (k !== "accrual" || canSeeBalance()) && (k !== "hire" || canManage())).map(([k, v]) => `<label class="cal-chk cat-${k}"><input type="checkbox" data-cat="${k}" ${cal.cats.has(k) ? "checked" : ""}><span class="dot"></span>${v.label}</label>`).join("");
   $("calFilters").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => { i.checked ? cal.cats.add(i.dataset.cat) : cal.cats.delete(i.dataset.cat); renderCalendar(); }));
   // 격자
   const t = today();

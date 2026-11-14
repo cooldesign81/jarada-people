@@ -47,7 +47,7 @@ const buf = (s) => Buffer.from(s);
 
 (async () => {
   const server = await startServer();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
   let snapStore, snapFiles, token;
 
   // ================= B. 최고관리자 =================
@@ -387,6 +387,12 @@ const buf = (s) => Buffer.from(s);
     st.employees.emp_0003.joinedAt = "2024-03-02"; st.employees.emp_0003.birthDate = "1995-11-12";
     st.employees.emp_0004.joinedAt = "2020-01-01"; st.employees.emp_0004.birthDate = "1980-11-04"; st.employees.emp_0004.status = "active";
     st.employees.emp_0002.birthDate = "1992-02-29"; st.employees.emp_0002.joinedAt = "2025-09-01";
+    st.employees.emp_0091 = { name: "일주년", email: "y1@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active", joinedAt: "2025-11-10" };
+    st.employees.emp_0092 = { name: "삼주년", email: "y3@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "active", joinedAt: "2023-11-17" };
+    st.employees.emp_0093 = { name: "신입", email: "new@jarada.kr", orgId: "banpo", orgIds: ["banpo"], level: "staff", status: "active", joinedAt: "2026-07-20" };
+    st.employees.emp_0095 = { name: "입사자", email: "in@jarada.kr", orgId: "banpo", orgIds: ["banpo"], level: "staff", status: "active", joinedAt: "2026-11-12" };
+    st.employees.emp_0094 = { name: "퇴직자", email: "gone@jarada.kr", orgId: "anyang", orgIds: ["anyang"], level: "staff", status: "resigned", joinedAt: "2023-11-18" };
+    st["employees/emp_0094/private"] = { personalInfo: { resignDate: "2026-11-24" } };
     const L = (o) => ({ orgId: "anyang", orgIds: ["anyang", "banpo"], ...o });
     st.leaveRequests = {
       l1: L({ employeeId: "emp_0003", employeeName: "이교사", type: "annual", startDate: "2026-11-09", endDate: "2026-11-10", days: 2, status: "approved", reason: "가족 여행" }),
@@ -405,6 +411,15 @@ const buf = (s) => Buffer.from(s);
     ok("J title", (await page.textContent("#calTitle")) === "2026년 11월");
     ok("J grid has full weeks", (await count(page, "#calGrid .cal-cell")) >= 35 && (await count(page, "#calGrid .cal-cell")) % 7 === 0);
     ok("J today highlighted", await page.locator(cell("2026-11-04")).evaluate((c) => c.classList.contains("today")));
+    ok("J 연차 변경: 1주년 15일", (await chips("2026-11-10")).some((x) => x.includes("일주년") && x.includes("1주년") && x.includes("15일")), JSON.stringify(await chips("2026-11-10")));
+    ok("J 연차 변경: 3주년 16일(+1)", (await chips("2026-11-17")).some((x) => x.includes("삼주년") && x.includes("3주년") && x.includes("16일") && x.includes("+1")), JSON.stringify(await chips("2026-11-17")));
+    ok("J 연차 변경: 1년 미만 매달 +1", (await chips("2026-11-20")).some((x) => x.includes("신입") && x.includes("4개월") && x.includes("누적 4일")), JSON.stringify(await chips("2026-11-20")));
+    ok("J 입사 기록: 입사일에 입사 칩", (await chips("2026-11-12")).some((x) => x.includes("입사자") && x.includes("입사")), JSON.stringify(await chips("2026-11-12")));
+    await page.waitForTimeout(400);
+    ok("J 퇴사 기록: 퇴사일에 퇴사 칩", (await chips("2026-11-24")).some((x) => x.includes("퇴직자") && x.includes("퇴사")), JSON.stringify(await chips("2026-11-24")));
+    ok("J 입사·퇴사 필터", (await page.textContent("#calFilters")).includes("입사·퇴사") && (await count(page, "#calGrid .chip.cat-hire")) >= 2);
+    ok("J 연차 변경: 퇴직자는 표시 안 함", !(await chips("2026-11-18")).some((x) => x.includes("퇴직자")));
+    ok("J 연차 변경: 필터에 있음, 보라색 칩", (await page.textContent("#calFilters")).includes("연차 변경") && (await count(page, "#calGrid .chip.cat-accrual")) >= 3);
     ok("J birthday today", (await chips("2026-11-04")).some((x) => x.includes("박원장") && x.includes("생일")), JSON.stringify(await chips("2026-11-04")));
     ok("J birthday 11-12", (await chips("2026-11-12")).some((x) => x.includes("이교사") && x.includes("생일")));
     ok("J annual leave chips both days", (await chips("2026-11-09")).some((x) => x.includes("이교사") && x.includes("연차")) && (await chips("2026-11-10")).some((x) => x.includes("연차")));
@@ -482,6 +497,8 @@ const buf = (s) => Buffer.from(s);
     await s.page.goto(BASE + "/index.html#calendar"); await s.page.waitForSelector(".cal-cell");
     const schips = (d) => s.page.$$eval(`#calGrid .cal-cell[data-date="${d}"] .cal-items .chip`, (e) => e.map((x) => x.textContent.trim()));
     ok("K staff sees own birthday", (await schips("2026-11-12")).some((x) => x.includes("이교사")));
+    ok("K staff: 입사·퇴사 표시·필터 없음", (await count(s.page, "#calGrid .chip.cat-hire")) === 0 && !(await s.page.textContent("#calFilters")).includes("입사·퇴사"));
+    ok("K staff: 연차 변경 표시·필터 없음", (await count(s.page, "#calGrid .chip.cat-accrual")) === 0 && !(await s.page.textContent("#calFilters")).includes("연차 변경"));
     ok("K staff does not see others' birthday", (await schips("2026-11-04")).length === 0);
     ok("K staff sees own leave", (await schips("2026-11-09")).some((x) => x.includes("이교사")));
     ok("K staff does not see others' leave", (await schips("2026-11-16")).length === 0);
