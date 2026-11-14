@@ -7,7 +7,7 @@ import {
 import {
   $, state, can, isHR, isAdmin, isMgr, canApprove, canManage, canSeeBalance, esc, toast, errMsg, orgNames, branchTags, audit, toEmp
 } from "./core.js";
-import { addDays, addMonths, addYears, eachDay, fmtKo, isWeekend, isYmd, today, monthKey, weekdayKo } from "./dates.js";
+import { addDays, addMonths, addYears, eachDay, fmtKo, isYmd, today, monthKey, weekdayKo } from "./dates.js";
 import { holidayMap } from "./holidays.js";
 import { isAllowedFile, contentTypeOf } from "./payslip-match.js";
 import { LEAVE_TYPES, LEAVE_STATUS, ATTACH_KINDS, statusBadgeCls as _statusBadgeCls, countDaysWith, annualBalance as annualBalanceCalc } from "./leave-calc.js";
@@ -25,14 +25,14 @@ export function countDays(type, start, end) {
   const [y1, y2] = [Number(String(start).slice(0, 4)), Number(String(end || start).slice(0, 4))];
   return countDaysWith(type, start, end, holidaysFor(y1 || 0, Math.max(y1 || 0, y2 || 0)));
 }
-// 휴가로 쓸 평일이 없을 때 이유를 알려 준다 (주말·공휴일은 휴가 일수에 들어가지 않는다)
+// 휴가로 쓸 근무일이 없을 때 이유를 알려 준다 (휴무일: 일요일·월요일·공휴일은 휴가 일수에 들어가지 않는다)
 export function noWorkdayMsg(start, end) {
-  if (!isYmd(start)) return "선택한 기간에 휴가로 쓸 평일이 없습니다.";
+  if (!isYmd(start)) return "선택한 기간에 휴가로 쓸 근무일이 없습니다.";
   if (!isYmd(end) || start === end) {
     const hol = holidaysFor(Number(start.slice(0, 4))).get(start);
-    return `${fmtKo(start)}은 ${hol ? `공휴일(${hol})` : `${weekdayKo(start)}요일`}이라 휴가로 쓸 수 없습니다. 주말·공휴일은 휴가 일수에 포함되지 않으니 평일을 선택하세요.`;
+    return `${fmtKo(start)}은 ${hol ? `공휴일(${hol})` : `${weekdayKo(start)}요일`}이라 휴가로 쓸 수 없습니다. 휴무일(일요일·월요일·공휴일)은 휴가 일수에 포함되지 않으니 근무일을 선택하세요.`;
   }
-  return "선택한 기간이 모두 주말·공휴일이라 휴가로 쓸 평일이 없습니다. 평일이 들어가게 기간을 고르세요.";
+  return "선택한 기간이 모두 휴무일(일요일·월요일·공휴일)이라 휴가로 쓸 근무일이 없습니다. 근무일이 들어가게 기간을 고르세요.";
 }
 export const annualBalance = (emp, asOf = today(), leaves = state.leaves) => annualBalanceCalc(emp, asOf, leaves);
 
@@ -175,7 +175,7 @@ function lvRefresh() {
   if (t?.half) $("lvEnd").value = $("lvStart").value;
   const start = $("lvStart").value, end = t?.half ? start : $("lvEnd").value;
   const days = countDays($("lvType").value, start, end);
-  let info = days ? `<strong>${days}일</strong> (주말·휴일 제외)` : `<span class="msg error" style="margin:0">${esc(noWorkdayMsg(start, end))}</span>`;
+  let info = days ? `<strong>${days}일</strong> (일요일·월요일·공휴일 제외)` : `<span class="msg error" style="margin:0">${esc(noWorkdayMsg(start, end))}</span>`;
   const emp = lvEmp();
   if (emp && t?.deduct && canSeeBalance()) {
     const b = annualBalance(emp, isYmd(start) ? start : today());

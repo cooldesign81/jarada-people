@@ -4,7 +4,7 @@ import {
   collection, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { $, state, isHR, isAdmin, canManage, canApprove, canSeeBalance, esc, toast, errMsg, orgName, renderOrgChecks, readOrgChecks, audit } from "./core.js";
-import { addDays, daysInMonth, dow, eachDay, fmtKo, isYmd, pad, today, weekdayKo, parse } from "./dates.js";
+import { addDays, daysInMonth, dow, eachDay, fmtKo, isYmd, isRestDay, pad, today, weekdayKo, parse } from "./dates.js";
 import { isCompanyLeave, appliedLeaves, openCompanyLeaveDialog, revokeCompanyLeave } from "./companyleave.js";
 import { annualMilestones } from "./leave-calc.js";
 import { LEAVE_TYPES, LEAVE_STATUS, holidaysFor, loadEvents, openLeaveDialog, openDecision, canDecide } from "./leave.js";
@@ -59,8 +59,9 @@ function buildEvents(from, to) {
     for (const e of state.employees) {
       if (e.status === "resigned" || !isYmd(e.joinedAt) || !inOrg(e.orgIds)) continue;
       for (const m of annualMilestones(e.joinedAt, from, to)) {
-        const sub = m.kind === "month" ? `${m.months}개월차` : `${m.years}년차`;   // 연차 일수는 달력에 표시하지 않는다
-        add(m.date, { cat: "accrual", title: e.name, sub, empId: e.id });
+        // 연차 일수는 달력에 표시하지 않는다. 연차가 새로 바뀌는 ‘N년차’는 강하게, 1년 미만 매달 ‘N개월차’는 약하게 보여 준다
+        const yearly = m.kind === "year";
+        add(m.date, { cat: "accrual", title: e.name, sub: yearly ? `★ ${m.years}년차` : `${m.months}개월차`, strong: yearly, empId: e.id });
       }
     }
   }
@@ -73,13 +74,13 @@ function buildEvents(from, to) {
       if (isYmd(rd)) add(rd, { cat: "hire", title: e.name, sub: "퇴사", empId: e.id });
     }
   }
-  // 휴가·연차 (승인 + 승인 대기). 주말·휴일은 건너뜀
+  // 휴가·연차 (승인 + 승인 대기). 휴무일(일·월·공휴일)은 건너뜀
   for (const l of state.leaves) {
     if (!["approved", "submitted"].includes(l.status) || !inOrg(l.orgIds) || l.source === "company") continue;   // 회사 지정 휴가는 아래 일정 한 줄로만 보여 준다
     if (l.endDate < from || l.startDate > to) continue;
     const t = LEAVE_TYPES[l.type] || { label: l.type, cat: "leave" };
     for (const d of eachDay(l.startDate < from ? from : l.startDate, l.endDate > to ? to : l.endDate)) {
-      if (dow(d) === 0 || dow(d) === 6 || hol.has(d)) continue;
+      if (isRestDay(d) || hol.has(d)) continue;
       add(d, { cat: t.cat, title: l.employeeName, sub: t.label + (l.status === "submitted" ? " (대기)" : ""), pending: l.status === "submitted", leaveId: l.id });
     }
   }
@@ -90,7 +91,7 @@ function buildEvents(from, to) {
     const end = ev.endDate && ev.endDate >= ev.startDate ? ev.endDate : ev.startDate;
     if (end < from || ev.startDate > to) continue;
     const cl = isCompanyLeave(ev);
-    for (const d of eachDay(ev.startDate < from ? from : ev.startDate, end > to ? to : end)) { if (cl && (dow(d) === 0 || dow(d) === 6 || hol.has(d))) continue; add(d, { cat: cl ? "leave" : "event", title: ev.title, sub: cl ? "회사 지정 휴가" : ev.kind === "training" ? "교육" : "일정", eventId: ev.id }); }
+    for (const d of eachDay(ev.startDate < from ? from : ev.startDate, end > to ? to : end)) { if (cl && (isRestDay(d) || hol.has(d))) continue; add(d, { cat: cl ? "leave" : "event", title: ev.title, sub: cl ? "회사 지정 휴가" : ev.kind === "training" ? "교육" : "일정", eventId: ev.id }); }
   }
   for (const list of out.values()) list.sort((a, b) => (a.cat === "holiday" ? -1 : b.cat === "holiday" ? 1 : 0) || a.cat.localeCompare(b.cat) || String(a.title).localeCompare(String(b.title), "ko"));
   return out;
@@ -113,13 +114,13 @@ export async function renderCalendar() {
   $("calFilters").querySelectorAll("input").forEach((i) => i.addEventListener("change", () => { i.checked ? cal.cats.add(i.dataset.cat) : cal.cats.delete(i.dataset.cat); renderCalendar(); }));
   // 격자
   const t = today();
-  let html = `<div class="cal-head">${"일월화수목금토".split("").map((d, i) => `<div class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</div>`).join("")}</div><div class="cal-body">`;
+  let html = `<div class="cal-head">${"일월화수목금토".split("").map((d, i) => `<div class="${i <= 1 ? "sun" : ""}">${d}</div>`).join("")}</div><div class="cal-body">`;
   for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) {
     const evs = (events.get(d) || []).filter((e) => cal.cats.has(e.cat));
     const hol = evs.find((e) => e.cat === "holiday");
     const items = evs.filter((e) => e.cat !== "holiday");
     const inMonth = d >= first && d <= last;
-    html += `<div class="cal-cell ${inMonth ? "" : "dim"} ${d === t ? "today" : ""} ${dow(d) === 0 || hol ? "sun" : dow(d) === 6 ? "sat" : ""}" data-date="${d}">
+    html += `<div class="cal-cell ${inMonth ? "" : "dim"} ${d === t ? "today" : ""} ${isRestDay(d) || hol ? "sun" : ""}" data-date="${d}">
       <div class="cal-num"><span>${Number(d.slice(8))}</span>${hol ? `<em class="hol">${esc(hol.title)}</em>` : ""}</div>
       <div class="cal-items">${items.slice(0, 3).map(chip).join("")}${items.length > 3 ? `<div class="cal-more">+${items.length - 3}</div>` : ""}</div>
       <div class="cal-dots">${items.slice(0, 6).map((e) => `<i class="dot cat-${e.cat}"></i>`).join("")}</div></div>`;
@@ -130,11 +131,11 @@ export async function renderCalendar() {
   const rows = [];
   for (const d of eachDay(first, last)) {
     const evs = (events.get(d) || []).filter((e) => cal.cats.has(e.cat));
-    if (evs.length) rows.push(`<div class="agenda-day"><div class="agenda-date ${dow(d) === 0 ? "sun" : dow(d) === 6 ? "sat" : ""}">${Number(d.slice(8))}일 <small>(${weekdayKo(d)})</small></div><div class="agenda-items">${evs.map((e) => `<span class="chip cat-${e.cat} ${e.pending ? "pending" : ""}"><b>${esc(e.title)}</b> ${esc(e.sub)}</span>`).join("")}</div></div>`);
+    if (evs.length) rows.push(`<div class="agenda-day"><div class="agenda-date ${isRestDay(d) ? "sun" : ""}">${Number(d.slice(8))}일 <small>(${weekdayKo(d)})</small></div><div class="agenda-items">${evs.map((e) => `<span class="chip cat-${e.cat} ${e.pending ? "pending" : ""} ${e.strong ? "strong" : ""}"><b>${esc(e.title)}</b> ${esc(e.sub)}</span>`).join("")}</div></div>`);
   }
   $("calAgenda").innerHTML = rows.join("") || `<div class="empty">이번 달 일정이 없습니다.</div>`;
 }
-const chip = (e) => `<div class="chip cat-${e.cat} ${e.pending ? "pending" : ""}" title="${esc(e.title)} · ${esc(e.sub)}"><b>${esc(e.title)}</b> ${esc(e.sub)}</div>`;
+const chip = (e) => `<div class="chip cat-${e.cat} ${e.pending ? "pending" : ""} ${e.strong ? "strong" : ""}" title="${esc(e.title)} · ${esc(e.sub)}"><b>${esc(e.title)}</b> ${esc(e.sub)}</div>`;
 
 // ---------- 날짜 상세 ----------
 let dayOpen = "";

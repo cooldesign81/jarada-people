@@ -23,10 +23,16 @@ eq("연차 변경일: 입사일 없음", annualMilestones("", "2026-01-01", "202
 eq("연차 변경일: 말일 보정(1/31 → 2/28)", ms("2026-01-31", "2026-02-01", "2026-02-28"), [["2026-02-28", "month", 1, 0]]);
 const hol = builtinHolidays(2026);
 eq("연차 5일(주말 포함 기간)", countDaysWith("annual", "2026-11-02", "2026-11-08", hol), 5);
-eq("추석 연휴 제외", countDaysWith("annual", "2026-09-23", "2026-09-29", new Map([...builtinHolidays(2026)])), 3);
+eq("추석 연휴 제외", countDaysWith("annual", "2026-09-23", "2026-09-29", new Map([...builtinHolidays(2026)])), 2);
 eq("반차 0.5", countDaysWith("half_am", "2026-11-03", "2026-11-03", hol), 0.5);
 eq("공휴일 반차 0", countDaysWith("half_pm", "2026-10-09", "2026-10-09", hol), 0);
-eq("주말만 0", countDaysWith("annual", "2026-11-07", "2026-11-08", hol), 0);
+eq("토요일은 근무일 1", countDaysWith("annual", "2026-11-07", "2026-11-07", hol), 1);
+eq("일요일은 휴무 0", countDaysWith("annual", "2026-11-08", "2026-11-08", hol), 0);
+eq("월요일은 휴무 0", countDaysWith("annual", "2026-11-09", "2026-11-09", hol), 0);
+eq("일·월 이어진 기간 0", countDaysWith("annual", "2026-11-08", "2026-11-09", hol), 0);
+eq("화~토 5일 (월·일 제외)", countDaysWith("annual", "2026-11-03", "2026-11-09", hol), 5);
+eq("토요일 반차 0.5", countDaysWith("half_am", "2026-11-07", "2026-11-07", hol), 0.5);
+eq("월요일 반차 0", countDaysWith("half_pm", "2026-11-09", "2026-11-09", hol), 0);
 const emp = { id: "e1", joinedAt: "2020-01-01", annualAdjust: 2 };
 const lv = [
   { employeeId: "e1", type: "annual", status: "approved", startDate: "2026-02-02", days: 3 },

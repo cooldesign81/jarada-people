@@ -43,8 +43,8 @@ export function openCompanyLeaveDialog(ev, after) {
   $("clTitle").textContent = `‘${ev.title}’ 연차 차감`;
   $("clErr").textContent = "";
   const holNote = plan.excludedByHolidayEvent > 0 ? `<div class="msg" style="margin:8px 0 0">이 기간 중 평일 <b>${plan.excludedByHolidayEvent}일</b>은 종류가 ‘휴일’인 일정으로 등록돼 있어 연차 계산에서 제외했습니다. 연차에서 차감하려면 그 일정의 종류를 <b>‘회사 지정 휴가’</b>로 바꾸세요 (같은 기간에 일정이 두 개 있으면 하나는 지우세요).</div>` : "";
-  if (!plan.days) { $("clInfo").innerHTML = `<div class="msg error" style="margin:0">이 기간에는 연차로 쓸 평일이 없습니다 (주말·공휴일만 있음).</div>${holNote}`; $("clTable").innerHTML = ""; $("btnClApply").disabled = true; $("dlgCompanyLeave").showModal(); return; }
-  $("clInfo").innerHTML = `<b>${esc(periodText(ev))}</b> · 연차 <b>${plan.days}일</b> 차감 · 대상 ${esc(ev.orgIds?.length ? orgNames(ev.orgIds) : "전체 지점")} 재직 직원<br><span class="sub">주말·공휴일은 빼고 계산합니다. 연차가 모자란 직원, 이미 겹치는 휴가가 있는 직원은 기본으로 빠져 있으니 필요하면 직접 체크하세요. (연차가 부족한 직원을 체크하면 잔여가 마이너스가 됩니다)</span>`;
+  if (!plan.days) { $("clInfo").innerHTML = `<div class="msg error" style="margin:0">이 기간에는 연차로 쓸 근무일이 없습니다 (일요일·월요일·공휴일만 있음).</div>${holNote}`; $("clTable").innerHTML = ""; $("btnClApply").disabled = true; $("dlgCompanyLeave").showModal(); return; }
+  $("clInfo").innerHTML = `<b>${esc(periodText(ev))}</b> · 연차 <b>${plan.days}일</b> 차감 · 대상 ${esc(ev.orgIds?.length ? orgNames(ev.orgIds) : "전체 지점")} 재직 직원<br><span class="sub">일요일·월요일·공휴일은 빼고 계산합니다. 연차가 모자란 직원, 이미 겹치는 휴가가 있는 직원은 기본으로 빠져 있으니 필요하면 직접 체크하세요. (연차가 부족한 직원을 체크하면 잔여가 마이너스가 됩니다)</span>`;
   $("clInfo").innerHTML += holNote;
   $("clTable").innerHTML = `<thead><tr><th><input type="checkbox" id="clAll" title="전체 선택"></th><th>이름</th><th>소속</th><th class="num">차감</th>${canSeeBalance() ? '<th class="num">현재 잔여</th><th class="num">차감 후</th>' : ""}<th>비고</th></tr></thead><tbody>${plan.rows.map((r, i) => `<tr class="${r.skip ? "sub" : ""}">
     <td><input type="checkbox" data-cl="${i}" ${r.checked ? "checked" : ""} ${r.skip ? "disabled" : ""}></td><td class="strong">${esc(r.emp.name)}</td><td class="sub">${esc(orgNames(r.emp.orgIds))}</td>

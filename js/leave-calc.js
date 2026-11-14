@@ -1,5 +1,5 @@
 // 휴가·연차 계산 (순수 함수 — 화면/Firebase 없이 테스트 가능)
-import { addDays, addMonths, addYears, eachDay, isWeekend, isYmd } from "./dates.js";
+import { addDays, addMonths, addYears, eachDay, isRestDay, isYmd } from "./dates.js";
 
 export const LEAVE_TYPES = {
   annual:    { label: "연차",        deduct: 1,   cat: "annual" },
@@ -16,9 +16,9 @@ export const ATTACH_KINDS = { notice: "소집 통지서", proof: "훈련 참석 
 export const LEAVE_STATUS = { submitted: "승인 대기", approved: "승인", rejected: "반려", cancelled: "취소" };
 export const statusBadgeCls = { submitted: "s-leave", approved: "s-active", rejected: "off", cancelled: "off" };
 
-export const isOffDay = (date, hol) => isWeekend(date) || hol.has(date);
+export const isOffDay = (date, hol) => isRestDay(date) || hol.has(date);   // 휴무일: 일요일·월요일·공휴일
 
-// 휴가 일수: 반차 0.5, 그 외는 주말·휴일을 뺀 평일 수. hol: 휴일 Map(날짜→이름)
+// 휴가 일수: 반차 0.5, 그 외는 휴무일(일요일·월요일·공휴일)을 뺀 근무일 수. hol: 휴일 Map(날짜→이름)
 export function countDaysWith(type, start, end, hol) {
   const t = LEAVE_TYPES[type]; if (!t || !isYmd(start)) return 0;
   const e = t.half ? start : end;
