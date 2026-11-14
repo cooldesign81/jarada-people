@@ -54,14 +54,12 @@ function buildEvents(from, to) {
       add(`${y}-${md}`, { cat: "birthday", title: e.name, sub: "생일", empId: e.id });
     }
   }
-  // 연차가 바뀌는 날 (입사 기념일, 1년 미만은 매달) — 남은 연차·계산과 같이 최고관리자·대표이사만 본다
+  // 연차가 바뀌는 날 (입사 기념일, 1년 미만은 매달) — 몇 년차인지만 표시한다. 남은 연차·계산과 같이 최고관리자·대표이사만 본다
   if (canSeeBalance()) {
     for (const e of state.employees) {
       if (e.status === "resigned" || !isYmd(e.joinedAt) || !inOrg(e.orgIds)) continue;
       for (const m of annualMilestones(e.joinedAt, from, to)) {
-        const sub = m.kind === "month" ? `${m.months}개월 · 연차 +1일 (누적 ${m.granted}일)`
-          : m.years === 1 ? "1주년 · 연차 15일 발생"
-          : `${m.years}주년 · 연차 ${m.after}일${m.after > m.before ? ` (+${m.after - m.before})` : ""}`;
+        const sub = m.kind === "month" ? `${m.months}개월차` : `${m.years}년차`;   // 연차 일수는 달력에 표시하지 않는다
         add(m.date, { cat: "accrual", title: e.name, sub, empId: e.id });
       }
     }
