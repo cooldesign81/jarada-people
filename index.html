@@ -14,20 +14,13 @@
 </head>
 <body>
 
-<div class="topbar">
-  <span>자라다 People · JP 통합 HR</span>
-  <span class="who" id="topWho">로그인 안 됨</span>
-</div>
-
-<header class="appbar">
-  <div class="brand">
-    <span class="logo">자라다 People</span>
-    <span class="sub" id="appSub">통합 HR</span>
-  </div>
-  <nav class="tabs hidden" id="nav" aria-label="주요 메뉴"></nav>
+<!-- 공통 상단 (JP ONE의 shared/jp-header.js). 아래 숨긴 요소들은 app.js가 쓰던 자리 — js/header.js가 상단으로 옮겨 보여 줌 -->
+<div id="jpHeader"></div>
+<div hidden aria-hidden="true">
+  <span id="topWho">로그인 안 됨</span><span id="appSub">통합 HR</span>
+  <nav class="tabs hidden" id="nav"></nav>
   <button class="btn btn-ghost hidden" id="btnLogout">로그아웃</button>
-</header>
-<div class="tape"></div>
+</div>
 
 <main class="wrap">
 
@@ -524,7 +517,9 @@
 
 <div class="toast" id="toast" role="status"></div>
 
+<script src="https://cooldesign81.github.io/jarada-jpone/shared/jp-header.js?v=1"></script>
 <script type="module" src="./js/app.js"></script>
+<script src="./js/header.js?v=1"></script>
 <script>
 if ("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 </script>
