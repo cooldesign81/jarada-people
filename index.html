@@ -27,7 +27,7 @@
   <div class="notice link-warn hidden" id="linkWarn"></div>
 
   <!-- 로그인 -->
-  <section id="viewLogin">
+  <section id="viewLogin" class="hidden">
     <div class="card login-card">
       <h1>자라다 People</h1>
       <p>구글 계정으로 로그인하세요. 등록된 직원만 이용할 수 있습니다.</p>
@@ -518,7 +518,8 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="https://cooldesign81.github.io/jarada-jpone/shared/jp-header.js?v=1"></script>
-<script type="module" src="./js/app.js"></script>
+<script src="https://cooldesign81.github.io/jarada-jpone/shared/jp-login.js?v=1"></script>
+<script type="module" src="./js/app.js?v=2"></script>
 <script src="./js/header.js?v=1"></script>
 <script>
 if ("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));

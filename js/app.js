@@ -97,10 +97,18 @@ function resetApp() {
   $("nav").classList.add("hidden"); $("nav").innerHTML = "";
   $("btnLogout").classList.add("hidden");
   document.body.classList.remove("self-mode");
+  // 로그인 화면: JP ONE 공통 부품(shared/jp-login.js, 좌우 나눔). 못 불러오면 예전 화면(#viewLogin)
+  if (window.JPLogin) {
+    showView("Loading"); $("loadingMsg").textContent = "";
+    JPLogin.show({ app: "people", lead: "등록된 직원만 이용할 수 있어요. 본인 구글 계정으로 로그인해 주세요.",
+      google: () => signInWithPopup(auth, new GoogleAuthProvider()) });
+    return;
+  }
   showView("Login");
 }
 
 async function enter(user) {
+  window.JPLogin?.hide();
   showView("Loading");
   $("loadingMsg").textContent = "권한 확인 중…";
   $("btnReload").classList.add("hidden");
