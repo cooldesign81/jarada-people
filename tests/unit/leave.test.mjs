@@ -1,4 +1,4 @@
-import { annualGrant, annualBalance, countDaysWith } from "../../js/leave-calc.js";
+import { annualGrant, annualBalance, annualMilestones, countDaysWith } from "../../js/leave-calc.js";
 import { builtinHolidays } from "../../js/holidays.js";
 let f = 0; const eq = (n, a, b) => { const ok = JSON.stringify(a) === JSON.stringify(b); if (!ok) f++; console.log(ok ? "PASS" : "FAIL", n, ok ? "" : JSON.stringify(a) + " != " + JSON.stringify(b)); };
 const g = (h, d) => { const r = annualGrant(h, d); return [r.granted, r.periodStart, r.periodEnd]; };
@@ -12,6 +12,15 @@ eq("5년차 17일", g("2026-03-02", "2031-03-02"), [17, "2031-03-02", "2032-03-0
 eq("21년차 25일(상한)", annualGrant("2000-01-01", "2026-06-01").granted, 25);
 eq("말일 입사 1/31", g("2026-01-31", "2026-02-28"), [1, "2026-01-31", "2027-01-30"]);
 eq("2/29 입사 → 평년 기념일 2/28", g("2024-02-29", "2025-02-28"), [15, "2025-02-28", "2026-02-27"]);
+const ms = (h, a, b) => annualMilestones(h, a, b).map((m) => [m.date, m.kind, m.kind === "month" ? m.granted : m.after, m.before]);
+eq("연차 변경일: 1년 미만 매달 +1", ms("2026-03-02", "2026-03-01", "2026-06-30"), [["2026-04-02", "month", 1, 0], ["2026-05-02", "month", 2, 1], ["2026-06-02", "month", 3, 2]]);
+eq("연차 변경일: 1주년 11→15", ms("2026-03-02", "2027-03-01", "2027-03-31"), [["2027-03-02", "year", 15, 11]]);
+eq("연차 변경일: 2주년은 갱신(15→15)", ms("2026-03-02", "2028-03-01", "2028-03-31"), [["2028-03-02", "year", 15, 15]]);
+eq("연차 변경일: 3주년 15→16", ms("2026-03-02", "2029-03-01", "2029-03-31"), [["2029-03-02", "year", 16, 15]]);
+eq("연차 변경일: 상한 25일", ms("2000-01-01", "2026-01-01", "2026-01-31"), [["2026-01-01", "year", 25, 25]]);
+eq("연차 변경일: 입사일 당일·기간 밖은 없음", ms("2026-03-02", "2026-03-02", "2026-04-01"), []);
+eq("연차 변경일: 입사일 없음", annualMilestones("", "2026-01-01", "2026-12-31"), []);
+eq("연차 변경일: 말일 보정(1/31 → 2/28)", ms("2026-01-31", "2026-02-01", "2026-02-28"), [["2026-02-28", "month", 1, 0]]);
 const hol = builtinHolidays(2026);
 eq("연차 5일(주말 포함 기간)", countDaysWith("annual", "2026-11-02", "2026-11-08", hol), 5);
 eq("추석 연휴 제외", countDaysWith("annual", "2026-09-23", "2026-09-29", new Map([...builtinHolidays(2026)])), 3);

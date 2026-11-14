@@ -43,6 +43,23 @@ export function annualGrant(hire, asOf) {
     granted: Math.min(25, 15 + Math.floor((years - 1) / 2)), kind: `${years}년 근속` };
 }
 
+// [from, to] 안에서 연차가 새로 생기거나 바뀌는 날 (달력 표시용)
+//  · 1년 미만: 입사 후 매달 기념일에 +1일 (11개월째까지), 1주년에 15일로 바뀜
+//  · 2주년부터는 매년 기념일에 연차가 새로 생기고, 3주년부터 2년마다 1일 늘어난다 (상한 25일)
+const grantAtYear = (y) => Math.min(25, 15 + Math.floor((y - 1) / 2));
+export function annualMilestones(hire, from, to) {
+  if (!isYmd(hire) || !isYmd(from) || !isYmd(to)) return [];
+  const out = [];
+  for (let m = 1; m <= 11; m++) { const d = addMonths(hire, m); if (d >= from && d <= to) out.push({ date: d, kind: "month", months: m, granted: m, before: m - 1, after: m }); }
+  const lastYear = Number(to.slice(0, 4)) - Number(hire.slice(0, 4));
+  for (let y = 1; y <= lastYear; y++) {
+    const d = addYears(hire, y);
+    if (d < from || d > to) continue;
+    out.push({ date: d, kind: "year", years: y, granted: grantAtYear(y), before: y === 1 ? 11 : grantAtYear(y - 1), after: grantAtYear(y) });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function annualBalance(emp, asOf, leaves) {
   const g = annualGrant(emp?.joinedAt, asOf);
   if (!g.ok) return { ok: false };
