@@ -116,7 +116,7 @@ const isMonth = (m) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m || "");
 
 export function renderDistribute(body) {
   const emps = () => state.employees.filter((e) => e.status !== "resigned").sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  D.rows = D.rows.filter((r) => r.state !== "done");
+  D.rows = D.rows.filter((r) => r.state !== "done" && r.state !== "skip");
   body.innerHTML = `<div class="card"><h2>급여 명세서·세부내역서 올리기</h2>
     <p>종류와 월을 고른 뒤 PDF 또는 이미지 파일(한 파일 10MB 이하)을 한꺼번에 올립니다. <b>파일 이름에는 직원 이름만</b> 들어 있으면 됩니다 (예: <span class="mono">김교사.pdf</span>). 이름으로 직원을 자동으로 맞추고, 못 찾았거나 동명이인인 파일은 표에서 직접 고릅니다. 올리면 직원이 로그인해 <b>‘내 급여’</b>에서 비밀번호를 한 번 더 입력하고 봅니다. 같은 직원·종류·월에 다시 올리면 새 파일로 바뀝니다.</p>
     <div class="grid-2"><div class="field"><label for="dsType">종류</label><select id="dsType">${Object.entries(SLIP_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
@@ -124,6 +124,7 @@ export function renderDistribute(body) {
       <div class="field full"><label for="dsLabel">구분 (선택)</label><input class="input" id="dsLabel" list="dsLabelList" maxlength="${LABEL_MAX}" placeholder="예: 반포원 — 한 직원이 같은 달에 여러 곳에서 받을 때만 적습니다">
         <datalist id="dsLabelList">${state.orgs.filter((o) => o.active !== false).map((o) => `<option value="${esc(o.name)}">`).join("")}</datalist>
         <span class="help">구분을 적으면 줄마다 따로 바꿀 수도 있습니다. 구분이 다르면 같은 직원의 같은 종류·월 명세서도 별도로 함께 들어갑니다.</span></div>
+      <label class="check full"><input type="checkbox" id="dsSkip"> <b>이미 올린 직원은 건너뛰기</b> — 같은 종류·월·구분의 명세서가 이미 있는 직원은 올리지 않고 새로 받는 직원만 올립니다 (체크하지 않으면 새 파일로 교체됩니다)</label>
       <label class="check full"><input type="checkbox" id="dsAppend"> <b>한 직원에게 2개 이상 올리기</b> — 같은 직원의 파일이 목록에 여러 개 있어도 되고, 이미 올린 파일을 교체하지 않고 <b>추가</b>로 올립니다 (체크하지 않으면 같은 직원·종류·월·구분의 이전 파일은 새 파일로 교체됩니다)</label></div>
     <div class="dropzone" id="dsZone"><div class="dz-title">📎 파일을 끌어다 놓거나 클릭해서 선택 (여러 개)</div><input type="file" id="dsFiles" multiple accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic" class="hidden"></div>
     <div id="dsPreview"></div><div class="msg error" id="dsErr"></div></div>
@@ -135,7 +136,11 @@ export function renderDistribute(body) {
   zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
   zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
   zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("dragover"); addFiles([...(e.dataTransfer?.files || [])]); });
-  $("dsType").onchange = $("dsMonth").onchange = $("dsLabel").oninput = $("dsAppend").onchange = () => draw();
+  $("dsType").onchange = $("dsMonth").onchange = $("dsLabel").oninput = () => draw();
+  // 건너뛰기와 추가 올리기는 함께 쓰지 않는다. 옵션을 바꾸면 건너뛴 줄을 다시 올릴 수 있게 되돌린다
+  $("dsSkip").onchange = () => { if ($("dsSkip").checked) $("dsAppend").checked = false; unskip(); draw(); };
+  $("dsAppend").onchange = () => { if ($("dsAppend").checked) $("dsSkip").checked = false; unskip(); draw(); };
+  const unskip = () => D.rows.forEach((x) => { if (x.state === "skip") x.state = ""; });
   $("btnDsStat").onclick = () => loadStatus();
 
   function addFiles(files) {
@@ -153,6 +158,7 @@ export function renderDistribute(body) {
     const seen = new Set();
     return D.rows.map((r) => {
       if (r.state === "done") return "done";
+      if (r.state === "skip") return "skip";
       if (r.err) return "bad";
       if (!r.empId) return "noemp";
       const key = r.empId + "|" + rowLabel(r);
@@ -163,7 +169,7 @@ export function renderDistribute(body) {
   function draw() {
     const rows = D.rows, st = readiness(), month = $("dsMonth").value, type = $("dsType").value, monthOk = isMonth(month);
     const ready = rows.filter((r, i) => st[i] === "ok");
-    const list = emps(), label = { ok: "준비됨", noemp: "직원을 선택하세요", dup: "같은 직원·같은 구분의 파일이 이미 목록에 있습니다 — 2개를 모두 올리려면 ‘한 직원에게 2개 이상 올리기’를 체크하거나 구분을 다르게 적으세요", done: "올림", bad: "" };
+    const list = emps(), label = { ok: "준비됨", noemp: "직원을 선택하세요", dup: "같은 직원·같은 구분의 파일이 이미 목록에 있습니다 — 2개를 모두 올리려면 ‘한 직원에게 2개 이상 올리기’를 체크하거나 구분을 다르게 적으세요", done: "올림", skip: "이미 올린 파일이 있어 건너뜀", bad: "" };
     $("dsPreview").innerHTML = rows.length ? `<p style="margin:12px 0 6px">올릴 내용: <b>${monthOk ? monthLabel(month) : "월을 선택하세요"} ${esc(SLIP_TYPES[type])}</b></p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>파일</th><th>직원</th><th>구분</th><th>상태</th><th></th></tr></thead><tbody>${rows.map((r, i) => `<tr class="${r.err || st[i] === "dup" ? "bad" : ""}">
         <td class="sub" style="max-width:260px;overflow-wrap:anywhere">${esc(r.file.name)}</td>
         <td><select data-emp="${i}" ${r.state === "done" || D.busy ? "disabled" : ""}><option value="">— 선택 —</option>${list.map((e) => `<option value="${esc(e.id)}" ${e.id === r.empId ? "selected" : ""}>${esc(e.name)} (${esc(e.id)})</option>`).join("")}</select>${r.by ? ` <span class="sub">${r.by}으로 찾음</span>` : ""}${r.ambiguous ? ` <span class="sub">동명이인(${esc(r.ambiguous)}) — 직접 선택</span>` : ""}</td>
@@ -193,13 +199,31 @@ export function renderDistribute(body) {
     D.busy = false; draw(); toast(`${ok}건을 삭제했습니다`, ok !== rows.length);
   }
   async function upload() {
-    const st = readiness(), todo = D.rows.filter((r, i) => st[i] === "ok"), month = $("dsMonth").value, type = $("dsType").value;
-    if (!todo.length || D.busy || !isMonth(month)) return;
-    const names = [...new Set(todo.map((r) => state.employees.find((e) => e.id === r.empId)?.name))];
-    const append = !!$("dsAppend")?.checked;
+    const st = readiness(), todo0 = D.rows.filter((r, i) => st[i] === "ok"), month = $("dsMonth").value, type = $("dsType").value;
+    if (!todo0.length || D.busy || !isMonth(month)) return;
+    const append = !!$("dsAppend")?.checked, skip = !!$("dsSkip")?.checked;
+    // 이미 올린 명세서가 있는 직원 확인 (같은 종류·월·구분). 직원 수만큼 읽기가 발생한다
+    D.busy = true; $("dsErr").textContent = ""; draw();
+    const existing = new Map();
+    try {
+      const ids = [...new Set(todo0.map((r) => r.empId))];
+      for (let k = 0; k < ids.length; k += 8) await Promise.all(ids.slice(k, k + 8).map(async (id) => {
+        try { existing.set(id, (await getDocs(slipsOf(id))).docs.map((d) => d.data()).filter((x) => x.type === type && x.month === month)); } catch { existing.set(id, []); }
+      }));
+    } finally { D.busy = false; }
+    const has = (r) => (existing.get(r.empId) || []).some((x) => (x.label || "") === rowLabel(r));
+    const dupRows = todo0.filter(has), nameOf = (r) => state.employees.find((e) => e.id === r.empId)?.name || r.empId;
+    const todo = skip ? todo0.filter((r) => !has(r)) : todo0;
+    if (skip) dupRows.forEach((r) => { r.state = "skip"; });
+    if (!todo.length) { draw(); toast("선택한 직원은 모두 이미 올린 파일이 있어 건너뛰었습니다. 올릴 파일이 없습니다."); return; }
+    const names = [...new Set(todo.map(nameOf))];
     const labels = [...new Set(todo.map(rowLabel).filter(Boolean))];
-    if (!confirm(`${monthLabel(month)} ${SLIP_TYPES[type]}${labels.length ? ` [구분: ${labels.join(", ")}]` : ""} ${todo.length}건을 ${names.length}명에게 올립니다${append ? " (이미 올린 파일은 교체하지 않고 추가합니다)" : ""}.\n직원이 로그인해서 비밀번호를 입력하면 바로 볼 수 있습니다. 계속할까요?`)) return;
-    D.busy = true; $("dsErr").textContent = ""; let ok = 0, fail = 0;
+    const dupNames = [...new Set(dupRows.map(nameOf))];
+    const dupNote = !dupRows.length ? "" : skip ? `\n이미 올린 ${dupNames.length}명(${dupNames.slice(0, 6).join(", ")}${dupNames.length > 6 ? " 외" : ""})은 건너뜁니다.`
+      : append ? `\n이미 올린 ${dupNames.length}명(${dupNames.slice(0, 6).join(", ")}${dupNames.length > 6 ? " 외" : ""})에게는 기존 파일을 두고 추가로 올립니다.`
+      : `\n⚠ 이미 올린 파일이 있는 ${dupNames.length}명(${dupNames.slice(0, 6).join(", ")}${dupNames.length > 6 ? " 외" : ""})은 새 파일로 교체됩니다. 교체를 원하지 않으면 ‘이미 올린 직원은 건너뛰기’를 체크하세요.`;
+    if (!confirm(`${monthLabel(month)} ${SLIP_TYPES[type]}${labels.length ? ` [구분: ${labels.join(", ")}]` : ""} ${todo.length}건을 ${names.length}명에게 올립니다.${dupNote}\n직원이 로그인해서 비밀번호를 입력하면 바로 볼 수 있습니다. 계속할까요?`)) { if (skip) unskip(); draw(); return; }
+    D.busy = true; let ok = 0, fail = 0;
     const one = async (r) => {
       r.state = "busy"; draw();
       try {
@@ -210,9 +234,9 @@ export function renderDistribute(body) {
     };
     for (let i = 0; i < todo.length; i += 3) await Promise.all(todo.slice(i, i + 3).map(one));
     D.busy = false; draw();
-    audit("payslip_upload", { detail: `${monthLabel(month)} ${SLIP_TYPES[type]} ${ok}건 성공${fail ? ` · ${fail}건 실패` : ""}` });
+    audit("payslip_upload", { detail: `${monthLabel(month)} ${SLIP_TYPES[type]} ${ok}건 성공${fail ? ` · ${fail}건 실패` : ""}${skip && dupRows.length ? ` · 이미 올린 ${dupRows.length}건 건너뜀` : ""}${!skip && !append && dupRows.length ? ` · 이미 올린 ${dupRows.length}건 교체` : ""}` });
     if (fail) $("dsErr").textContent = `${fail}건이 실패했습니다. 표의 결과를 확인하고 다시 시도하세요.`;
-    toast(`${ok}건을 올렸습니다${fail ? `, ${fail}건 실패` : ""}`, !!fail);
+    toast(`${ok}건을 올렸습니다${skip && dupRows.length ? `, 이미 올린 ${dupRows.length}건은 건너뜀` : ""}${fail ? `, ${fail}건 실패` : ""}`, !!fail);
   }
   async function loadStatus() {
     const month = $("dsStatMonth").value; if (!isMonth(month)) return;

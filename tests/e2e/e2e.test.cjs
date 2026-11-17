@@ -1257,6 +1257,41 @@ const buf = (s) => Buffer.from(s);
     await page.fill("#seLabel", "평촌원"); await page.click("#btnSeSave"); await page.waitForTimeout(300);
     ok("X2 같은 구분으로 바꾸려 하면 막힘", (await page.textContent("#seErr")).includes("이미"), await page.textContent("#seErr"));
     await page.click("#btnSeCancel");
+    // ---- 이미 올린 직원: 교체 경고 / 건너뛰기 옵션 ----
+    let lastDlg = ""; page.on("dialog", (d) => { lastDlg = d.message(); });
+    const incs = async (id) => (await slipsOf(id)).filter((x) => x.type === "incentive" && x.month === "2026-12");
+    const before3 = (await incs("emp_0003")).find((x) => x.label === "반포원");
+    await resetTab(); await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12"); await page.fill("#dsLabel", "반포원");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "최팀장.pdf", mimeType: "application/pdf", buffer: PDF }]);
+    await page.waitForSelector("#dsPreview table");
+    ok("X3 건너뛰기와 추가 올리기는 함께 켜지지 않음", await (async () => { await page.check("#dsSkip"); await page.check("#dsAppend"); const r1 = !(await page.isChecked("#dsSkip")); await page.check("#dsSkip"); return r1 && !(await page.isChecked("#dsAppend")); })());
+    await page.uncheck("#dsSkip"); await page.waitForTimeout(100);
+    await page.click("#btnDsUpload"); await page.waitForTimeout(1200);
+    ok("X3 옵션 없이 올리면: 확인창에서 교체 경고(이미 올린 직원 이름)", lastDlg.includes("⚠ 이미 올린 파일이 있는 1명") && lastDlg.includes("이교사") && lastDlg.includes("교체됩니다"), lastDlg);
+    const after3 = (await incs("emp_0003")).find((x) => x.label === "반포원");
+    ok("X3 기본은 교체: 이교사의 반포원 파일이 새 파일로 바뀜", before3 && after3 && after3.path !== before3.path && (await incs("emp_0003")).length === 2);
+    ok("X3 새 직원(최팀장)은 올라감", (await incs("emp_0002")).length === 1);
+    // 건너뛰기 옵션
+    const keep3 = (await incs("emp_0003")).find((x) => x.label === "반포원"), keep2 = (await incs("emp_0002"))[0];
+    await resetTab(); await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12"); await page.fill("#dsLabel", "반포원");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "최팀장.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "박민.pdf", mimeType: "application/pdf", buffer: PDF }]);
+    await page.waitForSelector("#dsPreview table");
+    await page.selectOption('[data-emp="2"]', "emp_0005"); await page.waitForTimeout(100);
+    await page.check("#dsSkip"); await page.waitForTimeout(100);
+    await page.click("#btnDsUpload"); await page.waitForTimeout(1200);
+    ok("X3 건너뛰기: 확인창에 건너뛴다고 안내", lastDlg.includes("건너뜁니다") && lastDlg.includes("이교사") && lastDlg.includes("최팀장") && lastDlg.includes("1건을 1명에게"), lastDlg);
+    const now3 = (await incs("emp_0003")).find((x) => x.label === "반포원"), now2 = (await incs("emp_0002"))[0];
+    ok("X3 건너뛰기: 이미 올린 이교사·최팀장 파일은 그대로", now3.path === keep3.path && now2.path === keep2.path && (await incs("emp_0003")).length === 2 && (await incs("emp_0002")).length === 1);
+    ok("X3 건너뛰기: 새로 받는 직원(박민)만 올라감", (await incs("emp_0005")).length === 1);
+    ok("X3 건너뛴 줄에 안내가 보임", (await page.textContent("#dsPreview")).includes("이미 올린 파일이 있어 건너뜀"));
+    ok("X3 감사로그에 건너뜀 건수", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_upload" && l.detail.includes("이미 올린 2건 건너뜀")));
+    // 건너뛰기를 끄면 건너뛴 줄이 다시 올릴 수 있는 상태로 돌아옴
+    await resetTab(); await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12"); await page.fill("#dsLabel", "반포원");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#dsPreview table");
+    await page.check("#dsSkip"); await page.click("#btnDsUpload"); await page.waitForTimeout(600);
+    ok("X3 전부 건너뛰면 올릴 것이 없다고 알림", (await page.textContent("#dsPreview")).includes("이미 올린 파일이 있어 건너뜀") && (await page.textContent("#btnDsUpload")).includes("0건"));
+    await page.uncheck("#dsSkip"); await page.waitForTimeout(100);
+    ok("X3 건너뛰기를 끄면 다시 올릴 수 있음", (await page.textContent("#btnDsUpload")).includes("1건"));
     ok("X no errors (admin)", errors.length === 0, errors.join(" | "));
     await ctx.close();
     // 직원(구글 로그인): 내 급여 + 열람 비밀번호
