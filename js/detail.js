@@ -39,13 +39,13 @@ const backOff = () => state.settings?.rrnBackEnabled === false;     // 설정에
 const canSeeFront = () => isOwnPage() || canManage();
 const canViewKey = (key) => (PUB_KEYS.includes(key) ? (isHR() || isAdmin()) : can("secDocs"));
 // 본인 페이지(내 정보)에서는 서류를 ‘내 서류’ 메뉴로 뺀다. 다른 직원 상세와 등록 링크 화면에서는 그대로 둔다
-// 직원 본인이 한 번 입력한 개인정보·주민번호는 직접 고칠 수 없다 (firestore.rules 와 같은 기준).
-// 최고관리자가 ‘수정 허용’(private/piUnlock, 기한 있음)을 열어 준 동안만 고칠 수 있고, 퇴사일은 본인이 쓰지 못한다.
+// 개인정보 잠금 (firestore.rules 와 같은 기준): 날짜 칸은 최고관리자만 입력, 주소·계좌·보호자는 자유롭게 저장,
+// 주민번호는 직원 본인이 한 번 저장하면 잠기고 최고관리자가 ‘수정 허용’(private/piUnlock, 기한 있음)을 열어 준 동안만 다시 쓸 수 있다.
 const unlockMs = () => { const t = cur.unlock?.until; return t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0); };
 const piOpen = () => unlockMs() > Date.now();
 const selfEditor = () => state.selfMode || (isOwnPage() && !canManage());   // 규칙상 ‘본인으로서’ 쓰는 사람(관리자는 해당 없음)
-const PI_DATE_KEYS = ["eduStartDate", "workStartDate", "insuranceRegDate", "resignDate"];   // 날짜는 회사 기록 — 본인은 쓰지 못한다
-const piFieldLocked = (k) => selfEditor() && (PI_DATE_KEYS.includes(k) || (!piOpen() && !!cur.pi[k]));
+const PI_DATE_KEYS = ["eduStartDate", "workStartDate", "insuranceRegDate", "resignDate"];   // 날짜는 회사 기록
+const piFieldLocked = (k) => PI_DATE_KEYS.includes(k) && !isSuper();   // 날짜 칸은 최고관리자만 입력한다. 주소·계좌·보호자 정보는 자유롭게
 const frontLocked = () => selfEditor() && !piOpen() && !!(cur.flags.residentFront || cur.front);
 const backLocked = () => selfEditor() && !piOpen() && !!cur.flags.residentBack;
 const fmtUntil = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
@@ -202,7 +202,8 @@ function draw() {
       </div>
       ${backOff() ? `<div class="help">보안 설정에 따라 뒷자리는 새로 저장하지 않습니다.</div>` : ""}
       <div class="msg" id="dRrnStatus"></div>
-      ${selfEditor() && (frontLocked() || backLocked()) ? `<div class="help" id="dRrnLockNote">이미 입력한 주민등록번호는 직접 수정할 수 없습니다. 수정이 필요하면 최고관리자에게 요청하세요.</div>` : ""}
+      ${selfEditor() && (frontLocked() || backLocked()) ? `<div class="help" id="dRrnLockNote">🔒 이미 저장한 주민등록번호는 직접 수정할 수 없습니다. 수정이 필요하면 최고관리자에게 요청하세요.</div>` : ""}
+      ${selfEditor() && piOpen() ? `<div class="notice" id="dRrnOpenNote" style="margin-top:10px">최고관리자가 <b>${esc(fmtUntil(unlockMs()))}</b>까지 주민번호 수정을 허용했습니다. 이 기간 안에 고쳐서 저장하세요.</div>` : ""}
       <button class="btn btn-primary" id="dBtnRrn" style="margin-top:10px" ${frontLocked() && (backLocked() || backOff()) ? "disabled" : ""}>주민번호 저장</button>
     </div>
 
@@ -215,7 +216,7 @@ function draw() {
           <input class="input" data-pi="${f.key}" type="${f.type || "text"}" maxlength="200" value="${esc(cur.pi[f.key] || (f.key === "workStartDate" ? e.joinedAt || "" : ""))}" ${piFieldLocked(f.key) ? "disabled" : ""}>${f.key === "workStartDate" ? `<span class="help">입사일과 같습니다. 비어 있으면 입사일이 들어가며, 저장하면 기록됩니다.</span>` : ""}</div>`).join("")}
       </div>
       ${piLockNote()}
-      <button class="btn btn-primary" id="dBtnPi" style="margin-top:12px" ${PERSONAL_FIELDS.every((f) => piFieldLocked(f.key)) ? "disabled" : ""}>개인정보 저장</button>
+      <button class="btn btn-primary" id="dBtnPi" style="margin-top:12px">개인정보 저장</button>
     </div>
 
     ${unlockCardHtml()}
@@ -249,18 +250,17 @@ function docsHtml() {
       <button class="btn btn-secondary" id="dBtnEtc" style="margin-top:8px">+ 항목 추가</button></div>` : ""}`;
 }
 
-// 개인정보 잠금 안내 (본인 화면)
+// 날짜 칸 안내 (최고관리자 외에는 입력할 수 없다)
 function piLockNote() {
-  if (!selfEditor()) return "";
-  if (piOpen()) return `<div class="notice" style="margin-top:12px" id="dPiNote">최고관리자가 <b>${esc(fmtUntil(unlockMs()))}</b>까지 주소·계좌·보호자 정보와 주민번호의 수정을 허용했습니다(날짜는 회사 기록이라 제외). 이 기간 안에 고쳐서 저장하세요.</div>`;
-  return `<div class="notice" style="margin-top:12px" id="dPiNote">🔒 한 번 입력한 개인정보는 직접 고칠 수 없습니다(주소·계좌·보호자 정보의 비어 있는 칸은 채울 수 있습니다). 교육시작일·근로시작일·4대보험 등록일·퇴사일은 회사 기록이라 직접 입력할 수 없습니다. 바꿔야 한다면 <b>최고관리자에게 수정 허용</b>을 요청하세요.</div>`;
+  if (isSuper()) return "";
+  return `<div class="notice" style="margin-top:12px" id="dPiNote">교육시작일·근로시작일·4대보험 등록일·퇴사일은 회사 기록이라 <b>최고관리자만 입력</b>할 수 있습니다. 주소·계좌·보호자 정보는 언제든 직접 저장할 수 있습니다.</div>`;
 }
-// 최고관리자: 다른 직원의 개인정보 ‘수정 허용’ 열기/닫기
+// 최고관리자: 다른 직원의 주민번호 ‘수정 허용’ 열기/닫기
 function unlockCardHtml() {
   if (!isSuper() || state.selfMode || isOwnPage()) return "";
   const open = piOpen();
-  return `<div class="card" id="dUnlockCard"><h3 class="sec-title">직원 본인 수정 허용</h3>
-    <p class="sub" style="margin:0 0 10px">직원이 한 번 입력한 개인정보·주민번호는 직접 고칠 수 없습니다. 고치게 하려면 기간을 정해 허용하세요. 기간이 지나거나 ‘잠그기’를 누르면 다시 잠깁니다. (관리자가 직접 고치는 것은 언제든 가능합니다)</p>
+  return `<div class="card" id="dUnlockCard"><h3 class="sec-title">직원 본인 주민번호 수정 허용</h3>
+    <p class="sub" style="margin:0 0 10px">직원이 한 번 저장한 주민번호는 직접 고칠 수 없습니다. 고치게 하려면 기간을 정해 허용하세요. 기간이 지나거나 ‘잠그기’를 누르면 다시 잠깁니다. (관리자가 직접 고치는 것은 언제든 가능합니다)</p>
     <div class="row-actions"><span id="dUnlockState">${open ? `<span class="badge s-active">허용 중</span> ${esc(fmtUntil(unlockMs()))}까지` : `<span class="badge off">잠김</span>`}</span>
       <select id="dUnlockDays"><option value="1">1일</option><option value="3">3일</option><option value="7">7일</option></select>
       <button class="btn btn-secondary btn-sm" id="dBtnUnlock">수정 허용</button>
@@ -271,7 +271,7 @@ async function setUnlock(days) {
     if (days) {
       const until = Timestamp.fromDate(new Date(Date.now() + days * 86400000));
       await setDoc(doc(db, ...priv("piUnlock")), { until, by: who(), updatedAt: serverTimestamp() });
-      cur.unlock = { until }; audit("pi_unlock", { targetEmployeeId: cur.id, detail: `${days}일간 수정 허용` }); toast(`${days}일간 직원 수정을 허용했습니다`);
+      cur.unlock = { until }; audit("pi_unlock", { targetEmployeeId: cur.id, detail: `${days}일간 주민번호 수정 허용` }); toast(`${days}일간 직원 수정을 허용했습니다`);
     } else {
       await deleteDoc(doc(db, ...priv("piUnlock")));
       cur.unlock = null; audit("pi_lock", { targetEmployeeId: cur.id, detail: "수정 허용 닫음" }); toast("다시 잠갔습니다");
@@ -472,6 +472,7 @@ function bindPi() {
   $("dBtnPi").addEventListener("click", async () => {
     const vals = {};
     for (const inp of document.querySelectorAll("#detailRoot [data-pi]")) {
+      if (piFieldLocked(inp.dataset.pi)) continue;   // 날짜 칸은 최고관리자만 저장 (규칙도 막는다)
       const v = inp.value.trim();
       if (inp.type === "date" && normDateStr(v) === null) return toast("날짜 형식이 올바르지 않습니다.", true);
       vals[inp.dataset.pi] = v;
@@ -480,8 +481,7 @@ function bindPi() {
       await setDoc(doc(db, ...priv("personalInfo")), { ...vals, updatedAt: serverTimestamp() }, { merge: true });
       Object.assign(cur.pi, vals);
       audit("personal_save", { targetEmployeeId: cur.id });
-      toast(selfEditor() ? "저장했습니다. 입력한 항목은 이제 직접 고칠 수 없습니다." : "저장했습니다");
-      if (selfEditor()) draw();   // 방금 입력한 칸이 바로 잠기도록 다시 그린다
+      toast("저장했습니다");
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
 }

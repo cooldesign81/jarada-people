@@ -295,24 +295,18 @@ service cloud.firestore {
             && d.iter is number && d.iter >= 100000 && d.iter <= 2000000
             && d.algo == 'PBKDF2-SHA256';
         }
-        // 직원 본인이 한 번 입력한 개인정보·주민번호는 직접 고칠 수 없다. 최고관리자가 ‘수정 허용’(piUnlock, 기한이 있음)을 열어 준 동안만 고칠 수 있다.
-        // (관리자(대표이사·원장 등)가 고치는 것은 영향 없음. 주소·계좌·보호자 칸은 비어 있던 칸을 본인이 한 번 채울 수 있고, 날짜 칸은 본인이 쓰지 못한다)
+        // 날짜 칸(교육시작일·근로시작일·4대보험 등록일·퇴사일)은 회사 기록이라 최고관리자만 입력·수정할 수 있다.
+        // 주소·계좌·보호자 정보는 본인과 관리자가 자유롭게 저장한다.
+        // 주민번호는 직원 본인이 한 번 저장하면 다시 쓸 수 없고, 최고관리자가 ‘수정 허용’(piUnlock, 기한 있음)을 열어 준 동안만 다시 쓸 수 있다.
         function piPath() { return /databases/$(database)/documents/employees/$(empId)/private/piUnlock; }
         function piUnlocked() {
           return exists(piPath()) && get(piPath()).data.get('until', null) != null && get(piPath()).data.until > request.time;
         }
-        function piKeep(k) { return resource.data.get(k, '') == '' || request.resource.data.get(k, '') == resource.data.get(k, ''); }
-        // 날짜 칸(교육시작일·근로시작일·4대보험 등록일·퇴사일)은 회사 기록이라 본인이 쓸 수 없다 (수정 허용 기간에도 마찬가지)
         function piSame(k) {
           return (resource == null && request.resource.data.get(k, '') == '')
               || (resource != null && request.resource.data.get(k, '') == resource.data.get(k, ''));
         }
-        function piSelfOk() {
-          return piSame('eduStartDate') && piSame('workStartDate') && piSame('insuranceRegDate') && piSame('resignDate')
-            && (resource == null || piUnlocked()
-                || (piKeep('address') && piKeep('bankAccount') && piKeep('guardianName') && piKeep('guardianRelation') && piKeep('guardianPhone')));
-        }
-        // 주민번호는 한 번 저장하면 본인이 다시 쓸 수 없다 (수정 허용 기간 제외)
+        function piDatesSame() { return piSame('eduStartDate') && piSame('workStartDate') && piSame('insuranceRegDate') && piSame('resignDate'); }
         function rrnSelfOk() { return resource == null || piUnlocked(); }
         function validUnlock() {
           let d = request.resource.data;
@@ -327,7 +321,7 @@ service cloud.firestore {
                     || (docId == 'compensation' && capAll('comp', []))
                     || (docId == 'payLock' && (isSelfAccount(empId) || capAll('comp', [])));
 
-        allow create, update: if (docId == 'personalInfo' && validPersonal() && (managerOf() || (isSelf(empId) && piSelfOk())))
+        allow create, update: if (docId == 'personalInfo' && validPersonal() && ownerOrManager() && (isSuper() || piDatesSame()))
                               || (docId == 'flags' && ownerOrManager())
                               || (docId == 'residentFront' && validRrnFront() && (managerOf() || (isSelf(empId) && rrnSelfOk())))
                               || (docId == 'residentBack' && validRrnBack() && rrnBackAllowed() && (capAll('rrnBack', []) || (isSelf(empId) && rrnSelfOk())))
