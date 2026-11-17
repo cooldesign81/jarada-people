@@ -686,7 +686,7 @@ const buf = (s) => Buffer.from(s);
     await h.ctx.close();
     const sf = J(snapStore); sf.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const s = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: sf, files: {}, now: NOW });
-    await s.page.goto(BASE + "/index.html"); await s.page.waitForSelector("#nav .tab");
+    await s.page.goto(BASE + "/index.html"); await s.page.waitForSelector("#nav .tab", { state: "attached" });
     ok("M staff has no 관리 tab", !(await s.page.textContent("#nav")).includes("관리"));
     await s.ctx.close();
   }
@@ -1219,7 +1219,7 @@ const buf = (s) => Buffer.from(s);
     };
     const sf = { "hr/emp_0003/pay/salary__2026-10__1__a.pdf": { size: 1 }, "hr/emp_0003/pay/incentive__2026-10__2__b.png": { size: 1 }, "hr/emp_0003/pay/salary__2026-09__3__c.pdf": { size: 1 } };
     const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: se, files: sf, now: NOW });
-    await e.page.goto(BASE + "/index.html#dash"); await e.page.waitForSelector("#nav .tab");
+    await e.page.goto(BASE + "/index.html#dash"); await e.page.waitForSelector("#nav .tab", { state: "attached" });
     const tabTxt = await e.page.textContent('.tab[data-view="payslips"]');
     ok("X employee tab is 내 급여 with unseen badge", tabTxt.includes("내 급여") && tabTxt.includes("2"));
     await e.page.click('.tab[data-view="payslips"]'); await e.page.waitForSelector("#payslipBody .slip-row");
