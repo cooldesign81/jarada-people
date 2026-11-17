@@ -295,18 +295,37 @@ service cloud.firestore {
             && d.iter is number && d.iter >= 100000 && d.iter <= 2000000
             && d.algo == 'PBKDF2-SHA256';
         }
+        // 날짜 칸(교육시작일·근로시작일·4대보험 등록일·퇴사일)은 회사 기록이라 최고관리자만 입력·수정할 수 있다.
+        // 주소·계좌·보호자 정보는 본인과 관리자가 자유롭게 저장한다.
+        // 주민번호는 직원 본인이 한 번 저장하면 다시 쓸 수 없고, 최고관리자가 ‘수정 허용’(piUnlock, 기한 있음)을 열어 준 동안만 다시 쓸 수 있다.
+        function piPath() { return /databases/$(database)/documents/employees/$(empId)/private/piUnlock; }
+        function piUnlocked() {
+          return exists(piPath()) && get(piPath()).data.get('until', null) != null && get(piPath()).data.until > request.time;
+        }
+        function piSame(k) {
+          return (resource == null && request.resource.data.get(k, '') == '')
+              || (resource != null && request.resource.data.get(k, '') == resource.data.get(k, ''));
+        }
+        function piDatesSame() { return piSame('eduStartDate') && piSame('workStartDate') && piSame('insuranceRegDate') && piSame('resignDate'); }
+        function rrnSelfOk() { return resource == null || piUnlocked(); }
+        function validUnlock() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['until', 'by', 'updatedAt'])
+            && d.until is timestamp && d.until > request.time && d.until < request.time + duration.value(31, 'd');
+        }
         function validRrnFront() { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{6}$'); }
         function validRrnBack()  { return request.resource.data.value is string && request.resource.data.value.matches('^[0-9]{7}$'); }
 
-        allow read: if (docId in ['personalInfo', 'flags', 'residentFront'] && ownerOrManager())
+        allow read: if (docId in ['personalInfo', 'flags', 'residentFront', 'piUnlock'] && ownerOrManager())
                     || (docId == 'residentBack' && capAll('rrnBack', []))
                     || (docId == 'compensation' && capAll('comp', []))
                     || (docId == 'payLock' && (isSelfAccount(empId) || capAll('comp', [])));
 
-        allow create, update: if (docId == 'personalInfo' && ownerOrManager() && validPersonal())
+        allow create, update: if (docId == 'personalInfo' && validPersonal() && ownerOrManager() && (isSuper() || piDatesSame()))
                               || (docId == 'flags' && ownerOrManager())
-                              || (docId == 'residentFront' && ownerOrManager() && validRrnFront())
-                              || (docId == 'residentBack' && (capAll('rrnBack', []) || isSelf(empId)) && validRrnBack() && rrnBackAllowed())
+                              || (docId == 'residentFront' && validRrnFront() && (managerOf() || (isSelf(empId) && rrnSelfOk())))
+                              || (docId == 'residentBack' && validRrnBack() && rrnBackAllowed() && (capAll('rrnBack', []) || (isSelf(empId) && rrnSelfOk())))
+                              || (docId == 'piUnlock' && isSuper() && validUnlock())
                               || (docId == 'compensation' && capAll('comp', []))
                               || (docId == 'payLock' && isSelfAccount(empId) && validPayLock());
 

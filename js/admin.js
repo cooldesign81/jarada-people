@@ -108,7 +108,7 @@ function renderWorkFill(el) {
   const targets = state.employees.filter((e) => e.joinedAt);
   el.innerHTML = `<div class="card"><h2>근로시작일 채우기</h2>
     <p>근로시작일은 입사일과 같습니다. 개인정보의 <b>근로시작일</b>이 비어 있는 직원을 <b>입사일</b>로 채웁니다. 이미 값이 있는 직원은 그대로 둡니다. 직원 수(${targets.length}명)만큼 읽기가 발생합니다.</p>
-    ${can("empWrite") ? `<button class="btn btn-secondary" id="btnWfPlan" ${targets.length ? "" : "disabled"}>확인하기</button> <span class="sub" id="wfProg"></span><div id="wfOut"></div>` : `<p class="sub">직원 정보를 수정할 권한이 없습니다.</p>`}</div>`;
+    ${isSuper() ? `<button class="btn btn-secondary" id="btnWfPlan" ${targets.length ? "" : "disabled"}>확인하기</button> <span class="sub" id="wfProg"></span><div id="wfOut"></div>` : `<p class="sub">날짜 칸은 최고관리자만 입력할 수 있어, 이 작업은 최고관리자만 실행할 수 있습니다.</p>`}</div>`;
   $("btnWfPlan")?.addEventListener("click", async () => {
     $("btnWfPlan").disabled = true; const need = []; let i = 0;
     for (let k = 0; k < targets.length; k += 8) await Promise.all(targets.slice(k, k + 8).map(async (e) => {

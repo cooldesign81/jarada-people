@@ -14,7 +14,7 @@ import {
 } from "./core.js";
 import { CORPS, corpName, corpFromText } from "./company.js";
 import { birthFromRrn } from "./rrn.js";
-import { initDetail, renderDetail, renderMyDocs, bindCertModal, deleteEmployeeData } from "./detail.js";
+import { initDetail, renderDetail, renderMyDocs, lockDocs, bindCertModal, deleteEmployeeData } from "./detail.js";
 import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
 import { initAdmin, renderAdmin } from "./admin.js";
 import { exportEmployees } from "./export.js";
@@ -287,6 +287,7 @@ function route() {
     const id = decodeURIComponent(hash.slice(4));
     if (canManage() || id === state.role.employeeId) {
       navId = canManage() ? "employees" : "me";
+      lockDocs();
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === navId));
       showView("Detail"); renderDetail(id);
       return;
@@ -296,6 +297,7 @@ function route() {
     || allowed.find((n) => n.id === (canManage() ? "dash" : "me"))
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
+  if (nav.id !== "docs") lockDocs();   // ‘내 서류’는 들어올 때마다 비밀번호 확인
   showView(nav.view);
   ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, payslips: renderMyPayslips, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe, docs: renderDocs })[nav.id]();
   updateBadges();
@@ -729,6 +731,7 @@ function normDate(s) {
 
 // 붙여넣은 텍스트 → 검증된 행 목록. 반환: { rows, fatal }
 function parseBulk(text) {
+  let ignoredDates = 0;   // 날짜 열(교육시작일·근로시작일·4대보험 등록일·퇴사일)은 최고관리자만 저장 — 다른 등급이 올린 날짜 값은 제외하고 센다
   if (!text.trim()) return { rows: [], fatal: "" };
   const table = parseDelimited(text);
   if (!table.length) return { rows: [], fatal: "" };
@@ -820,12 +823,13 @@ function parseBulk(text) {
     const pi = {};
     for (const c of BULK_COLS.filter((x) => x.pi)) {
       let v = get(c.key);
+      if (c.date && !isSuper()) { if (v) ignoredDates++; continue; }
       if (c.date) { const nd = normDate(v); if (nd === null) { errors.push(`${c.label} 형식 오류`); v = ""; } else v = nd; }
       else if (v.length > 200) errors.push(`${c.label}이 200자 초과`);
       if (v) pi[c.key] = v;
     }
     // 근로시작일은 입사일과 같다: 입사일만 있고 근로시작일 칸이 비어 있으면 입사일로 채운다
-    if (!pi.workStartDate && d.joinedAt) pi.workStartDate = d.joinedAt;
+    if (!pi.workStartDate && d.joinedAt && isSuper()) pi.workStartDate = d.joinedAt;
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
     if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 사원·팀장·실장·부원장·원장 등급만 부여");
@@ -872,11 +876,11 @@ function parseBulk(text) {
     }
     return { line, data: d, pi, comp, rrn, errors };
   });
-  return { rows, fatal: "" };
+  return { rows, fatal: "", ignoredDates };
 }
 
 function renderBulk() {
-  const { rows, fatal } = parseBulk($("bulkText").value);
+  const { rows, fatal, ignoredDates } = parseBulk($("bulkText").value);
   bulk.rows = rows;
   $("bulkErr").textContent = fatal;
   const okRows = rows.filter((r) => !r.errors.length);
@@ -884,6 +888,7 @@ function renderBulk() {
   $("bulkSummary").innerHTML = rows.length
     ? `총 ${rows.length}행 · <span class="ok">등록 가능 ${okRows.filter((r) => !r.update).length}명</span>` + (okRows.some((r) => r.update) ? ` · <span class="ok">기존 직원 수정 ${okRows.filter((r) => r.update).length}명</span>` : "") + (bad ? ` · <span class="bad">오류 ${bad}행 (건너뜀)</span>` : "")
     : "";
+  if (rows.length && ignoredDates) $("bulkSummary").innerHTML += ` · <span class="bad">날짜 ${ignoredDates}칸(교육시작일·근로시작일·4대보험 등록일·퇴사일)은 최고관리자만 저장해서 제외됩니다</span>`;
   $("bulkPreviewWrap").classList.toggle("hidden", !rows.length);
   $("bulkPreview").innerHTML = rows.length
     ? `<thead><tr><th>행</th><th>이름</th><th>이메일</th><th>소속 지점</th><th>직책</th><th>권한</th><th>상태</th><th>입사일</th><th>개인정보</th><th>급여</th><th>주민번호</th><th>결과</th></tr></thead><tbody>` +

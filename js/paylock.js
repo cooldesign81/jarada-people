@@ -1,4 +1,4 @@
-// 급여 열람 비밀번호 창: 직원이 급여 명세서·세부내역서를 열 때마다 한 번 더 비밀번호를 묻는다.
+// 급여·서류 열람 비밀번호 창: 직원이 급여 명세서·세부내역서를 열거나 ‘내 서류’에 들어갈 때마다 한 번 더 비밀번호를 묻는다 (내 급여와 내 서류는 같은 비밀번호).
 // (로그아웃하지 않은 자리에서 다른 사람이 급여를 보는 것을 막기 위한 화면 잠금이다. 비밀번호 확인은 브라우저에서 하며,
 //  서버가 강제하지는 못한다 — 로그아웃·화면 잠금과 함께 써야 한다.)
 import { db } from "./firebase.js";
@@ -16,13 +16,14 @@ export async function getPayLock(empId) {
 }
 
 // mode: "verify" (입력) | "set" (처음 설정) | "change" (변경). 확인되면 true, 취소하면 false
-function ask(mode, empId, lock) {
+function ask(mode, empId, lock, purpose = "급여") {
   return new Promise((resolve) => {
     const dlg = $("dlgPayPw"), show = (id, on) => $(id).classList.toggle("hidden", !on);
-    const titles = { verify: "급여 열람 비밀번호", set: "급여 열람 비밀번호 설정", change: "급여 열람 비밀번호 변경" };
+    // 내 급여와 내 서류는 같은 비밀번호를 쓴다 (한 번 정하면 둘 다에 적용)
+    const titles = { verify: "급여·서류 열람 비밀번호", set: "급여·서류 열람 비밀번호 설정", change: "급여·서류 열람 비밀번호 변경" };
     const descs = {
-      verify: "급여 정보 보호를 위해 열 때마다 비밀번호를 한 번 더 확인합니다.",
-      set: "급여 명세서를 볼 때마다 입력할 비밀번호를 정하세요. 로그인 비밀번호와는 별개이며 8자 이상(숫자만은 불가)입니다. 잊어버리면 담당자가 초기화해 드립니다.",
+      verify: purpose === "서류" ? "내 서류 보호를 위해 들어올 때마다 비밀번호를 한 번 더 확인합니다. 내 급여와 같은 비밀번호입니다." : "급여 정보 보호를 위해 열 때마다 비밀번호를 한 번 더 확인합니다. 내 서류와 같은 비밀번호입니다.",
+      set: "급여 명세서와 내 서류를 열 때마다 입력할 비밀번호를 정하세요. 같은 비밀번호를 내 급여와 내 서류에 함께 씁니다. 로그인 비밀번호와는 별개이며 8자 이상(숫자만은 불가)입니다. 잊어버리면 담당자가 초기화해 드립니다.",
       change: "현재 비밀번호를 확인한 뒤 새 비밀번호를 정하세요.",
     };
     $("ppTitle").textContent = titles[mode]; $("ppDesc").textContent = descs[mode]; $("ppErr").textContent = "";
@@ -66,11 +67,11 @@ function ask(mode, empId, lock) {
 }
 
 // 급여를 열기 전에 호출. 비밀번호가 없으면 먼저 설정하게 한다. 통과하면 true
-export async function requirePayPassword(empId = state.role?.employeeId) {
+export async function requirePayPassword(empId = state.role?.employeeId, purpose = "급여") {
   let lock; try { lock = await getPayLock(empId); } catch (e) { toast("비밀번호 정보를 읽지 못했습니다: " + errMsg(e), true); return false; }
-  return ask(lock ? "verify" : "set", empId, lock);
+  return ask(lock ? "verify" : "set", empId, lock, purpose);
 }
 export async function changePayPassword(empId = state.role?.employeeId) {
   let lock; try { lock = await getPayLock(empId); } catch (e) { toast(errMsg(e), true); return false; }
-  return ask(lock ? "change" : "set", empId, lock);
+  return ask(lock ? "change" : "set", empId, lock, "급여");
 }
