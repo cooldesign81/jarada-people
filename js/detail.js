@@ -458,6 +458,7 @@ function bindRrn() {
         if (bd) { try { await updateDoc(doc(db, "employees", cur.id), { birthDate: bd, updatedAt: serverTimestamp() }); cur.emp.birthDate = bd; filled = bd; } catch (e2) { console.warn("생년월일 자동 입력 실패", e2.code || e2); } }
       }
       toast(filled ? `저장했습니다 (생년월일 ${filled}도 채웠습니다)` : "저장했습니다");
+      if (selfEditor()) draw();   // 입력한 주민번호 칸이 바로 잠기도록 다시 그린다
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
 }
@@ -479,7 +480,8 @@ function bindPi() {
       await setDoc(doc(db, ...priv("personalInfo")), { ...vals, updatedAt: serverTimestamp() }, { merge: true });
       Object.assign(cur.pi, vals);
       audit("personal_save", { targetEmployeeId: cur.id });
-      toast("저장했습니다");
+      toast(selfEditor() ? "저장했습니다. 입력한 항목은 이제 직접 고칠 수 없습니다." : "저장했습니다");
+      if (selfEditor()) draw();   // 방금 입력한 칸이 바로 잠기도록 다시 그린다
     } catch (e) { console.error(e); toast(errMsg(e), true); }
   });
 }

@@ -351,7 +351,8 @@ const buf = (s) => Buffer.from(s);
 
   // ================= E. 등록 링크 (익명) =================
   {
-    const { page, ctx, errors } = await newPage(browser, { user: null, store: J(snapStore), files: J(snapFiles) });
+    const se = J(snapStore); delete se["employees/emp_0003/private"].personalInfo; delete se["employees/emp_0003/private"].residentFront; delete se["employees/emp_0003/private"].residentBack; delete se["employees/emp_0003/private"].flags;   // 처음 입력하는 직원
+    const { page, ctx, errors } = await newPage(browser, { user: null, store: se, files: J(snapFiles) });
     await page.goto(BASE + `/index.html?self=emp_0003&t=${token}`); await page.waitForSelector("#viewDetail:not(.hidden) .emp-name", { timeout: 5000 });
     const role = await S(page, "roles/anon1");
     ok("E anon role created", role && role.level === "staff" && role.employeeId === "emp_0003" && role.selfToken === token, JSON.stringify(role));
@@ -359,6 +360,9 @@ const buf = (s) => Buffer.from(s);
     ok("E topbar", (await page.textContent("#topWho")).includes("등록 링크"));
     await page.fill('[data-pi="guardianName"]', "링크입력"); await page.click("#dBtnPi"); await page.waitForTimeout(150);
     ok("E saves", (await S(page, "employees/emp_0003/private/personalInfo")).guardianName === "링크입력");
+    ok("E 저장한 칸은 바로 잠김(링크로도 다시 못 고침), 날짜 칸은 처음부터 잠김", (await page.$eval('[data-pi="guardianName"]', (e) => e.disabled)) && (await page.$eval('[data-pi="workStartDate"]', (e) => e.disabled)) && (await page.textContent("#dPiNote")).includes("직접 고칠 수 없습니다"));
+    await page.fill("#dFront", "900101"); await page.fill("#dBack", "1234567"); await page.click("#dBtnRrn"); await page.waitForTimeout(200);
+    ok("E 처음 입력하는 주민번호는 저장되고 곧바로 잠김", (await S(page, "employees/emp_0003/private/residentFront")).value === "900101" && (await page.$eval("#dFront", (e) => e.disabled)) && (await page.$eval("#dBtnRrn", (e) => e.disabled)));
     await shot(page, "G5-self");
     ok("E no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
