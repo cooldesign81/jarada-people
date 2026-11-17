@@ -357,7 +357,7 @@ const buf = (s) => Buffer.from(s);
 
   // ================= CT. 계약서·동의서 온라인 작성 (근로계약서 · 개인정보 동의서 · 서약서) =================
   {
-    const st = J(snapStore); st.employees.emp_0003.joinedAt = "2026-03-02"; st.employees.emp_0003.corp = "jade";
+    const st = J(snapStore); st.employees.emp_0003.corp = "jade";
     const c = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles) });
     const pg = c.page, coll = (n) => pg.evaluate((k) => Object.values(globalThis.__mockStore["employees/emp_0003/" + k] || {}), n);
     await pg.goto(BASE + "/index.html#emp/emp_0003"); await pg.waitForSelector("#dContractsCard");
@@ -365,7 +365,7 @@ const buf = (s) => Buffer.from(s);
     // 근로계약서: 노랑은 직원 정보로 채워지고, 주황은 기본 옵션
     await pg.click('[data-new="labor"]'); await pg.waitForSelector("#dlgContractDoc[open]");
     ok("CT 근로계약서 창: 노랑·주황 묶음", (await pg.textContent("#cdTitle")).includes("근로계약서 작성") && (await count(pg, "#cdY #cdf_name")) === 1 && (await count(pg, "#cdY #cdf_monthlyPay")) === 1 && (await count(pg, "#cdO #cdf_probMonths")) === 1 && (await count(pg, "#cdO #cdf_incentiveHead")) === 1 && (await vis(pg, "#cdOWrap")));
-    ok("CT 노랑 기본값: 이름·계약 시작일(입사일)·사용자(법인)", (await pg.inputValue("#cdf_name")) === "이교사" && (await pg.inputValue("#cdf_startDate")) === "2026-03-02" && (await pg.inputValue("#cdf_company")) === "(주)제이드에듀");
+    ok("CT 노랑 기본값: 이름·계약 시작일(입사일)·사용자(법인)", (await pg.inputValue("#cdf_name")) === "이교사" && (await pg.inputValue("#cdf_startDate")) === "2024-03-02" && (await pg.inputValue("#cdf_company")) === "(주)제이드에듀", [await pg.inputValue("#cdf_name"), await pg.inputValue("#cdf_startDate"), await pg.inputValue("#cdf_company")].join("|"));
     ok("CT 주황 기본 옵션(첨부 양식 값)", (await pg.inputValue("#cdf_probMonths")) === "2" && (await pg.inputValue("#cdf_incentiveHead")) === "42" && (await pg.inputValue("#cdf_incentiveAmt")) === "30000" && (await pg.inputValue("#cdf_mealAmt")) === "200000" && (await pg.inputValue("#cdf_noticeDays")) === "60" && (await pg.isChecked("#cdf_probOn")));
     await pg.fill("#cdf_monthlyPay", ""); await pg.click("#btnCdSave"); await pg.waitForTimeout(150);
     ok("CT 필수(노랑) 칸이 비면 저장 막힘", (await pg.textContent("#cdErr")).includes("월 지급액") && (await coll("laborContracts")).length === 0);
@@ -399,7 +399,7 @@ const buf = (s) => Buffer.from(s);
     ok("CT 서약서 열기: 인쇄용 문서", pt.includes("서 약 서") && pt.includes("평촌원") && pt.includes("☑ 확인하였습니다"));
     // 삭제
     await pg.click('#dContracts tr:has-text("동의서") [data-del]'); await pg.waitForTimeout(400);
-    ok("CT 삭제", (await coll("contracts")).length === 1 && !(await pg.textContent("#dContracts")).includes("개인정보 수집"));
+    ok("CT 삭제", (await coll("contracts")).length === 1 && !(await pg.textContent("#dContracts .rec-tbl")).includes("개인정보 수집"));
     const acts = Object.values(await pg.evaluate(() => globalThis.__mockStore.auditLogs || {})).map((l) => l.action);
     ok("CT 감사로그: 저장·열람·삭제", acts.includes("contract_save") && acts.includes("contract_open") && acts.includes("contract_delete"));
     ok("CT no errors", c.errors.length === 0, c.errors.join(" | "));
