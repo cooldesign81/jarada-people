@@ -434,6 +434,17 @@
   <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnPsCancel">취소</button><button type="button" class="btn btn-primary" id="btnPsGo">인쇄용으로 열기</button></div>
 </dialog>
 
+<!-- 계약서·동의서 작성 (근로계약서 · 개인정보 수집·이용 동의서 · 서약서) -->
+<dialog id="dlgContractDoc" class="wide">
+  <div class="dlg-head"><h2 id="cdTitle">계약서 작성</h2></div>
+  <div class="bulk-body">
+    <div class="cd-grp cd-y"><h3>노랑 · 직원마다 입력하는 칸</h3><div class="grid-fields" id="cdY"></div></div>
+    <div class="cd-grp cd-o" id="cdOWrap"><h3>주황 · 기본값이 들어 있는 옵션 <span class="sub">(필요할 때만 고치세요)</span> <button type="button" class="btn btn-secondary btn-sm" id="btnCdReset">옵션을 기본값으로</button></h3><div class="grid-fields" id="cdO"></div></div>
+    <div class="msg error dlg-err" id="cdErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnCdCancel">닫기</button><button type="button" class="btn btn-secondary" id="btnCdSave">저장</button><button type="button" class="btn btn-primary" id="btnCdSaveOpen">저장하고 열기·인쇄</button></div>
+</dialog>
+
 <!-- 근로계약서 초안 (대표 전용) -->
 <dialog id="dlgContract">
   <div class="dlg-head"><h2>근로계약서 초안</h2></div>
