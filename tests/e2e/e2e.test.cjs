@@ -1208,6 +1208,55 @@ const buf = (s) => Buffer.from(s);
     ok("X detail lists slips + lock status", (await count(page, "#dSlips [data-sdel]")) === 2 && (await page.textContent("#dSlips")).includes("아직 설정 안 함"));
     await page.click('#dSlips [data-sdel]'); await page.waitForTimeout(600);
     ok("X detail delete", (await count(page, "#dSlips [data-sdel]")) === 1);
+    // ---- 한 직원에게 2개 이상: 구분(label)으로 나누거나 ‘추가 올리기’, 그리고 방금 올린 것 삭제 ----
+    const toSlips = async () => { await page.goto(BASE + "/index.html#admin").catch(() => {}); };
+    const resetTab = async () => { await page.click('#adminTabs [data-t="export"]'); await page.click('#adminTabs [data-t="slips"]'); await page.waitForSelector("#dsZone"); };
+    const slipsOf = async (id) => Object.values(await page.evaluate((i) => globalThis.__mockStore["employees/" + i + "/payslips"] || {}, id));
+    await page.evaluate(() => (location.hash = "#admin")); await page.waitForSelector("#adminTabs"); await resetTab();
+    await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "이교사 (2).pdf", mimeType: "application/pdf", buffer: PDF }]);
+    await page.waitForSelector("#dsPreview table");
+    ok("X2 같은 직원 두 파일은 구분이 같으면 막힘", (await page.textContent("#dsPreview")).includes("같은 직원·같은 구분") && (await page.textContent("#btnDsUpload")).includes("1건"));
+    await page.fill("#dsLabel", "반포원"); await page.waitForTimeout(100);
+    await page.fill('[data-lbl="1"]', "평촌원"); await page.dispatchEvent('[data-lbl="1"]', "change"); await page.waitForTimeout(100);
+    ok("X2 구분이 다르면 둘 다 올릴 수 있음 (줄마다 구분)", (await page.textContent("#btnDsUpload")).includes("2건") && (await page.inputValue('[data-lbl="0"]')) === "반포원" && (await page.inputValue('[data-lbl="1"]')) === "평촌원");
+    await page.click("#btnDsUpload"); await page.waitForTimeout(1000);
+    let inc = (await slipsOf("emp_0003")).filter((x) => x.type === "incentive" && x.month === "2026-12");
+    ok("X2 세부내역서 2개가 구분과 함께 저장됨", inc.length === 2 && inc.map((x) => x.label).sort().join() === "반포원,평촌원", JSON.stringify(inc.map((x) => x.label)));
+    ok("X2 audit/확인창에 구분 표시 없이도 올림 완료 표시", (await page.textContent("#dsPreview")).includes("올림"));
+    // 같은 구분(반포원)을 다시 올리면 그 구분만 교체
+    await resetTab(); await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12"); await page.fill("#dsLabel", "반포원");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사 수정.pdf", mimeType: "application/pdf", buffer: PDF }]); await page.waitForSelector("#btnDsUpload:not([disabled])");
+    await page.click("#btnDsUpload"); await page.waitForTimeout(800);
+    inc = (await slipsOf("emp_0003")).filter((x) => x.type === "incentive" && x.month === "2026-12");
+    ok("X2 같은 구분만 교체, 다른 구분은 그대로", inc.length === 2 && inc.find((x) => x.label === "반포원").fileName.includes("수정") && inc.find((x) => x.label === "평촌원").fileName === "이교사 (2).pdf", JSON.stringify(inc.map((x) => [x.label, x.fileName])));
+    // 구분 없이 ‘한 직원에게 2개 이상 올리기’
+    await resetTab(); await page.selectOption("#dsType", "salary"); await page.fill("#dsMonth", "2026-12");
+    await page.setInputFiles("#dsFiles", [{ name: "이교사.pdf", mimeType: "application/pdf", buffer: PDF }, { name: "이교사 (2).pdf", mimeType: "application/pdf", buffer: PDF }]);
+    await page.waitForSelector("#dsPreview table");
+    ok("X2 추가 올리기를 켜기 전에는 막힘", (await page.textContent("#btnDsUpload")).includes("1건"));
+    await page.check("#dsAppend"); await page.waitForTimeout(100);
+    ok("X2 추가 올리기를 켜면 같은 직원 두 파일 모두 가능", (await page.textContent("#btnDsUpload")).includes("2건") && !(await page.textContent("#dsPreview")).includes("같은 직원·같은 구분의 파일이 이미"));
+    await page.click("#btnDsUpload"); await page.waitForTimeout(1000);
+    let sal = (await slipsOf("emp_0003")).filter((x) => x.type === "salary" && x.month === "2026-12");
+    ok("X2 명세서 2개가 구분 없이 함께 저장됨", sal.length === 2 && sal.every((x) => !x.label), JSON.stringify(sal.map((x) => x.fileName)));
+    // 방금 올린 것 삭제 (줄별, 그리고 전체)
+    ok("X2 올린 줄마다 삭제 버튼 + 전체 삭제 버튼", (await count(page, "[data-undo]")) === 2 && (await page.textContent("#btnDsUndoAll")).includes("방금 올린 2건 모두 삭제"));
+    await page.click('[data-undo="0"]'); await page.waitForTimeout(800);
+    sal = (await slipsOf("emp_0003")).filter((x) => x.type === "salary" && x.month === "2026-12");
+    ok("X2 한 줄 삭제: 저장소·기록에서 사라지고 줄은 다시 올릴 수 있게 돌아옴", sal.length === 1 && (await page.textContent("#btnDsUpload")).includes("1건") && (await count(page, "[data-undo]")) === 1, JSON.stringify(sal.map((x) => x.fileName)));
+    await page.click("#btnDsUndoAll"); await page.waitForTimeout(800);
+    sal = (await slipsOf("emp_0003")).filter((x) => x.type === "salary" && x.month === "2026-12");
+    ok("X2 방금 올린 것 모두 삭제", sal.length === 0 && (await count(page, "[data-undo]")) === 0 && !(await FILES(page)).some((f) => f.startsWith("hr/emp_0003/pay/salary__2026-12__")));
+    ok("X2 삭제 감사로그", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).filter((l) => l.action === "payslip_delete" && l.detail.includes("방금 올린 파일 취소")).length >= 2);
+    // 현황·직원 상세에서 구분 표시 + 구분 수정
+    await page.fill("#dsStatMonth", "2026-12"); await page.click("#btnDsStat"); await page.waitForSelector("#dsStat table");
+    ok("X2 배포 현황에 구분이 표시되고 한 칸에 2건 나열", (await page.textContent("#dsStat")).includes("반포원") && (await page.textContent("#dsStat")).includes("평촌원") && (await count(page, '#dsStat [data-sact="del"]')) === 2);
+    await page.click('#dsStat [data-sact="edit"]'); await page.waitForSelector("#dlgSlipEdit[open]");
+    ok("X2 수정창에 구분 칸", (await page.inputValue("#seLabel")) !== undefined);
+    await page.fill("#seLabel", "평촌원"); await page.click("#btnSeSave"); await page.waitForTimeout(300);
+    ok("X2 같은 구분으로 바꾸려 하면 막힘", (await page.textContent("#seErr")).includes("이미"), await page.textContent("#seErr"));
+    await page.click("#btnSeCancel");
     ok("X no errors (admin)", errors.length === 0, errors.join(" | "));
     await ctx.close();
     // 직원(구글 로그인): 내 급여 + 열람 비밀번호

@@ -487,6 +487,14 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("slip: hr denied by default", false, () => hr.doc("employees/emp_0003/payslips/s3").set(slip()));
   await t("slip: admin denied", false, () => adm.doc("employees/emp_0003/payslips/s3").set(slip()));
   await t("slip: staff cannot create own", false, () => stf.doc("employees/emp_0003/payslips/s3").set(slip()));
+  await t("slip: label (구분) allowed", true, () => sup.doc("employees/emp_0003/payslips/s6").set(slip({ type: "incentive", label: "반포원" })));
+  await t("slip: label too long", false, () => sup.doc("employees/emp_0003/payslips/s7").set(slip({ label: "가".repeat(41) })));
+  await t("slip: label must be a string", false, () => sup.doc("employees/emp_0003/payslips/s7").set(slip({ label: 5 })));
+  await t("slip: two slips of same employee/type/month with different labels", true, () => sup.doc("employees/emp_0003/payslips/s8").set(slip({ type: "incentive", label: "평촌원" })));
+  await t("slip: super edits type/month/label", true, () => sup.doc("employees/emp_0003/payslips/s8").update({ label: "대치원", updatedAt: TS() }));
+  await t("slip: label edit cannot carry other fields", false, () => sup.doc("employees/emp_0003/payslips/s8").update({ label: "x", fileName: "y.pdf", updatedAt: TS() }));
+  await t("slip: employee cannot edit label", false, () => stf.doc("employees/emp_0003/payslips/s8").update({ label: "내가바꿈" }));
+  await t("slip: super deletes labelled slips", true, async () => { await sup.doc("employees/emp_0003/payslips/s6").delete(); await sup.doc("employees/emp_0003/payslips/s8").delete(); });
   await t("slip: bad type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ type: "bonus" })));
   await t("slip: bad month", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ month: "10월" })));
   await t("slip: non-pdf/image content type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ contentType: "application/zip" })));
