@@ -10,7 +10,11 @@ export const DOC_TYPES = {
   labor:   { title: "근로계약서",                  coll: "laborContracts", needs: "comp" },   // 급여가 들어 있어 ‘급여 정보’ 권한자만
   consent: { title: "개인정보 수집·이용 동의서",   coll: "contracts" },
   pledge:  { title: "서약서",                      coll: "contracts" },
+  security:{ title: "정보보안 수칙 확인서",       coll: "contracts" },   // 보안 규칙(개인정보·계정·기기·촬영물·반출 금지 …)을 읽고 준수를 서약
+  custom:  { title: "서명 문서(자유 서식)",        coll: "contracts" },   // 제목·본문을 직접 쓰는 확인서·동의서 (취업규칙 확인, 교육 이수 확인 …). 여러 직원에게 일괄 발송 가능
 };
+// 문서의 이름 (자유 서식은 직접 쓴 제목)
+export const docTitle = (c) => (c?.type === "custom" ? (c.data?.title || DOC_TYPES.custom.title) : DOC_TYPES[c?.type]?.title || c?.type || "문서");
 
 const T = (key, label, grp, extra = {}) => ({ key, label, grp, type: "text", ...extra });
 
@@ -50,7 +54,29 @@ export const FIELDS = {
     T("confirm", "‘확인하였습니다’ 체크", "y", { type: "check" }), T("signDate", "작성일", "y", { type: "date", req: true }),
     T("company", "회사명", "o"),
   ],
+  security: [
+    T("name", "성명", "y", { req: true }), T("dept", "소속·부서", "y"), T("signDate", "작성일", "y", { type: "date", req: true }),
+    T("company", "회사명", "o"), T("rules", "정보보안 수칙", "o", { type: "textarea", wide: true, rows: 12, max: 5000 }),
+  ],
+  custom: [
+    T("title", "문서 제목", "y", { req: true, wide: true }), T("body", "본문", "y", { type: "textarea", req: true, wide: true, rows: 10, max: 5000 }),
+    T("mode", "직원이 서명할 때 답하는 방식", "y", { type: "select", options: [["confirm", "‘확인하였으며 동의합니다’ 체크"], ["agree", "동의함 / 동의하지 않음 선택"]] }),
+    T("name", "성명", "y", { req: true }), T("signDate", "작성일", "y", { type: "date", req: true }),
+    T("company", "회사명 ({회사}로 본문에 넣을 수 있음)", "o"),
+  ],
 };
+// 자유 서식 양식 불러오기 (필요하면 고쳐서 쓴다). {회사}는 회사명으로 바뀐다
+export const CUSTOM_TEMPLATES = [
+  { key: "blank", label: "빈 양식", title: "", body: "", mode: "confirm" },
+  { key: "rules", label: "취업규칙 확인·동의서", title: "취업규칙 확인 및 동의서", mode: "confirm",
+    body: "본인은 {회사}의 취업규칙을 교부(또는 열람)받아 그 내용을 충분히 읽고 이해하였으며, 이를 성실히 준수할 것을 확인합니다." },
+  { key: "training", label: "교육 이수 확인서", title: "교육 이수 확인서", mode: "confirm",
+    body: "본인은 아래 교육을 이수하였음을 확인합니다.\n\n- 교육명 : \n- 일 시 : \n- 장 소(방식) : " },
+  { key: "pay", label: "급여 명세서 수령 확인서", title: "급여 명세서 수령 확인서", mode: "confirm",
+    body: "본인은 아래 기간의 급여 명세서(세부 내역서)를 수령하고 그 내용을 확인하였습니다.\n\n- 대상 기간 : 　　년　　월분" },
+  { key: "notice", label: "안내 사항 확인서", title: "안내 사항 확인서", mode: "confirm",
+    body: "본인은 {회사}에서 안내한 아래 사항을 모두 읽고 이해하였으며, 이에 따를 것을 확인합니다.\n\n- 안내 내용 : " },
+];
 
 export const LABOR_DEFAULT = {
   place: "본점 또는 지점", duties: "교육, 상담, 환경구성, 커리큘럼 제작 등", probOn: true, probMonths: 2,
@@ -66,6 +92,19 @@ export const CONSENT_DEFAULT = {
   period: "수집된 개인정보의 보유기간은 퇴사 후 3년이 지난 시점부터 개인정보주체가 별도 요청이 있을 때 까지 보유합니다. 또한 파기 요청을 받을 경우 {회사}은 사용자의 개인정보를 재생이 불가능한 방법으로 즉시 파기합니다.",
 };
 export const PLEDGE_DEFAULT = { company: "(주)자라다교육" };
+export const SECURITY_DEFAULT = {
+  rules: [
+    "업무상 알게 된 회사·원아·학부모·임직원의 개인정보와 영업비밀은 재직 중은 물론 퇴사 후에도 외부에 누설하거나 업무 외의 목적으로 사용하지 않습니다.",
+    "업무용 계정과 비밀번호는 본인만 사용하고 타인에게 알려 주거나 공유하지 않으며, 주기적으로 변경합니다.",
+    "개인정보가 담긴 문서·파일은 회사가 정한 저장 공간에만 보관하고, 개인 이메일·개인 클라우드·개인 저장장치(USB 등)로 옮기지 않습니다.",
+    "원아의 사진·영상·상담 내용 등은 회사가 허용한 방법으로만 촬영·보관하며, 개인 SNS·메신저 등 외부에 게시하거나 전송하지 않습니다.",
+    "업무용 PC·태블릿 등 기기는 자리를 비울 때 화면을 잠그고, 출처가 불분명한 파일이나 링크는 열지 않습니다.",
+    "출력물과 서류는 방치하지 않고 잠금 보관하며, 불필요한 문서는 분쇄 또는 파기합니다.",
+    "개인정보 유출이나 보안 사고가 의심되면 즉시 상급자 또는 개인정보 담당자에게 보고합니다.",
+    "퇴사 또는 업무 종료 시 업무 자료와 기기, 계정 권한을 모두 반납·이관하고 사본을 보유하지 않습니다.",
+    "위 사항을 위반하는 경우 회사 규정에 따른 징계와 관련 법령에 따른 민·형사상 책임을 질 수 있음을 확인합니다.",
+  ].map((t, i) => `${i + 1}. ${t}`).join("\n"),
+};
 
 // 직원 정보로 미리 채운 기본값. ctx: { emp, pi, comp, today }
 export function defaultsFor(type, ctx = {}) {
@@ -77,6 +116,8 @@ export function defaultsFor(type, ctx = {}) {
     return { ...base, ...LABOR_DEFAULT, startDate: pi.workStartDate || emp.joinedAt || "", endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
+  if (type === "security") return { name: base.name, dept: "", signDate: today, company: corpName(emp.corp) || "(주)제이드에듀", ...SECURITY_DEFAULT };
+  if (type === "custom") return { name: base.name, signDate: today, title: "", body: "", mode: "confirm", company: corpName(emp.corp) || "(주)제이드에듀" };
   if (type === "consent") return { name: base.name, agree: "", signDate: today, ...CONSENT_DEFAULT };
   return { ...base, dept: "", confirm: false, ...PLEDGE_DEFAULT };
 }
@@ -90,16 +131,30 @@ const hhmm = (t) => (t || "");
 const bool = (v) => v === true || v === "true" || v === "on";
 const fill = (s, v) => String(s ?? "").replace(/\{회사\}/g, v.company || "회사");
 
-const CSS = `@page{size:A4;margin:14mm}body{font-family:"Malgun Gothic","Pretendard",sans-serif;color:#000;font-size:11.5px;line-height:1.55;margin:0;padding:18px}
-h1{text-align:center;font-size:21px;letter-spacing:6px;margin:0 0 14px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:5px 8px;vertical-align:middle;text-align:left}
+// 글자·여백은 모두 --s(배율)를 곱해 쓴다. 근로계약서는 인쇄할 때 한 장(A4)에 들어가도록 배율을 자동으로 맞춘다.
+const CSS = `@page{size:A4;margin:10mm}:root{--s:1}
+body{font-family:"Malgun Gothic","Pretendard",sans-serif;color:#000;font-size:calc(11.5px*var(--s));line-height:1.45;margin:0;padding:calc(18px*var(--s))}
+body.fit{width:190mm;padding:0;margin:0 auto;box-sizing:border-box}
+h1{text-align:center;font-size:calc(21px*var(--s));letter-spacing:6px;margin:0 0 calc(14px*var(--s))}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:calc(5px*var(--s)) calc(8px*var(--s));vertical-align:middle;text-align:left}
 th{background:#f2f2f2;font-weight:600;text-align:center;white-space:nowrap}.c{text-align:center}.r{text-align:right}.nb td,.nb th{border:0}.pre{white-space:pre-line}
-.lead{margin:12px 0;text-align:center}ol.cl{margin:0;padding-left:20px}ol.cl li{margin:2px 0}.sign{display:flex;justify-content:space-between;gap:24px;margin-top:20px}.sign>div{flex:1;line-height:2}
-.stamp{position:relative;display:inline-block;width:58px;height:40px;text-align:center;vertical-align:middle}.stamp img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;mix-blend-mode:multiply}
-.box{border:1px solid #000;padding:8px 10px;margin:8px 0}.date{text-align:center;margin:20px 0}.small{font-size:10.5px}
+.lead{margin:calc(12px*var(--s)) 0;text-align:center}ol.cl{margin:0;padding-left:calc(20px*var(--s))}ol.cl li{margin:calc(2px*var(--s)) 0}.sign{display:flex;justify-content:space-between;gap:24px;margin-top:calc(20px*var(--s))}.sign>div{flex:1;line-height:2}
+.stamp{position:relative;display:inline-block;width:calc(58px*var(--s));height:calc(40px*var(--s));text-align:center;vertical-align:middle}.stamp img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:calc(56px*var(--s));mix-blend-mode:multiply}
+.sigbox{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:calc(150px*var(--s));height:calc(54px*var(--s));border:1px solid #000;color:#999;font-size:calc(10px*var(--s));line-height:1;box-sizing:border-box;overflow:hidden;background:#fff}.sigbox img{max-width:96%;max-height:94%;object-fit:contain}
+.box{border:1px solid #000;padding:8px 10px;margin:8px 0}.date{text-align:center;margin:calc(20px*var(--s)) 0}.small{font-size:calc(10.5px*var(--s))}
+.esig{margin-top:calc(10px*var(--s));text-align:center;font-size:calc(10px*var(--s));color:#333;border-top:1px dashed #999;padding-top:calc(4px*var(--s))}
 @media print{body{padding:0}}`;
-const wrap = (title, body, { autoPrint = true } = {}) => `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>${CSS}</style></head><body>${body}${autoPrint ? `<script>window.onload=()=>window.print();<\/script>` : ""}</body></html>`;
+// 한 장 맞춤: 본문 높이가 A4 인쇄 영역(277mm)에 들어가는 가장 큰 배율을 찾는다 (글자 크기만 줄이므로 줄바꿈이 항상 같은 폭에서 계산된다)
+const FIT_JS = `(function(){var r=document.documentElement,b=document.body,H=277*96/25.4-8;function h(s){r.style.setProperty('--s',s);return Math.max(b.offsetHeight,b.scrollHeight)}
+function fit(){var lo=.45,hi=1,i;if(h(hi)<=H){return}for(i=0;i<14;i++){var m=(lo+hi)/2;if(h(m)>H)hi=m;else lo=m}h(lo);window.__fitScale=lo}
+window.addEventListener('load',fit);window.addEventListener('beforeprint',fit)})();`;
+const wrap = (title, body, { autoPrint = true, fit = false, scale = 1 } = {}) => `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>${CSS}:root{--s:${scale}}</style></head><body${fit ? ' class="fit"' : ""}>${body}${fit ? `<script>${FIT_JS}<\/script>` : ""}${autoPrint ? `<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},60)});<\/script>` : ""}</body></html>`;
 
-function laborBody(v) {
+// 전자서명 이미지(직원이 온라인에서 서명한 경우) — 없으면 (인) 표시
+const sigSpan = (sg) => `<span class="sigbox">${sg?.img ? `<img src="${esc(sg.img)}" alt="서명">` : "(서명 또는 인)"}</span>`;
+const fmtAt = (ms) => { if (!ms) return ""; const d = new Date(ms), z = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${z(d.getMonth() + 1)}.${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
+const esig = (sg) => (sg?.img ? `<div class="esig">전자서명 완료 · ${esc(fmtAt(sg.at))} · ${esc(sg.name || "")} (본인 계정으로 로그인하여 서명)</div>` : "");
+
+function laborBody(v, sg) {
   const info = COMPANY_INFO[v.company], stamp = info ? STAMP_IMAGES[info.stampKey] : "";
   const probOn = bool(v.probOn), incOn = bool(v.incentiveOn), mealOn = bool(v.mealOn), satOn = bool(v.satOn), noticeOn = bool(v.noticeOn);
   // 계약기간
@@ -121,7 +176,7 @@ function laborBody(v) {
   const etc = ["본 계약서 상에 명시되지 않은 사항은 근로기준법 및 취업규칙에 따른다.",
     `계약기간 중 일방이 계약해지를 하고자 하는 경우 ${esc(v.terminateDays)}일 이전에 사전 통보함으로써 그 효력을 발휘하며, 이를 위반하는 자는 계약위반에 대한 민·형사상 및 행정상(노동관계법 포함) 일체의 손해배상 책임을 진다.`,
     "본 근로계약의 체결을 증명하기 위하여 계약서 2통을 작성하여 쌍방 서명 날인하고 각각 1통씩 보관한다."];
-  const row = (head, body) => `<tr><th style="width:84px">${head}</th><td>${body}</td></tr>`;
+  const row = (head, body) => `<tr><th style="width:84px">${head}</th><td colspan="3">${body}</td></tr>`;
   return `<h1>근 로 계 약 서</h1>
   <table>
     <tr><th rowspan="2" style="width:70px">사용자</th><th style="width:60px">상호</th><td>${esc(v.company)}</td><th style="width:50px">대표</th><td>${esc(v.ceo)}</td></tr>
@@ -149,10 +204,10 @@ function laborBody(v) {
   </table>
   <p class="date">${esc(dot(v.signDate))}</p>
   <div class="sign"><div><b>( 사 용 자 )</b><br>${esc(v.company)}<br>대표이사 ${esc(v.ceo)} <span class="stamp">(인)${stamp ? `<img src="${stamp}" alt="">` : ""}</span></div>
-  <div><b>( 근 로 자 )</b><br>성명 ${esc(v.name)} <span style="margin-left:14px">(인)</span><br>생년월일 ${esc(dot(v.birth))}</div></div>`;
+  <div><b>( 근 로 자 )</b><br>성명 ${esc(v.name)} <span style="margin-left:14px">${sigSpan(sg)}</span><br>생년월일 ${esc(dot(v.birth))}</div></div>${esig(sg)}`;
 }
 
-function consentBody(v) {
+function consentBody(v, sg) {
   const co = v.company || "회사", mark = (on) => (on ? "☑" : "□");
   return `<h1 style="letter-spacing:2px">개인정보 수집·이용 동의서</h1>
   <table>
@@ -164,11 +219,38 @@ function consentBody(v) {
   <p class="c" style="margin:16px 0"><b>개인정보 수집 및 이용에 동의함 ${mark(v.agree === "agree")} &nbsp;&nbsp; 개인정보 수집 및 이용에 동의하지 않음 ${mark(v.agree === "disagree")}</b></p>
   <p class="small">※ 개인정보 제공자가 동의한 내용 외의 다른 목적으로 활용하지 않으며 제공된 개인정보를 변경하고자 할 때에는 개인정보취급자를 통해 열람, 정정을 요구할 수 있음.</p>
   <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
-  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; (인)</p>
-  <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>`;
+  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>${esig(sg)}`;
 }
 
-function pledgeBody(v) {
+function securityBody(v, sg) {
+  const co = v.company || "회사";
+  return `<h1 style="letter-spacing:2px">정보보안 수칙 확인서</h1>
+  <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td><th style="width:90px">소속·부서</th><td>${esc(v.dept)}</td></tr></table>
+  <p style="margin:calc(12px*var(--s)) 0">본인은 ${esc(co)}[이하 ‘회사’]의 임직원으로서 아래 정보보안 수칙을 숙지하고 이를 성실히 지킬 것을 서약합니다.</p>
+  <div class="box pre">${nl(v.rules)}</div>
+  <p class="c" style="margin:16px 0"><b>${bool(v.confirm) ? "☑" : "□"} 위 정보보안 수칙을 모두 읽고 이해하였으며 성실히 준수할 것을 서약합니다.</b></p>
+  <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
+  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:30px"><b>${esc(co)} 대표이사 귀하</b></p>${esig(sg)}`;
+}
+
+function customBody(v, sg) {
+  const co = v.company || "회사", agree = v.mode === "agree";
+  const mark = (on) => (on ? "☑" : "□");
+  const answer = agree
+    ? `<p class="c" style="margin:16px 0"><b>동의함 ${mark(v.agree === "agree")} &nbsp;&nbsp; 동의하지 않음 ${mark(v.agree === "disagree")}</b></p>`
+    : `<p class="c" style="margin:16px 0"><b>${mark(bool(v.confirm))} 위 내용을 확인하였으며 이에 동의합니다.</b></p>`;
+  return `<h1 style="letter-spacing:2px">${esc(v.title || "서명 문서")}</h1>
+  <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td></tr></table>
+  <div class="pre" style="margin:calc(14px*var(--s)) 0;min-height:calc(120px*var(--s))">${nl(fill(v.body, v))}</div>
+  ${answer}
+  <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
+  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>${esig(sg)}`;
+}
+
+function pledgeBody(v, sg) {
   const co = v.company || "회사";
   const secrets = ["회사의 사업계획, 사업추진 방향 등에 대한 내용", "서비스의 방법 등 경영정보 일체에 관한 내용", "인사, 조직, 재무, 전산 등 관리에 관한 내용", "타사와의 제휴 사업에 관한 내용",
     "회사에서 기획, 생산 및 제공하는 교재 등 모든 교보재에 대한 내용", "업무상 발생하는 유관업체 또는 기관과의 사업정보 또는 협의내용", "회사 임직원의 활동과 그에 수반되는 부수 내용 및 기타 원 측이 영업비밀로 인정한 일체의 사항",
@@ -191,16 +273,34 @@ function pledgeBody(v) {
     <li>본인은 상기 회사에서 배운 교육방식은 영업비밀로 제정되어 특허청에 보관중임을 인지하고 있습니다. ${bool(v.confirm) ? "☑" : "□"} 확인하였습니다.</li>
   </ol>
   <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;년&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;일"}</p>
-  <p class="r" style="margin-right:30px">서약인 : ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; (인)</p>
-  <p style="margin-top:28px"><b>${esc(co)} 대표이사 귀하</b></p>`;
+  <p class="r" style="margin-right:30px">서약인 : ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:28px"><b>${esc(co)} 대표이사 귀하</b></p>${esig(sg)}`;
 }
 
-// 문서 → 인쇄용 전체 HTML (autoPrint=false 면 인쇄 창을 자동으로 띄우지 않는다)
-export function buildDocHtml(type, v, opts) {
+// 문서 → 인쇄용 전체 HTML
+//   opts.autoPrint=false 면 인쇄 창을 자동으로 띄우지 않는다(화면 미리보기). 그때는 한 장 맞춤도 하지 않는다.
+//   opts.sign = { img(PNG data URL), at(ms), name } — 직원이 전자서명한 문서
+export function buildDocHtml(type, v, opts = {}) {
   const t = DOC_TYPES[type]; if (!t) throw new Error("알 수 없는 문서 종류: " + type);
-  const body = type === "labor" ? laborBody(v) : type === "consent" ? consentBody(v) : pledgeBody(v);
-  return wrap(`${t.title} ${v.name || ""}`.trim(), body, opts);
+  const sg = opts.sign || null;
+  const body = type === "labor" ? laborBody(v, sg) : type === "consent" ? consentBody(v, sg) : type === "custom" ? customBody(v, sg) : type === "security" ? securityBody(v, sg) : pledgeBody(v, sg);
+  const printing = opts.autoPrint !== false;
+  return wrap(`${t.title} ${v.name || ""}`.trim(), body, { autoPrint: printing, fit: opts.fit ?? printing, scale: type === "labor" && !(opts.fit ?? printing) ? 0.8 : 1 });
 }
+
+// 직원이 서명하면서 직접 답하는 칸 (노랑 칸 중 ‘직원 본인의 선택’인 것). 근로계약서의 식대·중식 선택은 식대 조항이 있을 때만
+export function signAnswerFields(type, v = {}) {
+  if (type === "labor") return bool(v.mealOn) ? [{ key: "mealChoice", label: "식대·중식 선택", type: "select", req: true, options: [["meal", "식대 제공"], ["lunch", "중식 제공"]] }] : [];
+  if (type === "security") return [{ key: "confirm", label: "정보보안 수칙 준수 서약", type: "check", req: true, text: "위 정보보안 수칙을 모두 읽고 이해하였으며 성실히 준수할 것을 서약합니다" }];
+  if (type === "custom") return v.mode === "agree"
+    ? [{ key: "agree", label: "동의 여부", type: "select", req: true, options: [["agree", "동의함"], ["disagree", "동의하지 않음"]] }]
+    : [{ key: "confirm", label: "내용 확인", type: "check", req: true, text: "위 내용을 확인하였으며 이에 동의합니다" }];
+  if (type === "consent") return [{ key: "agree", label: "개인정보 수집·이용에 대한 동의 여부", type: "select", req: true, options: [["agree", "동의함"], ["disagree", "동의하지 않음"]] }];
+  return [{ key: "confirm", label: "특허청에 보관 중인 영업비밀(교육방식) 확인", type: "check", req: true, text: "확인하였습니다" }];
+}
+// 저장된 문서 + 직원이 서명할 때 답한 값 → 인쇄용 값
+export const signedValues = (c) => ({ ...(c?.data || {}), ...(c?.answers || {}) });
+export const signMeta = (c, ms) => (c?.signature ? { img: c.signature, at: ms, name: c.data?.name || "" } : null);
 
 // 필수(노랑) 칸이 비어 있으면 알려 준다
 export function missingRequired(type, v) {
@@ -214,7 +314,7 @@ export function cleanValues(type, raw) {
     const x = raw[f.key];
     if (f.type === "check") out[f.key] = bool(x);
     else if (f.type === "number") { const n = String(x ?? "").replace(/[^\d.-]/g, ""); out[f.key] = n === "" ? "" : Number(n); }
-    else out[f.key] = String(x ?? "").slice(0, f.type === "textarea" ? 2000 : 300);
+    else out[f.key] = String(x ?? "").slice(0, f.max || (f.type === "textarea" ? 2000 : 300));
   }
   return out;
 }

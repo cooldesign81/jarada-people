@@ -12,12 +12,14 @@ import { renderDistribute } from "./payslips.js";
 import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
+import { renderSignBatches } from "./sign-batch.js";
 
 let ctx = { reload: async () => {}, rerender: () => {} };
 export function initAdmin(c) { ctx = { ...ctx, ...c }; }
 const TABS = [
   { id: "export", label: "내보내기·백업", ok: () => canManage() },
   { id: "status", label: "현황 점검",     ok: () => isHR() },
+  { id: "signs",  label: "서명 문서",     ok: () => canManage() },
   { id: "slips",  label: "급여 배포",    ok: () => can("comp") },
   { id: "labor",  label: "인건비",         ok: () => can("comp") },
   { id: "audit",  label: "감사 로그",     ok: () => can("audit") },
@@ -34,7 +36,7 @@ export async function renderAdmin() {
   $("adminTabs").innerHTML = tabs.map((t) => `<button class="subtab ${t.id === adm.tab ? "active" : ""}" data-t="${t.id}">${t.label}${t.id === "trash" && state.trash.length ? ` <span class="tab-badge" style="background:#767676">${state.trash.length}</span>` : ""}</button>`).join("");
   $("adminTabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { adm.tab = b.dataset.t; renderAdmin(); }));
   const body = $("adminBody");
-  ({ slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
+  ({ signs: renderSignBatches, slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
 }
 
 // ---------- 생년월일 채우기: 주민번호가 등록돼 있는데 생년월일이 비어 있는 직원 ----------

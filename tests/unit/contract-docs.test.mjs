@@ -1,9 +1,9 @@
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues } from "../../js/contract-docs.js";
+import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT } from "../../js/contract-docs.js";
 let f = 0; const ok = (n, c, extra = "") => { if (!c) f++; console.log(c ? "PASS" : "FAIL", n, c ? "" : extra); };
 const emp = { name: "김효진", birthDate: "1990-05-21", joinedAt: "2026-03-02", corp: "jade" }, pi = { address: "경기도 군포시 산본동 78-32" };
 
 // 종류·항목 구성: 노랑(y)은 직원마다, 주황(o)은 기본값이 있는 옵션
-ok("문서 3종", Object.keys(DOC_TYPES).join() === "labor,consent,pledge");
+ok("문서 종류: 계약서 3종 + 보안 수칙 + 자유 서식", Object.keys(DOC_TYPES).join() === "labor,consent,pledge,security,custom");
 for (const t of Object.keys(FIELDS)) ok(`${t}: 노랑 칸이 있음`, FIELDS[t].some((x) => x.grp === "y"));
 ok("근로계약서·동의서에는 주황 옵션이 있음", FIELDS.labor.some((x) => x.grp === "o") && FIELDS.consent.some((x) => x.grp === "o"));
 ok("근로계약서만 급여 권한(comp)이 필요", DOC_TYPES.labor.needs === "comp" && !DOC_TYPES.consent.needs && !DOC_TYPES.pledge.needs);
@@ -56,4 +56,38 @@ ok("서약서: 회사명 반영·서명", ph.includes("(주)자라다교육 대�
 ok("필수 칸 점검", missingRequired("labor", { name: "", startDate: "", monthlyPay: "", signDate: "2026-04-15" }).length === 3 && missingRequired("labor", L).length === 0);
 const cv = cleanValues("labor", { name: "홍", monthlyPay: "2,400,000원", probOn: "on", incentiveOn: false, mealOn: true, extra: "가".repeat(3000), 이상한키: "x" });
 ok("값 정리: 숫자·체크·길이 제한·모르는 키 제거", cv.monthlyPay === 2400000 && cv.probOn === true && cv.incentiveOn === false && cv.mealOn === true && cv.extra.length === 2000 && !("이상한키" in cv));
+// 한 장 맞춤(인쇄) · 전자서명
+const pr = buildDocHtml("labor", L);
+ok("인쇄용: 한 장 맞춤 스크립트·A4 여백", pr.includes('class="fit"') && pr.includes("__fitScale") && pr.includes("@page{size:A4;margin:10mm}") && pr.includes("window.print()"));
+const pv = buildDocHtml("labor", L, { autoPrint: false });
+ok("미리보기: 인쇄 창·한 장 맞춤 없이 글자만 줄임", !pv.includes("window.print()") && !pv.includes("__fitScale") && pv.includes(":root{--s:0.8}") && buildDocHtml("pledge", P, { autoPrint: false }).includes(":root{--s:1}"));
+const PNG = "data:image/png;base64,iVBORw0KGgo=";
+const sg = buildDocHtml("labor", { ...L, mealChoice: "meal" }, { autoPrint: false, sign: { img: PNG, at: new Date(2026, 10, 17, 14, 3).getTime(), name: "김효진" } });
+ok("전자서명: 서명 이미지·서명 시각·서명자 표시", sg.includes(`<img src="${PNG}" alt="서명">`) && sg.includes("전자서명 완료 · 2026.11.17 14:03 · 김효진") && !sg.includes("(서명 또는 인)"));
+ok("서명 전에는 테두리 서명란(서명 또는 인) 표시", buildDocHtml("labor", L, { autoPrint: false }).includes('<span class="sigbox">(서명 또는 인)</span>') && buildDocHtml("custom", { ...defaultsFor("custom", { emp, today: "2026-11-17" }), title: "t", body: "b" }, { autoPrint: false }).includes("sigbox") && !buildDocHtml("labor", L, { autoPrint: false }).includes("전자서명 완료"));
+ok("동의서·서약서도 서명 이미지 반영", buildDocHtml("consent", C, { autoPrint: false, sign: { img: PNG, at: 0, name: "김효진" } }).includes(`src="${PNG}"`) && buildDocHtml("pledge", P, { autoPrint: false, sign: { img: PNG, at: 0, name: "x" } }).includes(`src="${PNG}"`));
+ok("서명 때 직원이 답하는 항목", signAnswerFields("labor", { mealOn: true })[0].key === "mealChoice" && signAnswerFields("labor", { mealOn: false }).length === 0 && signAnswerFields("consent")[0].key === "agree" && signAnswerFields("pledge")[0].key === "confirm" && signAnswerFields("pledge")[0].type === "check");
+const svv = signedValues({ data: { name: "홍", agree: "" }, answers: { agree: "agree" } });
+ok("직원의 답이 문서 값에 합쳐짐", svv.agree === "agree" && svv.name === "홍" && buildDocHtml("consent", svv, { autoPrint: false }).includes("동의함 ☑"));
+ok("signMeta", signMeta({ signature: PNG, data: { name: "홍" } }, 5).at === 5 && signMeta({ data: {} }, 5) === null);
+// 자유 서식(서명 문서)
+ok("자유 서식: 종류·저장 위치", DOC_TYPES.custom.coll === "contracts" && !DOC_TYPES.custom.needs && FIELDS.custom.filter((x) => x.req).map((x) => x.key).join() === "title,body,name,signDate");
+ok("자유 서식: 양식 5종(빈 양식 + 4)", CUSTOM_TEMPLATES.length === 5 && CUSTOM_TEMPLATES[0].key === "blank" && CUSTOM_TEMPLATES.slice(1).every((t) => t.title && t.body));
+const U = { ...defaultsFor("custom", { emp, today: "2026-11-17" }), title: "취업규칙 확인 및 동의서", body: CUSTOM_TEMPLATES[1].body };
+ok("자유 서식 기본값: 이름·작성일·회사", U.name === "김효진" && U.signDate === "2026-11-17" && U.company === "(주)제이드에듀" && U.mode === "confirm");
+const uh = buildDocHtml("custom", U, { autoPrint: false });
+ok("자유 서식: 제목·본문({회사} 치환)·확인 체크 빈칸", uh.includes("<h1") && uh.includes("취업규칙 확인 및 동의서") && uh.includes("(주)제이드에듀의 취업규칙") && !uh.includes("{회사}") && uh.includes("□ 위 내용을 확인하였으며"));
+ok("자유 서식: 직원이 확인하면 ☑", buildDocHtml("custom", { ...U, confirm: true }, { autoPrint: false }).includes("☑ 위 내용을 확인하였으며"));
+ok("자유 서식: 동의 선택 방식", buildDocHtml("custom", { ...U, mode: "agree", agree: "disagree" }, { autoPrint: false }).includes("동의하지 않음 ☑") && signAnswerFields("custom", { mode: "agree" })[0].key === "agree" && signAnswerFields("custom", { mode: "confirm" })[0].key === "confirm");
+ok("자유 서식: 본문은 이스케이프", !buildDocHtml("custom", { ...U, body: "<script>x</script>" }, { autoPrint: false }).includes("<script>x"));
+ok("자유 서식: 본문 5000자까지 저장(칸 길이)", cleanValues("custom", { title: "t", body: "가".repeat(6000) }).body.length === 5000);
+ok("docTitle: 자유 서식은 직접 쓴 제목", docTitle({ type: "custom", data: { title: "교육 이수 확인서" } }) === "교육 이수 확인서" && docTitle({ type: "labor" }) === "근로계약서" && docTitle({ type: "custom", data: {} }) === "서명 문서(자유 서식)");
+// 정보보안 수칙 확인서
+const SE = defaultsFor("security", { emp, today: "2026-11-17" });
+const seh = buildDocHtml("security", { ...SE, dept: "평촌원" }, { autoPrint: false });
+ok("보안 수칙: 기본값(이름·회사·9개 수칙)", SE.name === "김효진" && SE.company === "(주)제이드에듀" && SECURITY_DEFAULT.rules.split("\n").length === 9 && SECURITY_DEFAULT.rules.startsWith("1. "));
+ok("보안 수칙: 제목·인적 사항·수칙·확인 문구·서명란", seh.includes("정보보안 수칙 확인서") && seh.includes("평촌원") && seh.includes("9. 위 사항을 위반") && seh.includes("□ 위 정보보안 수칙을") && seh.includes("sigbox") && seh.includes("(주)제이드에듀 대표이사 귀하"));
+ok("보안 수칙: 직원이 서약하면 ☑ + 서명 항목", buildDocHtml("security", { ...SE, confirm: true }, { autoPrint: false }).includes("☑ 위 정보보안 수칙을") && signAnswerFields("security")[0].key === "confirm" && signAnswerFields("security")[0].type === "check");
+ok("보안 수칙: 주황 옵션(수칙·회사), 노랑(이름·부서·작성일)", FIELDS.security.filter((x) => x.grp === "o").map((x) => x.key).join() === "company,rules" && FIELDS.security.filter((x) => x.grp === "y").map((x) => x.key).join() === "name,dept,signDate" && DOC_TYPES.security.coll === "contracts" && !DOC_TYPES.security.needs);
+ok("보안 수칙: 수칙 문구는 이스케이프", !buildDocHtml("security", { ...SE, rules: "<img src=x onerror=1>" }, { autoPrint: false }).includes("<img src=x"));
 console.log(f ? `\n${f} FAILURES` : "\nALL PASS"); process.exit(f ? 1 : 0);

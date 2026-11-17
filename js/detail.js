@@ -12,7 +12,7 @@ import {
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
 import { mountEmployeeSlips } from "./payslips.js";
-import { mountContracts } from "./contracts.js";
+import { mountContracts, mountMySignatures, countPendingSign } from "./contracts.js";
 import { requirePayPassword } from "./paylock.js";
 import { birthFromRrn } from "./rrn.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
@@ -157,7 +157,9 @@ export async function renderMyDocs(empId) {
   const flags = await get(...priv("flags"));
   if (token !== cur.token) return;
   Object.assign(cur, { flags: flags || {}, files: { pub: [], sec: [] }, filesLoaded: false });
-  root.innerHTML = `<div class="notice" style="margin-bottom:16px">올린 서류는 담당 관리자(비공개서류는 최고관리자)만 열람할 수 있습니다. 파일은 30MB 이하로 올려 주세요.</div>${docsHtml()}`;
+  root.innerHTML = `<div class="card" id="mySignCard"><h3 class="sec-title">서명할 계약서·동의서</h3><div id="mySign"></div></div>
+    <div class="notice" style="margin-bottom:16px">올린 서류는 담당 관리자(비공개서류는 최고관리자)만 열람할 수 있습니다. 파일은 30MB 이하로 올려 주세요.</div>${docsHtml()}`;
+  mountMySignatures($("mySign"), { empId, emp });
   if (can("secDocs")) bindEval();
   drawFiles();
   await loadFiles(token);
@@ -169,6 +171,7 @@ function draw() {
   const showBack = !state.selfMode && !(isOwnPage() && !canManage());
   root.innerHTML = `
     ${showBack ? `<a class="back-link" href="#employees">← 목록으로</a>` : ""}
+    <div id="dSignNotice"></div>
     ${state.selfMode ? `<div class="notice" style="margin-bottom:16px">내 정보를 직접 입력하는 페이지입니다. 저장한 내용은 담당 관리자에게 전달됩니다. 이미 등록한 주민등록번호 뒷자리와 서류는 본인도 다시 볼 수 없습니다.</div>` : ""}
     <div class="card">
       <div class="head-top">
@@ -232,6 +235,10 @@ function draw() {
   rrnStatus();
   bindHead(); bindRrn(); bindPi(); bindUnlock();
   if (mgr) mountContracts($("dContracts"), { emp: cur.emp, pi: cur.pi, comp: cur.comp });
+  if (isOwnPage() && !state.selfMode) {   // 서명할 문서가 있으면 알려 준다 (서명은 ‘내 서류’에서)
+    const eid = cur.emp.id;
+    countPendingSign(eid).then((n) => { const box = $("dSignNotice"); if (n && box && cur.id === eid) box.innerHTML = `<div class="notice" style="margin-bottom:16px">✍️ 서명할 계약서·동의서가 <b>${n}건</b> 있습니다. <a href="#docs"><b>내 서류</b></a>에서 내용을 확인하고 서명해 주세요.</div>`; });
+  }
   if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
   if (docsInDetail()) { if (can("secDocs")) bindEval(); drawFiles(); }
   if (!state.selfMode && $("dRecords")) {

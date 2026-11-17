@@ -414,3 +414,7 @@ ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
 .cd-grp .grid-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}.cd-grp .grid-fields .field,.cd-grp .grid-fields .check{grid-column:auto}.cd-grp .grid-fields .field.full,.cd-grp .grid-fields .check.full{grid-column:1 / -1}
 @media (max-width:640px){.cd-grp .grid-fields{grid-template-columns:1fr}}
 .slip-cell + .slip-cell{ margin-top:8px; padding-top:8px; border-top:1px dashed #d9d9d9; }
+
+/* 전자서명 */
+.sg-frame{width:100%;height:min(52vh,520px);border:1px solid var(--line,#d9dee5);border-radius:10px;background:#fff}
+.sg-pad{width:100%;max-width:520px;height:auto;aspect-ratio:520/170;border:2px dashed var(--line,#b9c0ca);border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block;margin-bottom:6px}
