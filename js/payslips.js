@@ -103,8 +103,9 @@ async function putSlip(empId, type, month, file, label = "", append = false) {
   const old = append ? [] : (await getDocs(slipsOf(empId))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type && x.month === month && (x.label || "") === label);
   const path = `hr/${empId}/pay/${type}__${month}__${Date.now()}__${file.name.replace(/[\\/]/g, "_")}`, contentType = contentTypeOf(file);
   await uploadBytes(ref(storage, path), file, { contentType, customMetadata: { uploadedBy: auth.currentUser?.email || "" } });
-  await addDoc(slipsOf(empId), { type, month, ...(label ? { label } : {}), path, fileName: file.name, size: file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
+  const created = await addDoc(slipsOf(empId), { type, month, ...(label ? { label } : {}), path, fileName: file.name, size: file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
   for (const x of old) { try { await removeSlip(empId, x); } catch (e) { console.warn("이전 파일 정리 실패", e.code || e); } }
+  return { id: created.id, path };
 }
 
 // ---------- 관리 → 급여 배포 ----------
@@ -168,14 +169,28 @@ export function renderDistribute(body) {
         <td><select data-emp="${i}" ${r.state === "done" || D.busy ? "disabled" : ""}><option value="">— 선택 —</option>${list.map((e) => `<option value="${esc(e.id)}" ${e.id === r.empId ? "selected" : ""}>${esc(e.name)} (${esc(e.id)})</option>`).join("")}</select>${r.by ? ` <span class="sub">${r.by}으로 찾음</span>` : ""}${r.ambiguous ? ` <span class="sub">동명이인(${esc(r.ambiguous)}) — 직접 선택</span>` : ""}</td>
         <td><input class="input" data-lbl="${i}" list="dsLabelList" maxlength="${LABEL_MAX}" value="${esc(rowLabel(r))}" placeholder="없음" style="min-width:110px" ${r.state === "done" || D.busy ? "disabled" : ""}></td>
         <td class="res ${r.state === "done" ? "ok" : r.err || r.state === "fail" || st[i] === "dup" ? "bad" : ""}">${r.err ? esc(r.err) : r.state === "fail" ? "실패 — " + esc(r.failMsg || "") : r.state === "busy" ? "올리는 중…" : label[st[i]]}</td>
-        <td><button class="btn btn-secondary btn-sm" data-rm="${i}" ${D.busy ? "disabled" : ""}>빼기</button></td></tr>`).join("")}</tbody></table></div>
-      <div class="row-actions" style="margin-top:10px"><button class="btn btn-primary" id="btnDsUpload" ${ready.length && monthOk && !D.busy ? "" : "disabled"}>${ready.length}건 올리기</button> <button class="btn btn-secondary" id="btnDsClear" ${D.busy ? "disabled" : ""}>목록 비우기</button>
+        <td>${r.state === "done" && r.slip ? `<button class="btn btn-danger btn-sm" data-undo="${i}" ${D.busy ? "disabled" : ""}>삭제</button>` : `<button class="btn btn-secondary btn-sm" data-rm="${i}" ${D.busy ? "disabled" : ""}>빼기</button>`}</td></tr>`).join("")}</tbody></table></div>
+      <div class="row-actions" style="margin-top:10px"><button class="btn btn-primary" id="btnDsUpload" ${ready.length && monthOk && !D.busy ? "" : "disabled"}>${ready.length}건 올리기</button> <button class="btn btn-secondary" id="btnDsClear" ${D.busy ? "disabled" : ""}>목록 비우기</button>${rows.some((x) => x.state === "done" && x.slip) ? ` <button class="btn btn-danger" id="btnDsUndoAll" ${D.busy ? "disabled" : ""}>방금 올린 ${rows.filter((x) => x.state === "done" && x.slip).length}건 모두 삭제</button>` : ""}
       <span class="sub">${rows.length - ready.length > 0 ? `${rows.length - ready.length}건은 올릴 수 없는 상태입니다` : ""}</span></div>` : "";
     $("dsPreview").querySelectorAll("[data-emp]").forEach((el) => (el.onchange = () => { const r = D.rows[Number(el.dataset.emp)]; r.empId = el.value; r.by = ""; r.ambiguous = ""; r.state = ""; draw(); }));
     $("dsPreview").querySelectorAll("[data-lbl]").forEach((el) => (el.onchange = () => { D.rows[Number(el.dataset.lbl)].label = el.value; draw(); }));
     $("dsPreview").querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => { D.rows.splice(Number(b.dataset.rm), 1); draw(); }));
     $("btnDsClear")?.addEventListener("click", () => { D.rows = []; draw(); });
+    $("dsPreview").querySelectorAll("[data-undo]").forEach((b) => (b.onclick = () => undo([D.rows[Number(b.dataset.undo)]])));
+    $("btnDsUndoAll")?.addEventListener("click", () => undo(D.rows.filter((x) => x.state === "done" && x.slip)));
     $("btnDsUpload")?.addEventListener("click", upload);
+  }
+  // 방금 올린 명세서를 지운다 (실수로 잘못 올렸을 때). 지운 줄은 목록에 ‘준비됨’으로 되돌아와 직원·구분을 고쳐 다시 올릴 수 있다
+  async function undo(rows) {
+    if (!rows.length || D.busy) return;
+    const names = rows.map((x) => state.employees.find((e) => e.id === x.empId)?.name || x.empId);
+    if (!confirm(`방금 올린 ${rows.length}건(${names.slice(0, 5).join(", ")}${names.length > 5 ? " 외" : ""})을 삭제합니다. 직원도 더 이상 볼 수 없습니다. 계속할까요?`)) return;
+    D.busy = true; let ok = 0;
+    for (const x of rows) {
+      try { await removeSlip(x.empId, x.slip); audit("payslip_delete", { targetEmployeeId: x.empId, detail: `${monthLabel(x.slipMonth)} ${SLIP_TYPES[x.slipType]}${x.slipLabel ? ` [${x.slipLabel}]` : ""} (방금 올린 파일 취소)` }); x.state = ""; x.slip = null; ok++; }
+      catch (e) { console.error(e); toast(errMsg(e), true); }
+    }
+    D.busy = false; draw(); toast(`${ok}건을 삭제했습니다`, ok !== rows.length);
   }
   async function upload() {
     const st = readiness(), todo = D.rows.filter((r, i) => st[i] === "ok"), month = $("dsMonth").value, type = $("dsType").value;
@@ -188,7 +203,8 @@ export function renderDistribute(body) {
     const one = async (r) => {
       r.state = "busy"; draw();
       try {
-        await putSlip(r.empId, type, month, r.file, rowLabel(r), append);
+        r.slip = await putSlip(r.empId, type, month, r.file, rowLabel(r), append);
+        r.slipType = type; r.slipMonth = month; r.slipLabel = rowLabel(r);
         r.state = "done"; ok++;
       } catch (e) { console.error(e); r.state = "fail"; r.failMsg = errMsg(e); fail++; }
     };
