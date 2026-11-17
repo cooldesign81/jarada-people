@@ -15,6 +15,10 @@ const slipsOf = (empId) => collection(db, "employees", empId, "payslips");
 const fmtDT = (t) => { const ms = tsMillis(t); if (!ms) return ""; const d = new Date(ms); return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const monthLabel = (m) => `${m.slice(0, 4)}년 ${Number(m.slice(5))}월`;
 const byNewest = (a, b) => (b.month || "").localeCompare(a.month || "") || a.type.localeCompare(b.type) || tsMillis(b.createdAt) - tsMillis(a.createdAt);
+// 구분(label): 한 직원이 같은 달 같은 종류를 여러 곳(예: 반포원·평촌원)에서 받을 때 구분하는 이름. 비어 있으면 구분 없음
+const LABEL_MAX = 40;
+const cleanLabel = (v) => String(v || "").trim().slice(0, LABEL_MAX);
+const labelTag = (s) => (s.label ? ` <span class="badge o-hq">${esc(s.label)}</span>` : "");
 const typeBadge = (t) => `<span class="badge ${t === "incentive" ? "s-leave" : "s-active"}">${esc(SLIP_TYPES[t] || t)}</span>`;
 
 // ---------- 내 명세서 ----------
@@ -54,7 +58,7 @@ export async function renderMyPayslips() {
   if (!list.length) { root.innerHTML = lockBar + `<div class="card"><div class="msg">아직 받은 명세서가 없습니다.</div></div>`; $("btnPayPwChange").onclick = async () => { if (await changePayPassword()) renderMyPayslips(); }; return; }
   const months = [...new Set(list.map((s) => s.month))];
   root.innerHTML = lockBar + months.map((m) => `<div class="card"><h2>${monthLabel(m)}</h2>${list.filter((s) => s.month === m).map((s) => `<div class="slip-row">
-      <div>${typeBadge(s.type)} ${!s.viewedAt ? `<span class="badge s-active" data-new>새 명세서</span>` : ""}<div class="sub">${esc(s.fileName || "")}${s.size ? ` · ${(s.size / 1024).toFixed(0)}KB` : ""} · ${esc(fmtDT(s.createdAt))} 배포</div></div>
+      <div>${typeBadge(s.type)}${labelTag(s)} ${!s.viewedAt ? `<span class="badge s-active" data-new>새 명세서</span>` : ""}<div class="sub">${esc(s.fileName || "")}${s.size ? ` · ${(s.size / 1024).toFixed(0)}KB` : ""} · ${esc(fmtDT(s.createdAt))} 배포</div></div>
       <div class="row-actions"><button class="btn btn-primary btn-sm" data-view="${esc(s.id)}">보기</button> <button class="btn btn-secondary btn-sm" data-dl="${esc(s.id)}">다운로드</button></div></div>`).join("")}</div>`).join("") +
     `<p class="sub">본인 계정으로 로그인했을 때만 볼 수 있습니다. 자리를 비울 때는 로그아웃하거나 화면을 잠가 주세요.</p>`;
   $("btnPayPwChange").onclick = async () => { if (await changePayPassword()) renderMyPayslips(); };
@@ -71,7 +75,7 @@ export async function mountEmployeeSlips(el, emp) {
   try { list = (await getDocs(slipsOf(emp.id))).docs.map((d) => ({ id: d.id, ...d.data() })).sort(byNewest); } catch (e) { console.warn(e.code || e); }
   let lock = null; try { lock = await getPayLock(emp.id); } catch {}
   const lockLine = `<div class="sub" style="margin:0 0 8px">급여 열람 비밀번호: ${lock ? `설정됨 <button class="btn btn-secondary btn-sm" data-lockreset>초기화</button>` : "아직 설정 안 함 (직원이 처음 열 때 정합니다)"}</div>`;
-  el.innerHTML = lockLine + (list.length ? `<table class="tbl rec-tbl"><tbody>${list.map((s) => `<tr><td class="nowrap">${monthLabel(s.month)}</td><td>${typeBadge(s.type)}</td><td class="sub">${esc(s.fileName || "")}</td>
+  el.innerHTML = lockLine + (list.length ? `<table class="tbl rec-tbl"><tbody>${list.map((s) => `<tr><td class="nowrap">${monthLabel(s.month)}</td><td>${typeBadge(s.type)}${labelTag(s)}</td><td class="sub">${esc(s.fileName || "")}</td>
       <td class="sub">${s.viewedAt ? `열람 ${esc(fmtDT(s.viewedAt))}` : "미열람"}</td><td class="nowrap"><button class="btn btn-secondary btn-sm" data-sview="${esc(s.id)}">보기</button> <button class="btn btn-danger btn-sm" data-sdel="${esc(s.id)}">삭제</button></td></tr>`).join("")}</tbody></table>`
     : `<div class="msg">배포한 명세서가 없습니다. 관리 → 급여 배포에서 올리세요.</div>`);
   el.querySelector("[data-lockreset]")?.addEventListener("click", async () => {
@@ -82,7 +86,7 @@ export async function mountEmployeeSlips(el, emp) {
   el.querySelectorAll("[data-sview]").forEach((b) => (b.onclick = () => openSlip(list.find((x) => x.id === b.dataset.sview), emp.id, { mine: false })));
   el.querySelectorAll("[data-sdel]").forEach((b) => (b.onclick = async () => {
     const s = list.find((x) => x.id === b.dataset.sdel);
-    if (!confirm(`${monthLabel(s.month)} ${SLIP_TYPES[s.type]} (${s.fileName})를 삭제할까요? 직원도 더 이상 볼 수 없습니다.`)) return;
+    if (!confirm(`${monthLabel(s.month)} ${SLIP_TYPES[s.type]}${s.label ? ` [${s.label}]` : ""} (${s.fileName})를 삭제할까요? 직원도 더 이상 볼 수 없습니다.`)) return;
     try { await removeSlip(emp.id, s); audit("payslip_delete", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]}` }); toast("삭제했습니다"); mountEmployeeSlips(el, emp); }
     catch (e) { console.error(e); toast(errMsg(e), true); }
   }));
@@ -92,13 +96,16 @@ async function removeSlip(empId, s) {
   await deleteDoc(doc(db, "employees", empId, "payslips", s.id));
 }
 
-// 파일 하나를 올린다. 같은 직원·종류·월의 이전 파일은 올린 뒤 지운다(교체)
-async function putSlip(empId, type, month, file) {
-  const old = (await getDocs(slipsOf(empId))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type && x.month === month);
+// 파일 하나를 올린다. 같은 직원·종류·월·구분의 이전 파일은 올린 뒤 지운다(교체). 구분이 다르거나 ‘추가 올리기’면 별도 명세서로 함께 둔다
+async function putSlip(empId, type, month, file, label = "", append = false) {
+  label = cleanLabel(label);
+  // append(추가 올리기)이면 기존 파일을 그대로 두고 하나 더 넣는다
+  const old = append ? [] : (await getDocs(slipsOf(empId))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type && x.month === month && (x.label || "") === label);
   const path = `hr/${empId}/pay/${type}__${month}__${Date.now()}__${file.name.replace(/[\\/]/g, "_")}`, contentType = contentTypeOf(file);
   await uploadBytes(ref(storage, path), file, { contentType, customMetadata: { uploadedBy: auth.currentUser?.email || "" } });
-  await addDoc(slipsOf(empId), { type, month, path, fileName: file.name, size: file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
+  const created = await addDoc(slipsOf(empId), { type, month, ...(label ? { label } : {}), path, fileName: file.name, size: file.size, contentType, uploadedBy: auth.currentUser?.uid || "", uploadedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp() });
   for (const x of old) { try { await removeSlip(empId, x); } catch (e) { console.warn("이전 파일 정리 실패", e.code || e); } }
+  return { id: created.id, path };
 }
 
 // ---------- 관리 → 급여 배포 ----------
@@ -113,7 +120,11 @@ export function renderDistribute(body) {
   body.innerHTML = `<div class="card"><h2>급여 명세서·세부내역서 올리기</h2>
     <p>종류와 월을 고른 뒤 PDF 또는 이미지 파일(한 파일 10MB 이하)을 한꺼번에 올립니다. <b>파일 이름에는 직원 이름만</b> 들어 있으면 됩니다 (예: <span class="mono">김교사.pdf</span>). 이름으로 직원을 자동으로 맞추고, 못 찾았거나 동명이인인 파일은 표에서 직접 고릅니다. 올리면 직원이 로그인해 <b>‘내 급여’</b>에서 비밀번호를 한 번 더 입력하고 봅니다. 같은 직원·종류·월에 다시 올리면 새 파일로 바뀝니다.</p>
     <div class="grid-2"><div class="field"><label for="dsType">종류</label><select id="dsType">${Object.entries(SLIP_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
-      <div class="field"><label for="dsMonth">귀속 월</label><input class="input" id="dsMonth" type="month" value="${lastMonth()}"></div></div>
+      <div class="field"><label for="dsMonth">귀속 월</label><input class="input" id="dsMonth" type="month" value="${lastMonth()}"></div>
+      <div class="field full"><label for="dsLabel">구분 (선택)</label><input class="input" id="dsLabel" list="dsLabelList" maxlength="${LABEL_MAX}" placeholder="예: 반포원 — 한 직원이 같은 달에 여러 곳에서 받을 때만 적습니다">
+        <datalist id="dsLabelList">${state.orgs.filter((o) => o.active !== false).map((o) => `<option value="${esc(o.name)}">`).join("")}</datalist>
+        <span class="help">구분을 적으면 줄마다 따로 바꿀 수도 있습니다. 구분이 다르면 같은 직원의 같은 종류·월 명세서도 별도로 함께 들어갑니다.</span></div>
+      <label class="check full"><input type="checkbox" id="dsAppend"> <b>한 직원에게 2개 이상 올리기</b> — 같은 직원의 파일이 목록에 여러 개 있어도 되고, 이미 올린 파일을 교체하지 않고 <b>추가</b>로 올립니다 (체크하지 않으면 같은 직원·종류·월·구분의 이전 파일은 새 파일로 교체됩니다)</label></div>
     <div class="dropzone" id="dsZone"><div class="dz-title">📎 파일을 끌어다 놓거나 클릭해서 선택 (여러 개)</div><input type="file" id="dsFiles" multiple accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic" class="hidden"></div>
     <div id="dsPreview"></div><div class="msg error" id="dsErr"></div></div>
     <div class="card"><h2>월별 배포 현황</h2><p class="sub">직원 수만큼 읽기가 발생합니다. 누가 받았고 열어 봤는지 확인합니다.</p>
@@ -124,54 +135,76 @@ export function renderDistribute(body) {
   zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
   zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
   zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("dragover"); addFiles([...(e.dataTransfer?.files || [])]); });
-  $("dsType").onchange = $("dsMonth").onchange = () => draw();
+  $("dsType").onchange = $("dsMonth").onchange = $("dsLabel").oninput = $("dsAppend").onchange = () => draw();
   $("btnDsStat").onclick = () => loadStatus();
 
   function addFiles(files) {
     const list = emps();
     for (const file of files) {
       const g = guessEmployee(file.name, list);
-      D.rows.push({ file, err: isAllowedFile(file), empId: g.emp?.id || "", by: g.by, ambiguous: g.ambiguous ? g.ambiguous.map((e) => e.name).join("·") : "", state: "" });
+      D.rows.push({ file, label: undefined, err: isAllowedFile(file), empId: g.emp?.id || "", by: g.by, ambiguous: g.ambiguous ? g.ambiguous.map((e) => e.name).join("·") : "", state: "" });
     }
     draw();
   }
-  // 올릴 수 있는 줄: 파일 이상 없음 + 직원 선택됨 + 같은 직원 파일이 앞에 없음 + 아직 안 올림
+  // 줄의 구분: 줄에서 직접 고친 값이 있으면 그 값, 없으면 위의 구분 칸 값
+  const rowLabel = (r) => cleanLabel(r.label !== undefined ? r.label : $("dsLabel")?.value);
+  // 올릴 수 있는 줄: 파일 이상 없음 + 직원 선택됨 + 같은 직원·같은 구분의 파일이 앞에 없음 + 아직 안 올림
   function readiness() {
     const seen = new Set();
     return D.rows.map((r) => {
       if (r.state === "done") return "done";
       if (r.err) return "bad";
       if (!r.empId) return "noemp";
-      if (seen.has(r.empId)) return "dup";
-      seen.add(r.empId); return "ok";
+      const key = r.empId + "|" + rowLabel(r);
+      if (!$("dsAppend")?.checked && seen.has(key)) return "dup";
+      seen.add(key); return "ok";
     });
   }
   function draw() {
     const rows = D.rows, st = readiness(), month = $("dsMonth").value, type = $("dsType").value, monthOk = isMonth(month);
     const ready = rows.filter((r, i) => st[i] === "ok");
-    const list = emps(), label = { ok: "준비됨", noemp: "직원을 선택하세요", dup: "같은 직원의 파일이 이미 목록에 있습니다 — 빼 주세요", done: "올림", bad: "" };
-    $("dsPreview").innerHTML = rows.length ? `<p style="margin:12px 0 6px">올릴 내용: <b>${monthOk ? monthLabel(month) : "월을 선택하세요"} ${esc(SLIP_TYPES[type])}</b></p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>파일</th><th>직원</th><th>상태</th><th></th></tr></thead><tbody>${rows.map((r, i) => `<tr class="${r.err || st[i] === "dup" ? "bad" : ""}">
+    const list = emps(), label = { ok: "준비됨", noemp: "직원을 선택하세요", dup: "같은 직원·같은 구분의 파일이 이미 목록에 있습니다 — 2개를 모두 올리려면 ‘한 직원에게 2개 이상 올리기’를 체크하거나 구분을 다르게 적으세요", done: "올림", bad: "" };
+    $("dsPreview").innerHTML = rows.length ? `<p style="margin:12px 0 6px">올릴 내용: <b>${monthOk ? monthLabel(month) : "월을 선택하세요"} ${esc(SLIP_TYPES[type])}</b></p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>파일</th><th>직원</th><th>구분</th><th>상태</th><th></th></tr></thead><tbody>${rows.map((r, i) => `<tr class="${r.err || st[i] === "dup" ? "bad" : ""}">
         <td class="sub" style="max-width:260px;overflow-wrap:anywhere">${esc(r.file.name)}</td>
         <td><select data-emp="${i}" ${r.state === "done" || D.busy ? "disabled" : ""}><option value="">— 선택 —</option>${list.map((e) => `<option value="${esc(e.id)}" ${e.id === r.empId ? "selected" : ""}>${esc(e.name)} (${esc(e.id)})</option>`).join("")}</select>${r.by ? ` <span class="sub">${r.by}으로 찾음</span>` : ""}${r.ambiguous ? ` <span class="sub">동명이인(${esc(r.ambiguous)}) — 직접 선택</span>` : ""}</td>
+        <td><input class="input" data-lbl="${i}" list="dsLabelList" maxlength="${LABEL_MAX}" value="${esc(rowLabel(r))}" placeholder="없음" style="min-width:110px" ${r.state === "done" || D.busy ? "disabled" : ""}></td>
         <td class="res ${r.state === "done" ? "ok" : r.err || r.state === "fail" || st[i] === "dup" ? "bad" : ""}">${r.err ? esc(r.err) : r.state === "fail" ? "실패 — " + esc(r.failMsg || "") : r.state === "busy" ? "올리는 중…" : label[st[i]]}</td>
-        <td><button class="btn btn-secondary btn-sm" data-rm="${i}" ${D.busy ? "disabled" : ""}>빼기</button></td></tr>`).join("")}</tbody></table></div>
-      <div class="row-actions" style="margin-top:10px"><button class="btn btn-primary" id="btnDsUpload" ${ready.length && monthOk && !D.busy ? "" : "disabled"}>${ready.length}건 올리기</button> <button class="btn btn-secondary" id="btnDsClear" ${D.busy ? "disabled" : ""}>목록 비우기</button>
+        <td>${r.state === "done" && r.slip ? `<button class="btn btn-danger btn-sm" data-undo="${i}" ${D.busy ? "disabled" : ""}>삭제</button>` : `<button class="btn btn-secondary btn-sm" data-rm="${i}" ${D.busy ? "disabled" : ""}>빼기</button>`}</td></tr>`).join("")}</tbody></table></div>
+      <div class="row-actions" style="margin-top:10px"><button class="btn btn-primary" id="btnDsUpload" ${ready.length && monthOk && !D.busy ? "" : "disabled"}>${ready.length}건 올리기</button> <button class="btn btn-secondary" id="btnDsClear" ${D.busy ? "disabled" : ""}>목록 비우기</button>${rows.some((x) => x.state === "done" && x.slip) ? ` <button class="btn btn-danger" id="btnDsUndoAll" ${D.busy ? "disabled" : ""}>방금 올린 ${rows.filter((x) => x.state === "done" && x.slip).length}건 모두 삭제</button>` : ""}
       <span class="sub">${rows.length - ready.length > 0 ? `${rows.length - ready.length}건은 올릴 수 없는 상태입니다` : ""}</span></div>` : "";
     $("dsPreview").querySelectorAll("[data-emp]").forEach((el) => (el.onchange = () => { const r = D.rows[Number(el.dataset.emp)]; r.empId = el.value; r.by = ""; r.ambiguous = ""; r.state = ""; draw(); }));
+    $("dsPreview").querySelectorAll("[data-lbl]").forEach((el) => (el.onchange = () => { D.rows[Number(el.dataset.lbl)].label = el.value; draw(); }));
     $("dsPreview").querySelectorAll("[data-rm]").forEach((b) => (b.onclick = () => { D.rows.splice(Number(b.dataset.rm), 1); draw(); }));
     $("btnDsClear")?.addEventListener("click", () => { D.rows = []; draw(); });
+    $("dsPreview").querySelectorAll("[data-undo]").forEach((b) => (b.onclick = () => undo([D.rows[Number(b.dataset.undo)]])));
+    $("btnDsUndoAll")?.addEventListener("click", () => undo(D.rows.filter((x) => x.state === "done" && x.slip)));
     $("btnDsUpload")?.addEventListener("click", upload);
+  }
+  // 방금 올린 명세서를 지운다 (실수로 잘못 올렸을 때). 지운 줄은 목록에 ‘준비됨’으로 되돌아와 직원·구분을 고쳐 다시 올릴 수 있다
+  async function undo(rows) {
+    if (!rows.length || D.busy) return;
+    const names = rows.map((x) => state.employees.find((e) => e.id === x.empId)?.name || x.empId);
+    if (!confirm(`방금 올린 ${rows.length}건(${names.slice(0, 5).join(", ")}${names.length > 5 ? " 외" : ""})을 삭제합니다. 직원도 더 이상 볼 수 없습니다. 계속할까요?`)) return;
+    D.busy = true; let ok = 0;
+    for (const x of rows) {
+      try { await removeSlip(x.empId, x.slip); audit("payslip_delete", { targetEmployeeId: x.empId, detail: `${monthLabel(x.slipMonth)} ${SLIP_TYPES[x.slipType]}${x.slipLabel ? ` [${x.slipLabel}]` : ""} (방금 올린 파일 취소)` }); x.state = ""; x.slip = null; ok++; }
+      catch (e) { console.error(e); toast(errMsg(e), true); }
+    }
+    D.busy = false; draw(); toast(`${ok}건을 삭제했습니다`, ok !== rows.length);
   }
   async function upload() {
     const st = readiness(), todo = D.rows.filter((r, i) => st[i] === "ok"), month = $("dsMonth").value, type = $("dsType").value;
     if (!todo.length || D.busy || !isMonth(month)) return;
     const names = [...new Set(todo.map((r) => state.employees.find((e) => e.id === r.empId)?.name))];
-    if (!confirm(`${monthLabel(month)} ${SLIP_TYPES[type]} ${todo.length}건을 ${names.length}명에게 올립니다.\n직원이 로그인해서 비밀번호를 입력하면 바로 볼 수 있습니다. 계속할까요?`)) return;
+    const append = !!$("dsAppend")?.checked;
+    const labels = [...new Set(todo.map(rowLabel).filter(Boolean))];
+    if (!confirm(`${monthLabel(month)} ${SLIP_TYPES[type]}${labels.length ? ` [구분: ${labels.join(", ")}]` : ""} ${todo.length}건을 ${names.length}명에게 올립니다${append ? " (이미 올린 파일은 교체하지 않고 추가합니다)" : ""}.\n직원이 로그인해서 비밀번호를 입력하면 바로 볼 수 있습니다. 계속할까요?`)) return;
     D.busy = true; $("dsErr").textContent = ""; let ok = 0, fail = 0;
     const one = async (r) => {
       r.state = "busy"; draw();
       try {
-        await putSlip(r.empId, type, month, r.file);
+        r.slip = await putSlip(r.empId, type, month, r.file, rowLabel(r), append);
+        r.slipType = type; r.slipMonth = month; r.slipLabel = rowLabel(r);
         r.state = "done"; ok++;
       } catch (e) { console.error(e); r.state = "fail"; r.failMsg = errMsg(e); fail++; }
     };
@@ -191,11 +224,13 @@ export function renderDistribute(body) {
     }));
     rows.sort((a, b) => a.e.name.localeCompare(b.e.name, "ko"));
     const cell = (r, t) => {
-      const x = r.slips.filter((y) => y.type === t).sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt))[0];
-      if (!x) return `<span class="sub">—</span>`;
-      const k = `data-sid="${esc(x.id)}" data-semp="${esc(r.e.id)}"`;
-      return `<span class="badge s-active">배포</span> <span class="sub">${x.viewedAt ? "열람 " + esc(fmtDT(x.viewedAt)) : "미열람"}</span>
-        <div class="slip-acts"><button class="btn btn-secondary btn-sm" ${k} data-sact="view">보기</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="edit">종류·월 수정</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="replace">파일 교체</button> <button class="btn btn-danger btn-sm" ${k} data-sact="del">삭제</button></div>`;
+      const xs = r.slips.filter((y) => y.type === t).sort((a, b) => (a.label || "").localeCompare(b.label || "", "ko") || tsMillis(b.createdAt) - tsMillis(a.createdAt));
+      if (!xs.length) return `<span class="sub">—</span>`;
+      return xs.map((x) => {
+        const k = `data-sid="${esc(x.id)}" data-semp="${esc(r.e.id)}"`;
+        return `<div class="slip-cell"><span class="badge s-active">배포</span>${labelTag(x)} <span class="sub">${x.viewedAt ? "열람 " + esc(fmtDT(x.viewedAt)) : "미열람"}</span>
+        <div class="slip-acts"><button class="btn btn-secondary btn-sm" ${k} data-sact="view">보기</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="edit">종류·월·구분 수정</button> <button class="btn btn-secondary btn-sm" ${k} data-sact="replace">파일 교체</button> <button class="btn btn-danger btn-sm" ${k} data-sact="del">삭제</button></div></div>`;
+      }).join("");
     };
     const got = rows.filter((r) => r.slips.length).length, count = (t) => rows.filter((r) => r.slips.some((x) => x.type === t)).length;
     $("dsStat").innerHTML = `<p style="margin:10px 0">${monthLabel(month)}: 받은 직원 <b>${got}</b> / ${rows.length}명</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>${SLIP_TYPES.salary}</th><th>${SLIP_TYPES.incentive}</th></tr></thead><tbody>${rows.map((r) => `<tr><td><a href="#emp/${esc(r.e.id)}">${esc(r.e.name)}</a></td><td class="sub">${esc(orgNames(r.e.orgIds))}</td><td>${cell(r, "salary")}</td><td>${cell(r, "incentive")}</td></tr>`).join("")}</tbody></table></div>
@@ -206,13 +241,14 @@ export function renderDistribute(body) {
       if (act === "view") return openSlip(s, emp.id, { mine: false });
       if (act === "del") {
         if (!confirm(`${emp.name} 님의 ${monthLabel(s.month)} ${SLIP_TYPES[s.type]}(${s.fileName})를 삭제할까요? 직원도 더 이상 볼 수 없습니다.`)) return;
-        try { await removeSlip(emp.id, s); audit("payslip_delete", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]}` }); toast("삭제했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
+        try { await removeSlip(emp.id, s); audit("payslip_delete", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]}${s.label ? ` [${s.label}]` : ""}` }); toast("삭제했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
       } else if (act === "replace") {
         const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic";
         inp.onchange = async () => {
           const f = inp.files?.[0]; if (!f) return; const bad = isAllowedFile(f); if (bad) return toast(bad, true);
           if (!confirm(`${emp.name} 님의 ${monthLabel(s.month)} ${SLIP_TYPES[s.type]}를 ‘${f.name}’(으)로 바꿉니다. 직원은 새 파일을 보게 됩니다.`)) return;
-          try { await putSlip(emp.id, s.type, s.month, f); audit("payslip_upload", { targetEmployeeId: emp.id, detail: `${monthLabel(s.month)} ${SLIP_TYPES[s.type]} 교체` }); toast("교체했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
+          try { await putSlip(emp.id, s.type, s.month, f, s.label || "", true); await removeSlip(emp.id, s);   // 이 명세서만 새 파일로 바꾼다 (같은 종류·월의 다른 명세서는 그대로)
+           audit("payslip_upload", { targetEmployeeId: emp.id, detail: `${monthLabel(s.month)} ${SLIP_TYPES[s.type]} 교체` }); toast("교체했습니다"); loadStatus(); } catch (e) { console.error(e); toast(errMsg(e), true); }
         };
         window.__slipReplaceInput = inp; inp.click();
       } else openEdit(emp, s);
@@ -229,15 +265,15 @@ export function renderDistribute(body) {
   function openEdit(emp, s) {
     $("seInfo").textContent = `${emp.name} · ${s.fileName}`;
     $("seType").innerHTML = Object.entries(SLIP_TYPES).map(([k, v]) => `<option value="${k}" ${k === s.type ? "selected" : ""}>${v}</option>`).join("");
-    $("seMonth").value = s.month; $("seErr").textContent = "";
+    $("seMonth").value = s.month; $("seLabel").value = s.label || ""; $("seErr").textContent = "";
     $("btnSeCancel").onclick = () => $("dlgSlipEdit").close();
     $("btnSeSave").onclick = async () => {
-      const type = $("seType").value, month = $("seMonth").value;
+      const type = $("seType").value, month = $("seMonth").value, label = cleanLabel($("seLabel").value);
       if (!isMonth(month)) return ($("seErr").textContent = "월을 선택하세요.");
-      if (type === s.type && month === s.month) return $("dlgSlipEdit").close();
+      if (type === s.type && month === s.month && label === (s.label || "")) return $("dlgSlipEdit").close();
       let others = []; try { others = (await getDocs(slipsOf(emp.id))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch {}
-      if (others.some((x) => x.id !== s.id && x.type === type && x.month === month)) return ($("seErr").textContent = `이미 ${monthLabel(month)} ${SLIP_TYPES[type]}가 있습니다. 그 파일을 먼저 삭제하거나 교체하세요.`);
-      try { await updateDoc(doc(db, "employees", emp.id, "payslips", s.id), { type, month, updatedAt: serverTimestamp() }); audit("payslip_edit", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]} → ${month} ${SLIP_TYPES[type]}` }); $("dlgSlipEdit").close(); toast("수정했습니다"); loadStatus(); }
+      if (others.some((x) => x.id !== s.id && x.type === type && x.month === month && (x.label || "") === label)) return ($("seErr").textContent = `이미 ${monthLabel(month)} ${SLIP_TYPES[type]}${label ? ` [${label}]` : ""}가 있습니다. 구분을 다르게 하거나 그 파일을 먼저 삭제·교체하세요.`);
+      try { await updateDoc(doc(db, "employees", emp.id, "payslips", s.id), { type, month, label, updatedAt: serverTimestamp() }); audit("payslip_edit", { targetEmployeeId: emp.id, detail: `${s.month} ${SLIP_TYPES[s.type]}${s.label ? ` [${s.label}]` : ""} → ${month} ${SLIP_TYPES[type]}${label ? ` [${label}]` : ""}` }); $("dlgSlipEdit").close(); toast("수정했습니다"); loadStatus(); }
       catch (e) { console.error(e); $("seErr").textContent = errMsg(e); }
     };
     $("dlgSlipEdit").showModal();

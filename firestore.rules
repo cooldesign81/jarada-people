@@ -432,6 +432,7 @@ service cloud.firestore {
             && d.month is string && d.month.matches('^[0-9]{4}-[0-9]{2}$')
             && d.path is string && d.path.size() <= 300 && d.path.matches('^hr/[^/]+/pay/.*')
             && d.fileName is string && d.fileName.size() <= 200
+            && d.get('label', '') is string && d.get('label', '').size() <= 40
             && d.size is number && d.size > 0 && d.size <= 10 * 1024 * 1024
             && d.contentType is string && (d.contentType == 'application/pdf' || d.contentType.matches('^image/.*'));
         }
@@ -440,9 +441,9 @@ service cloud.firestore {
         allow update: if isSelfAccount(empId) && !('viewedAt' in resource.data)
                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedAt'])
                       && request.resource.data.viewedAt == request.time;
-        // 배포한 뒤 종류·월을 바로잡는 것은 급여 권한자 (파일·이름 등 나머지는 못 바꾼다)
+        // 배포한 뒤 종류·월·구분(label)을 바로잡는 것은 급여 권한자 (파일·이름 등 나머지는 못 바꾼다)
         allow update: if capAll('comp', []) && validSlip()
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'month', 'updatedAt']);
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'month', 'label', 'updatedAt']);
         allow delete: if capAll('comp', []);
       }
 
