@@ -10,6 +10,7 @@ export const DOC_TYPES = {
   labor:   { title: "근로계약서",                  coll: "laborContracts", needs: "comp" },   // 급여가 들어 있어 ‘급여 정보’ 권한자만
   consent: { title: "개인정보 수집·이용 동의서",   coll: "contracts" },
   pledge:  { title: "서약서",                      coll: "contracts" },
+  security:{ title: "정보보안 수칙 확인서",       coll: "contracts" },   // 보안 규칙(개인정보·계정·기기·촬영물·반출 금지 …)을 읽고 준수를 서약
   custom:  { title: "서명 문서(자유 서식)",        coll: "contracts" },   // 제목·본문을 직접 쓰는 확인서·동의서 (취업규칙 확인, 교육 이수 확인 …). 여러 직원에게 일괄 발송 가능
 };
 // 문서의 이름 (자유 서식은 직접 쓴 제목)
@@ -53,6 +54,10 @@ export const FIELDS = {
     T("confirm", "‘확인하였습니다’ 체크", "y", { type: "check" }), T("signDate", "작성일", "y", { type: "date", req: true }),
     T("company", "회사명", "o"),
   ],
+  security: [
+    T("name", "성명", "y", { req: true }), T("dept", "소속·부서", "y"), T("signDate", "작성일", "y", { type: "date", req: true }),
+    T("company", "회사명", "o"), T("rules", "정보보안 수칙", "o", { type: "textarea", wide: true, rows: 12, max: 5000 }),
+  ],
   custom: [
     T("title", "문서 제목", "y", { req: true, wide: true }), T("body", "본문", "y", { type: "textarea", req: true, wide: true, rows: 10, max: 5000 }),
     T("mode", "직원이 서명할 때 답하는 방식", "y", { type: "select", options: [["confirm", "‘확인하였으며 동의합니다’ 체크"], ["agree", "동의함 / 동의하지 않음 선택"]] }),
@@ -87,6 +92,19 @@ export const CONSENT_DEFAULT = {
   period: "수집된 개인정보의 보유기간은 퇴사 후 3년이 지난 시점부터 개인정보주체가 별도 요청이 있을 때 까지 보유합니다. 또한 파기 요청을 받을 경우 {회사}은 사용자의 개인정보를 재생이 불가능한 방법으로 즉시 파기합니다.",
 };
 export const PLEDGE_DEFAULT = { company: "(주)자라다교육" };
+export const SECURITY_DEFAULT = {
+  rules: [
+    "업무상 알게 된 회사·원아·학부모·임직원의 개인정보와 영업비밀은 재직 중은 물론 퇴사 후에도 외부에 누설하거나 업무 외의 목적으로 사용하지 않습니다.",
+    "업무용 계정과 비밀번호는 본인만 사용하고 타인에게 알려 주거나 공유하지 않으며, 주기적으로 변경합니다.",
+    "개인정보가 담긴 문서·파일은 회사가 정한 저장 공간에만 보관하고, 개인 이메일·개인 클라우드·개인 저장장치(USB 등)로 옮기지 않습니다.",
+    "원아의 사진·영상·상담 내용 등은 회사가 허용한 방법으로만 촬영·보관하며, 개인 SNS·메신저 등 외부에 게시하거나 전송하지 않습니다.",
+    "업무용 PC·태블릿 등 기기는 자리를 비울 때 화면을 잠그고, 출처가 불분명한 파일이나 링크는 열지 않습니다.",
+    "출력물과 서류는 방치하지 않고 잠금 보관하며, 불필요한 문서는 분쇄 또는 파기합니다.",
+    "개인정보 유출이나 보안 사고가 의심되면 즉시 상급자 또는 개인정보 담당자에게 보고합니다.",
+    "퇴사 또는 업무 종료 시 업무 자료와 기기, 계정 권한을 모두 반납·이관하고 사본을 보유하지 않습니다.",
+    "위 사항을 위반하는 경우 회사 규정에 따른 징계와 관련 법령에 따른 민·형사상 책임을 질 수 있음을 확인합니다.",
+  ].map((t, i) => `${i + 1}. ${t}`).join("\n"),
+};
 
 // 직원 정보로 미리 채운 기본값. ctx: { emp, pi, comp, today }
 export function defaultsFor(type, ctx = {}) {
@@ -98,6 +116,7 @@ export function defaultsFor(type, ctx = {}) {
     return { ...base, ...LABOR_DEFAULT, startDate: pi.workStartDate || emp.joinedAt || "", endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
+  if (type === "security") return { name: base.name, dept: "", signDate: today, company: corpName(emp.corp) || "(주)제이드에듀", ...SECURITY_DEFAULT };
   if (type === "custom") return { name: base.name, signDate: today, title: "", body: "", mode: "confirm", company: corpName(emp.corp) || "(주)제이드에듀" };
   if (type === "consent") return { name: base.name, agree: "", signDate: today, ...CONSENT_DEFAULT };
   return { ...base, dept: "", confirm: false, ...PLEDGE_DEFAULT };
@@ -204,6 +223,18 @@ function consentBody(v, sg) {
   <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>${esig(sg)}`;
 }
 
+function securityBody(v, sg) {
+  const co = v.company || "회사";
+  return `<h1 style="letter-spacing:2px">정보보안 수칙 확인서</h1>
+  <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td><th style="width:90px">소속·부서</th><td>${esc(v.dept)}</td></tr></table>
+  <p style="margin:calc(12px*var(--s)) 0">본인은 ${esc(co)}[이하 ‘회사’]의 임직원으로서 아래 정보보안 수칙을 숙지하고 이를 성실히 지킬 것을 서약합니다.</p>
+  <div class="box pre">${nl(v.rules)}</div>
+  <p class="c" style="margin:16px 0"><b>${bool(v.confirm) ? "☑" : "□"} 위 정보보안 수칙을 모두 읽고 이해하였으며 성실히 준수할 것을 서약합니다.</b></p>
+  <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
+  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:30px"><b>${esc(co)} 대표이사 귀하</b></p>${esig(sg)}`;
+}
+
 function customBody(v, sg) {
   const co = v.company || "회사", agree = v.mode === "agree";
   const mark = (on) => (on ? "☑" : "□");
@@ -252,7 +283,7 @@ function pledgeBody(v, sg) {
 export function buildDocHtml(type, v, opts = {}) {
   const t = DOC_TYPES[type]; if (!t) throw new Error("알 수 없는 문서 종류: " + type);
   const sg = opts.sign || null;
-  const body = type === "labor" ? laborBody(v, sg) : type === "consent" ? consentBody(v, sg) : type === "custom" ? customBody(v, sg) : pledgeBody(v, sg);
+  const body = type === "labor" ? laborBody(v, sg) : type === "consent" ? consentBody(v, sg) : type === "custom" ? customBody(v, sg) : type === "security" ? securityBody(v, sg) : pledgeBody(v, sg);
   const printing = opts.autoPrint !== false;
   return wrap(`${t.title} ${v.name || ""}`.trim(), body, { autoPrint: printing, fit: opts.fit ?? printing, scale: type === "labor" && !(opts.fit ?? printing) ? 0.8 : 1 });
 }
@@ -260,6 +291,7 @@ export function buildDocHtml(type, v, opts = {}) {
 // 직원이 서명하면서 직접 답하는 칸 (노랑 칸 중 ‘직원 본인의 선택’인 것). 근로계약서의 식대·중식 선택은 식대 조항이 있을 때만
 export function signAnswerFields(type, v = {}) {
   if (type === "labor") return bool(v.mealOn) ? [{ key: "mealChoice", label: "식대·중식 선택", type: "select", req: true, options: [["meal", "식대 제공"], ["lunch", "중식 제공"]] }] : [];
+  if (type === "security") return [{ key: "confirm", label: "정보보안 수칙 준수 서약", type: "check", req: true, text: "위 정보보안 수칙을 모두 읽고 이해하였으며 성실히 준수할 것을 서약합니다" }];
   if (type === "custom") return v.mode === "agree"
     ? [{ key: "agree", label: "동의 여부", type: "select", req: true, options: [["agree", "동의함"], ["disagree", "동의하지 않음"]] }]
     : [{ key: "confirm", label: "내용 확인", type: "check", req: true, text: "위 내용을 확인하였으며 이에 동의합니다" }];

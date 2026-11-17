@@ -602,6 +602,12 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("custom: employee signs a custom doc (confirm)", true, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
   await t("custom: employee cannot sign it twice", false, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
   await t("custom: employee cannot move it to another batch", false, () => stf.doc("employees/emp_0003/contracts/C2").update(SG({ answers: { confirm: true }, batchId: "B9" })));
+  const SEC = (o = {}, d = {}) => CT("security", { title: "정보보안 수칙 확인서 · 이교사", data: { name: "이교사", rules: "1. 보안", ...d }, status: "sent", sentAt: TS(), ...o });
+  await t("security: hr sends 보안 수칙 확인서", true, () => hr.doc("employees/emp_0003/contracts/S1").set(SEC()));
+  await t("security: rules text over 5000 rejected", false, () => hr.doc("employees/emp_0003/contracts/S2").set(SEC({}, { rules: "가".repeat(5001) })));
+  await t("security: not allowed in laborContracts", false, () => sup.doc("employees/emp_0003/laborContracts/S2").set(SEC()));
+  await t("security: employee signs with confirm", true, () => stf.doc("employees/emp_0003/contracts/S1").update(SG({ answers: { confirm: true } })));
+  await t("security: signed one cannot be edited by hr", false, () => hr.doc("employees/emp_0003/contracts/S1").update({ title: "x", updatedAt: TS() }));
   const BA = (o = {}) => ({ title: "취업규칙 확인", recipients: ["emp_0003"], count: 1, createdAt: TS(), createdBy: "u_hr", createdByName: "인사", ...o });
   await t("batch: hr creates a batch record", true, () => hr.doc("signBatches/B1").set(BA()));
   await t("batch: createdBy must be me", false, () => hr.doc("signBatches/B2").set(BA({ createdBy: "someone" })));

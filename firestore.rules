@@ -481,6 +481,7 @@ service cloud.firestore {
           && d.data is map && d.data.keys().size() <= 60
           && d.get('status', 'draft') in ['draft', 'sent', 'signed']
           && d.get('batchId', '') is string && d.get('batchId', '').size() <= 40
+          && (d.type != 'security' || (d.data.get('rules', '') is string && d.data.get('rules', '').size() <= 5000))
           && (d.type != 'custom' || (d.data.get('title', '') is string && d.data.get('title', '').size() <= 100
                                       && d.data.get('body', '') is string && d.data.get('body', '').size() <= 5000));
       }
@@ -504,9 +505,9 @@ service cloud.firestore {
       match /contracts/{contractId} {
         allow read: if isHR() || orgAdminOfEmp(empId)
                     || (isSelfAccount(empId) && resource.data.status in ['sent', 'signed']);
-        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'pledge', 'custom']);
-        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge', 'custom']) && request.resource.data.type == resource.data.type)
-                      || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge', 'custom']));
+        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'pledge', 'custom', 'security']);
+        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge', 'custom', 'security']) && request.resource.data.type == resource.data.type)
+                      || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge', 'custom', 'security']));
         allow delete: if isSuper() || ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned());
       }
       match /laborContracts/{contractId} {

@@ -1,9 +1,9 @@
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle } from "../../js/contract-docs.js";
+import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT } from "../../js/contract-docs.js";
 let f = 0; const ok = (n, c, extra = "") => { if (!c) f++; console.log(c ? "PASS" : "FAIL", n, c ? "" : extra); };
 const emp = { name: "김효진", birthDate: "1990-05-21", joinedAt: "2026-03-02", corp: "jade" }, pi = { address: "경기도 군포시 산본동 78-32" };
 
 // 종류·항목 구성: 노랑(y)은 직원마다, 주황(o)은 기본값이 있는 옵션
-ok("문서 종류: 계약서 3종 + 자유 서식", Object.keys(DOC_TYPES).join() === "labor,consent,pledge,custom");
+ok("문서 종류: 계약서 3종 + 보안 수칙 + 자유 서식", Object.keys(DOC_TYPES).join() === "labor,consent,pledge,security,custom");
 for (const t of Object.keys(FIELDS)) ok(`${t}: 노랑 칸이 있음`, FIELDS[t].some((x) => x.grp === "y"));
 ok("근로계약서·동의서에는 주황 옵션이 있음", FIELDS.labor.some((x) => x.grp === "o") && FIELDS.consent.some((x) => x.grp === "o"));
 ok("근로계약서만 급여 권한(comp)이 필요", DOC_TYPES.labor.needs === "comp" && !DOC_TYPES.consent.needs && !DOC_TYPES.pledge.needs);
@@ -82,4 +82,12 @@ ok("자유 서식: 동의 선택 방식", buildDocHtml("custom", { ...U, mode: "
 ok("자유 서식: 본문은 이스케이프", !buildDocHtml("custom", { ...U, body: "<script>x</script>" }, { autoPrint: false }).includes("<script>x"));
 ok("자유 서식: 본문 5000자까지 저장(칸 길이)", cleanValues("custom", { title: "t", body: "가".repeat(6000) }).body.length === 5000);
 ok("docTitle: 자유 서식은 직접 쓴 제목", docTitle({ type: "custom", data: { title: "교육 이수 확인서" } }) === "교육 이수 확인서" && docTitle({ type: "labor" }) === "근로계약서" && docTitle({ type: "custom", data: {} }) === "서명 문서(자유 서식)");
+// 정보보안 수칙 확인서
+const SE = defaultsFor("security", { emp, today: "2026-11-17" });
+const seh = buildDocHtml("security", { ...SE, dept: "평촌원" }, { autoPrint: false });
+ok("보안 수칙: 기본값(이름·회사·9개 수칙)", SE.name === "김효진" && SE.company === "(주)제이드에듀" && SECURITY_DEFAULT.rules.split("\n").length === 9 && SECURITY_DEFAULT.rules.startsWith("1. "));
+ok("보안 수칙: 제목·인적 사항·수칙·확인 문구·서명란", seh.includes("정보보안 수칙 확인서") && seh.includes("평촌원") && seh.includes("9. 위 사항을 위반") && seh.includes("□ 위 정보보안 수칙을") && seh.includes("sigbox") && seh.includes("(주)제이드에듀 대표이사 귀하"));
+ok("보안 수칙: 직원이 서약하면 ☑ + 서명 항목", buildDocHtml("security", { ...SE, confirm: true }, { autoPrint: false }).includes("☑ 위 정보보안 수칙을") && signAnswerFields("security")[0].key === "confirm" && signAnswerFields("security")[0].type === "check");
+ok("보안 수칙: 주황 옵션(수칙·회사), 노랑(이름·부서·작성일)", FIELDS.security.filter((x) => x.grp === "o").map((x) => x.key).join() === "company,rules" && FIELDS.security.filter((x) => x.grp === "y").map((x) => x.key).join() === "name,dept,signDate" && DOC_TYPES.security.coll === "contracts" && !DOC_TYPES.security.needs);
+ok("보안 수칙: 수칙 문구는 이스케이프", !buildDocHtml("security", { ...SE, rules: "<img src=x onerror=1>" }, { autoPrint: false }).includes("<img src=x"));
 console.log(f ? `\n${f} FAILURES` : "\nALL PASS"); process.exit(f ? 1 : 0);

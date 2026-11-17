@@ -361,7 +361,7 @@ const buf = (s) => Buffer.from(s);
     const c = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles) });
     const pg = c.page, coll = (n) => pg.evaluate((k) => Object.values(globalThis.__mockStore["employees/emp_0003/" + k] || {}), n);
     await pg.goto(BASE + "/index.html#emp/emp_0003"); await pg.waitForSelector("#dContractsCard");
-    ok("CT 최고관리자: 4종 작성 버튼(계약서 3종 + 자유 서식)", (await count(pg, "#dContracts [data-new]")) === 4 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
+    ok("CT 최고관리자: 5종 작성 버튼(계약서 3종 + 보안 수칙 + 자유 서식)", (await count(pg, "#dContracts [data-new]")) === 5 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
     // 근로계약서: 노랑은 직원 정보로 채워지고, 주황은 기본 옵션
     await pg.click('[data-new="labor"]'); await pg.waitForSelector("#dlgContractDoc[open]");
     ok("CT 근로계약서 창: 노랑·주황 묶음", (await pg.textContent("#cdTitle")).includes("근로계약서 작성") && (await count(pg, "#cdY #cdf_name")) === 1 && (await count(pg, "#cdY #cdf_monthlyPay")) === 1 && (await count(pg, "#cdO #cdf_probMonths")) === 1 && (await count(pg, "#cdO #cdf_incentiveHead")) === 1 && (await vis(pg, "#cdOWrap")));
@@ -409,7 +409,7 @@ const buf = (s) => Buffer.from(s);
     sh["employees/emp_0003/laborContracts"] = { c1: { type: "labor", title: "근로계약서 · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, updatedAt: { seconds: 1, nanoseconds: 0 } } };
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {} });
     await h.page.goto(BASE + "/index.html#emp/emp_0003"); await h.page.waitForSelector("#dContractsCard");
-    ok("CT 대표이사: 동의서·서약서·자유 서식 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 3 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
+    ok("CT 대표이사: 동의서·서약서·보안 수칙·자유 서식 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 4 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
     ok("CT 대표이사: 근로계약서 기록은 목록에 안 보임", !(await h.page.textContent("#dContracts")).includes("근로계약서"));
     await h.ctx.close();
     // 직원 본인: 계약서 카드 없음
@@ -515,6 +515,52 @@ const buf = (s) => Buffer.from(s);
     const r3 = await pages("consent", cm.defaultsFor("consent", base)), r4 = await pages("pledge", cm.defaultsFor("pledge", base));
     ok("CS 동의서·서약서 한 장", r3.n === 1 && r4.n === 1, JSON.stringify([r3, r4]));
     await pb.close();
+  }
+
+  // ================= SE. 정보보안 수칙 확인서 + 입사 서류 묶음 보내기 =================
+  {
+    const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const st = J(snapStore); st.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    const a = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(st), files: {} });
+    await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector("#dContractsCard");
+    ok("SE 계약서 카드: 보안 수칙 작성 버튼 + 입사 서류 묶음 버튼", (await count(a.page, '#dContracts [data-new="security"]')) === 1 && (await count(a.page, "#dContracts [data-bundle]")) === 1);
+    await a.page.click('[data-new="security"]'); await a.page.waitForSelector("#dlgContractDoc[open]");
+    ok("SE 보안 수칙 창: 노랑(이름·부서·작성일) + 주황(수칙·회사) 기본 수칙 9개", (await count(a.page, "#cdY #cdf_dept")) === 1 && (await count(a.page, "#cdO #cdf_rules")) === 1 && (await a.page.inputValue("#cdf_rules")).split("\n").length === 9 && (await a.page.inputValue("#cdf_name")) === "이교사");
+    await a.page.fill("#cdf_dept", "평촌원"); await a.page.click("#btnCdSave"); await a.page.waitForTimeout(300);
+    let col = Object.values(await COL(a.page, "employees/emp_0003/contracts"));
+    ok("SE 보안 수칙 저장(draft)", col.some((c) => c.type === "security" && c.status === "draft" && c.data.dept === "평촌원"));
+    // 묶음: 작성중인 보안 수칙은 그대로 보내고, 동의서·서약서는 새로 만들어 보낸다
+    await a.page.click("#dContracts [data-bundle]"); await a.page.waitForTimeout(500);
+    col = Object.values(await COL(a.page, "employees/emp_0003/contracts"));
+    const by = (t) => col.filter((c) => c.type === t);
+    ok("SE 묶음 발송: 동의서·서약서·보안 수칙 모두 서명 대기", ["consent", "pledge", "security"].every((t) => by(t).length === 1 && by(t)[0].status === "sent" && !!by(t)[0].sentAt));
+    ok("SE 묶음: 작성중이던 보안 수칙은 새로 만들지 않고 그대로 보냄(부서 유지)", by("security")[0].data.dept === "평촌원");
+    ok("SE 묶음: 기본 문구·직원 정보가 채워짐", by("consent")[0].data.name === "이교사" && by("consent")[0].data.items.includes("입사자 인사정보") && by("pledge")[0].data.name === "이교사");
+    await a.page.click("#dContracts [data-bundle]"); await a.page.waitForTimeout(200);
+    ok("SE 이미 모두 보냈으면 중복 생성 없음", Object.values(await COL(a.page, "employees/emp_0003/contracts")).length === 3);
+    ok("SE no errors (관리자)", a.errors.length === 0, a.errors.join(" | "));
+    const sent = J(await a.page.evaluate(() => globalThis.__mockStore));
+    await a.ctx.close();
+    // 직원: 3건 알림 → 보안 수칙 서명
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J(sent), files: {} });
+    await e.page.goto(BASE + "/index.html"); await e.page.waitForSelector("#dSignNotice .notice");
+    ok("SE 직원 알림: 서명할 문서 3건", (await e.page.textContent("#dSignNotice")).includes("3건"));
+    await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
+    await e.page.waitForSelector("#mySign [data-sign]");
+    await e.page.click('#mySign tr:has-text("정보보안") [data-sign]'); await e.page.waitForSelector("#dlgSign[open]");
+    const fr = await e.page.$eval("#sgFrame", (f) => f.srcdoc);
+    ok("SE 서명 창: 정보보안 수칙 전문 + 서약 체크 항목", fr.includes("정보보안 수칙 확인서") && fr.includes("5. 업무용 PC") && (await count(e.page, "#sga_confirm")) === 1);
+    await e.page.check("#sga_confirm");
+    const bx = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(bx.x + 30, bx.y + 70); await e.page.mouse.down(); await e.page.mouse.move(bx.x + 160, bx.y + 100, { steps: 5 }); await e.page.mouse.up();
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(400);
+    const sec = Object.values(await COL(e.page, "employees/emp_0003/contracts")).find((c) => c.type === "security");
+    ok("SE 보안 수칙 서명 저장", sec.status === "signed" && sec.answers.confirm === true && sec.signature.startsWith("data:image/png"));
+    const [pv] = await Promise.all([e.ctx.waitForEvent("page"), e.page.click('#mySign tr:has-text("정보보안") [data-view]')]); await pv.waitForLoadState();
+    const pvh = await pv.content(); await pv.close();
+    ok("SE 서명본: ☑ 서약 + 서명란 안의 서명 이미지", pvh.includes("☑ 위 정보보안 수칙을") && pvh.includes('<span class="sigbox"><img'));
+    ok("SE no errors (직원)", e.errors.length === 0, e.errors.join(" | "));
+    await e.ctx.close();
   }
 
   // ================= SB. 자유 서식 서명 문서 + 일괄 발송 (관리 → 서명 문서) =================
