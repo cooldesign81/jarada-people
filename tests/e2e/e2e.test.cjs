@@ -1179,11 +1179,11 @@ const buf = (s) => Buffer.from(s);
     ok("X name-only filenames are matched", (await val(0)) === "emp_0003" && (await val(1)) === "emp_0002");
     ok("X ambiguous / unknown / bad type handled", (await val(2)) === "" && (await page.textContent("#dsPreview")).includes("동명이인") && (await val(3)) === "" && (await page.textContent("#dsPreview")).includes("PDF·이미지 파일만"));
     ok("X summary shows chosen type + month", (await page.textContent("#dsPreview")).includes("2026년 10월 급여 세부내역서"));
-    ok("X second file of same employee is blocked", (await page.textContent("#dsPreview")).includes("같은 직원의 파일이 이미 목록에 있습니다"));
+    ok("X second file of same employee is blocked", (await page.textContent("#dsPreview")).includes("같은 직원·같은 구분의 파일이 이미 목록에 있습니다"));
     ok("X only 2 ready", (await page.textContent("#btnDsUpload")).includes("2건"));
     await page.selectOption('[data-emp="2"]', "emp_0006"); await page.selectOption('[data-emp="3"]', "emp_0003");
     await page.click('[data-rm="5"]'); await page.waitForTimeout(100);
-    ok("X still unique after fix: emp_0003 twice -> one blocked", (await page.textContent("#dsPreview")).includes("같은 직원의 파일이 이미 목록에 있습니다") && (await page.textContent("#btnDsUpload")).includes("3건"));
+    ok("X still unique after fix: emp_0003 twice -> one blocked", (await page.textContent("#dsPreview")).includes("같은 직원·같은 구분의 파일이 이미 목록에 있습니다") && (await page.textContent("#btnDsUpload")).includes("3건"));
     await page.click('[data-rm="3"]'); await page.waitForTimeout(100);
     await page.fill("#dsMonth", ""); await page.waitForTimeout(100);
     ok("X upload disabled without month", await page.$eval("#btnDsUpload", (b) => b.disabled));
@@ -1222,7 +1222,7 @@ const buf = (s) => Buffer.from(s);
     await e.page.goto(BASE + "/index.html#dash"); await e.page.waitForSelector("#nav .tab", { state: "attached" });
     const tabTxt = await e.page.textContent('.tab[data-view="payslips"]');
     ok("X employee tab is 내 급여 with unseen badge", tabTxt.includes("내 급여") && tabTxt.includes("2"));
-    await e.page.click('.tab[data-view="payslips"]'); await e.page.waitForSelector("#payslipBody .slip-row");
+    await e.page.evaluate(() => (location.hash = "#payslips")); await e.page.waitForSelector("#payslipBody .slip-row");   // 상단 메뉴는 공통 상단으로 옮겨져 숨겨져 있어 주소로 이동
     ok("X page shows 2 month groups and type names", (await count(e.page, "#payslipBody .slip-row")) === 3 && (await e.page.textContent("#payslipBody")).includes("급여 명세서") && (await e.page.textContent("#payslipBody")).includes("급여 세부내역서"));
     ok("X prompts to set a password when none", (await e.page.textContent("#btnPayPwChange")).includes("비밀번호 설정"));
     // 처음 열면 비밀번호 설정을 요구한다
