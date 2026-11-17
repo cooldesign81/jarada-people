@@ -420,6 +420,103 @@ const buf = (s) => Buffer.from(s);
     await e.ctx.close();
   }
 
+  // ================= CS. 계약서 전자서명 (서명 요청 → 직원 서명 → 서명 완료) + 인쇄 한 장 =================
+  {
+    const cm = await import(require("url").pathToFileURL(path.join(__dirname, "..", "..", "js", "contract-docs.js")).href);
+    const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const mk = (type, data, o = {}) => ({ type, title: cm.DOC_TYPES[type].title + " · 이교사", data: { name: "이교사", signDate: "2026-11-17", ...data }, createdAt: { seconds: 1, nanoseconds: 0 }, updatedAt: { seconds: 1, nanoseconds: 0 }, createdBy: "u1", createdByName: "대표", status: "draft", ...o });
+    const lab = cm.defaultsFor("labor", { emp: { name: "이교사", corp: "jade", birthDate: "1990-05-21" }, pi: { address: "서울 서초" }, today: "2026-11-17", payTotal: 2400000 });
+    const seed = J(snapStore); seed.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    seed["employees/emp_0003/laborContracts"] = { L1: mk("labor", { ...lab, name: "이교사", startDate: "2026-03-02", monthlyPay: 2400000 }, { status: "sent", sentAt: { seconds: 2, nanoseconds: 0 } }), L2: mk("labor", { ...lab, name: "이교사", monthlyPay: 1 }) };
+    seed["employees/emp_0003/contracts"] = { K1: mk("consent", cm.defaultsFor("consent", { emp: { name: "이교사" }, today: "2026-11-17" }), { status: "sent", sentAt: { seconds: 2, nanoseconds: 0 } }), K2: mk("pledge", cm.defaultsFor("pledge", { emp: { name: "이교사" }, today: "2026-11-17" })) };
+    // --- 관리자: 상태 표시, 서명 요청 / 취소
+    const sa = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(seed), files: {} });
+    await sa.page.goto(BASE + "/index.html#emp/emp_0003"); await sa.page.waitForSelector("#dContractsCard .rec-tbl");
+    const row = (t) => sa.page.locator(`#dContracts tr:has-text("${t}")`);
+    ok("CS 관리자: 작성중·서명 대기 표시", (await sa.page.textContent("#dContracts")).includes("서명 대기") && (await sa.page.textContent("#dContracts")).includes("작성중"));
+    ok("CS 서명 대기 문서: 요청 취소 버튼, 작성중 문서: 서명 요청 버튼", (await row("동의서").locator("[data-unsend]").count()) === 1 && (await row("서약서").locator("[data-send]").count()) === 1 && (await row("동의서").locator("[data-send]").count()) === 0);
+    await row("서약서").locator("[data-send]").click(); await sa.page.waitForTimeout(300);
+    const k2 = await COL(sa.page, "employees/emp_0003/contracts"), k2d = k2.K2;
+    ok("CS 서명 요청 → status sent + 요청 시각 + 감사로그", k2d.status === "sent" && !!k2d.sentAt && Object.values(await sa.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "contract_send"));
+    await row("서약서").locator("[data-unsend]").click(); await sa.page.waitForTimeout(300);
+    ok("CS 요청 취소 → 작성중으로 복귀", (await COL(sa.page, "employees/emp_0003/contracts")).K2.status === "draft");
+    await row("동의서").locator("[data-edit]").click(); await sa.page.waitForSelector("#dlgContractDoc[open]");
+    await sa.page.click("#btnCdSave"); await sa.page.waitForTimeout(300);
+    ok("CS 서명 대기 문서를 수정하면 작성중으로 돌아감(요청 취소)", (await COL(sa.page, "employees/emp_0003/contracts")).K1.status === "draft");
+    await row("동의서").locator("[data-send]").click(); await sa.page.waitForTimeout(300);
+    ok("CS 다시 서명 요청", (await COL(sa.page, "employees/emp_0003/contracts")).K1.status === "sent");
+    await sa.ctx.close();
+
+    // --- 직원 본인: 알림 → 내 서류 → 확인·서명
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J({ ...seed, "employees/emp_0003/contracts": { ...seed["employees/emp_0003/contracts"] } }), files: {} });
+    await e.page.goto(BASE + "/index.html"); await e.page.waitForSelector("#viewDetail:not(.hidden) .emp-name");
+    await e.page.waitForSelector("#dSignNotice .notice");
+    ok("CS 내 정보: 서명할 문서 2건 알림 (작성중 문서는 제외)", (await e.page.textContent("#dSignNotice")).includes("2건") && (await e.page.textContent("#dSignNotice")).includes("내 서류"));
+    ok("CS 내 정보에는 계약서 관리 카드가 없음", (await count(e.page, "#dContractsCard")) === 0);
+    await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
+    await e.page.waitForSelector("#mySign .rec-tbl");
+    ok("CS 내 서류: 서명 대기 문서 2건 (근로계약서·동의서)", (await count(e.page, "#mySign [data-sign]")) === 2 && (await e.page.textContent("#mySign")).includes("근로계약서") && (await e.page.textContent("#mySign")).includes("개인정보 수집"));
+    await e.page.click('#mySign [data-sign="L1"]'); await e.page.waitForSelector("#dlgSign[open]");
+    const fr = await e.page.$eval("#sgFrame", (f) => f.srcdoc);
+    ok("CS 서명 창: 계약서 내용 미리보기 + 직원이 고를 항목(식대·중식)", fr.includes("근 로 계 약 서") && fr.includes("월 지급액 2,400,000원") && !fr.includes("window.print") && (await count(e.page, "#sga_mealChoice")) === 1);
+    await e.page.click("#btnSgSubmit");
+    ok("CS 식대·중식 선택 안 하면 막힘", (await e.page.textContent("#sgErr")).includes("식대·중식"));
+    await e.page.selectOption("#sga_mealChoice", "lunch"); await e.page.click("#btnSgSubmit");
+    ok("CS 서명 안 하면 막힘", (await e.page.textContent("#sgErr")).includes("서명란"));
+    const box = await e.page.locator("#sgPad").boundingBox();
+    await e.page.mouse.move(box.x + 30, box.y + 80); await e.page.mouse.down(); await e.page.mouse.move(box.x + 120, box.y + 40, { steps: 6 }); await e.page.mouse.move(box.x + 200, box.y + 110, { steps: 6 }); await e.page.mouse.up();
+    await e.page.click("#btnSgSubmit");
+    ok("CS 확인 체크 안 하면 막힘", (await e.page.textContent("#sgErr")).includes("확인") && (await COL(e.page, "employees/emp_0003/laborContracts")).L1.status === "sent");
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(400);
+    const L1 = (await COL(e.page, "employees/emp_0003/laborContracts")).L1;
+    ok("CS 서명 저장: status signed · PNG 서명 · 서명 시각 · 서명자 · 직원의 답", L1.status === "signed" && L1.signature.startsWith("data:image/png;base64,") && L1.signature.length > 800 && L1.signature.length < 110000 && !!L1.signedAt && L1.signedBy === "u3" && L1.answers.mealChoice === "lunch", JSON.stringify({ ...L1, signature: L1.signature?.length }));
+    ok("CS 서명하면 내용(data)은 그대로", L1.data.monthlyPay === 2400000 && L1.title.includes("근로계약서"));
+    ok("CS 서명 후: 목록에 서명 완료 + 보기, 남은 서명 대기는 1건", (await count(e.page, "#mySign [data-sign]")) === 1 && (await count(e.page, "#mySign [data-view]")) === 1 && (await e.page.textContent("#mySign")).includes("서명 완료"));
+    ok("CS 서명 감사로그", Object.values(await e.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "contract_sign"));
+    const [pv] = await Promise.all([e.ctx.waitForEvent("page"), e.page.click("#mySign [data-view]")]); await pv.waitForLoadState();
+    const pvh = await pv.content(); await pv.close();
+    ok("CS 서명한 문서 보기: 서명 이미지·전자서명 완료·고른 중식 표시", pvh.includes('alt="서명"') && pvh.includes("전자서명 완료") && pvh.includes("중식 제공( ○ )"));
+    await e.page.click('#mySign [data-sign="K1"]'); await e.page.waitForSelector("#dlgSign[open]");
+    ok("CS 동의서 서명 창: 동의 여부 선택 항목", (await count(e.page, "#sga_agree")) === 1);
+    await e.page.selectOption("#sga_agree", "agree");
+    const b2 = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(b2.x + 40, b2.y + 60); await e.page.mouse.down(); await e.page.mouse.move(b2.x + 180, b2.y + 100, { steps: 5 }); await e.page.mouse.up();
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(400);
+    const K1 = (await COL(e.page, "employees/emp_0003/contracts")).K1;
+    ok("CS 동의서 서명: 직원이 고른 ‘동의함’ 저장", K1.status === "signed" && K1.answers.agree === "agree" && (await count(e.page, "#mySign [data-sign]")) === 0);
+    ok("CS no errors", e.errors.length === 0, e.errors.join(" | "));
+    const afterSign = J(await e.page.evaluate(() => globalThis.__mockStore));
+    await e.ctx.close();
+
+    // --- 관리자: 서명 완료 문서는 수정 불가, 서명이 인쇄본에 들어감 (삭제는 최고관리자만)
+    const sb = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(afterSign), files: {} });
+    await sb.page.goto(BASE + "/index.html#emp/emp_0003"); await sb.page.waitForSelector("#dContractsCard .rec-tbl");
+    const rb = sb.page.locator('#dContracts tr:has-text("근로계약서"):has-text("서명 완료")');
+    ok("CS 서명 완료 행: 수정·서명 요청 버튼 없음, 삭제는 최고관리자만 있음", (await rb.locator("[data-edit]").count()) === 0 && (await rb.locator("[data-send]").count()) === 0 && (await rb.locator("[data-del]").count()) === 1);
+    const [po] = await Promise.all([sb.ctx.waitForEvent("page"), rb.locator("[data-open]").click()]); await po.waitForLoadState();
+    const poh = await po.content(); await po.close();
+    ok("CS 관리자가 여는 인쇄본에도 서명 이미지", poh.includes('alt="서명"') && poh.includes("전자서명 완료"));
+    await sb.ctx.close();
+    const sh2 = J(afterSign); sh2.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    const hb = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh2, files: {} });
+    await hb.page.goto(BASE + "/index.html#emp/emp_0003"); await hb.page.waitForSelector("#dContractsCard .rec-tbl");
+    const rh = hb.page.locator('#dContracts tr:has-text("동의서")');
+    ok("CS 대표이사: 서명 완료된 동의서는 수정·삭제 버튼 없음", (await rh.locator("[data-edit]").count()) === 0 && (await rh.locator("[data-del]").count()) === 0 && (await rh.locator("[data-open]").count()) === 1);
+    await hb.ctx.close();
+
+    // --- 인쇄: 세 문서 모두 A4 한 장 (PDF 페이지 수)
+    const pb = await browser.newPage();
+    const pages = async (type, v) => { await pb.setContent(cm.buildDocHtml(type, v, { autoPrint: false, fit: true })); await pb.waitForTimeout(150); const pdf = await pb.pdf({ format: "A4", preferCSSPageSize: true }); return { n: (pdf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) || []).length, s: await pb.evaluate(() => window.__fitScale || 1) }; };
+    const base = { emp: { name: "이교사", corp: "jade", birthDate: "1990-05-21" }, pi: { address: "서울시 서초구 서초대로 1길 2, 301호" }, today: "2026-11-17", payTotal: 2400000 };
+    const r1 = await pages("labor", { ...cm.defaultsFor("labor", base), startDate: "2026-03-02", monthlyPay: 2400000 });
+    ok("CS 근로계약서 한 장 (기본 양식)", r1.n === 1 && r1.s >= 0.7, JSON.stringify(r1));
+    const r2 = await pages("labor", { ...cm.defaultsFor("labor", base), startDate: "2026-03-02", monthlyPay: 2400000, extra: "추가 특약 문구입니다. ".repeat(25) });
+    ok("CS 근로계약서: 특약이 길어져도 자동으로 줄여 한 장", r2.n === 1 && r2.s < r1.s, JSON.stringify(r2));
+    const r3 = await pages("consent", cm.defaultsFor("consent", base)), r4 = await pages("pledge", cm.defaultsFor("pledge", base));
+    ok("CS 동의서·서약서 한 장", r3.n === 1 && r4.n === 1, JSON.stringify([r3, r4]));
+    await pb.close();
+  }
+
   // ================= E. 등록 링크 (익명) =================
   {
     const se = J(snapStore); delete se["employees/emp_0003/private"].personalInfo; delete se["employees/emp_0003/private"].residentFront; delete se["employees/emp_0003/private"].residentBack; delete se["employees/emp_0003/private"].flags;   // 처음 입력하는 직원

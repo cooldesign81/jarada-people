@@ -90,16 +90,30 @@ const hhmm = (t) => (t || "");
 const bool = (v) => v === true || v === "true" || v === "on";
 const fill = (s, v) => String(s ?? "").replace(/\{회사\}/g, v.company || "회사");
 
-const CSS = `@page{size:A4;margin:14mm}body{font-family:"Malgun Gothic","Pretendard",sans-serif;color:#000;font-size:11.5px;line-height:1.55;margin:0;padding:18px}
-h1{text-align:center;font-size:21px;letter-spacing:6px;margin:0 0 14px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:5px 8px;vertical-align:middle;text-align:left}
+// 글자·여백은 모두 --s(배율)를 곱해 쓴다. 근로계약서는 인쇄할 때 한 장(A4)에 들어가도록 배율을 자동으로 맞춘다.
+const CSS = `@page{size:A4;margin:10mm}:root{--s:1}
+body{font-family:"Malgun Gothic","Pretendard",sans-serif;color:#000;font-size:calc(11.5px*var(--s));line-height:1.45;margin:0;padding:calc(18px*var(--s))}
+body.fit{width:190mm;padding:0;margin:0 auto;box-sizing:border-box}
+h1{text-align:center;font-size:calc(21px*var(--s));letter-spacing:6px;margin:0 0 calc(14px*var(--s))}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:calc(5px*var(--s)) calc(8px*var(--s));vertical-align:middle;text-align:left}
 th{background:#f2f2f2;font-weight:600;text-align:center;white-space:nowrap}.c{text-align:center}.r{text-align:right}.nb td,.nb th{border:0}.pre{white-space:pre-line}
-.lead{margin:12px 0;text-align:center}ol.cl{margin:0;padding-left:20px}ol.cl li{margin:2px 0}.sign{display:flex;justify-content:space-between;gap:24px;margin-top:20px}.sign>div{flex:1;line-height:2}
-.stamp{position:relative;display:inline-block;width:58px;height:40px;text-align:center;vertical-align:middle}.stamp img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;mix-blend-mode:multiply}
-.box{border:1px solid #000;padding:8px 10px;margin:8px 0}.date{text-align:center;margin:20px 0}.small{font-size:10.5px}
+.lead{margin:calc(12px*var(--s)) 0;text-align:center}ol.cl{margin:0;padding-left:calc(20px*var(--s))}ol.cl li{margin:calc(2px*var(--s)) 0}.sign{display:flex;justify-content:space-between;gap:24px;margin-top:calc(20px*var(--s))}.sign>div{flex:1;line-height:2}
+.stamp{position:relative;display:inline-block;width:calc(58px*var(--s));height:calc(40px*var(--s));text-align:center;vertical-align:middle}.stamp img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:calc(56px*var(--s));mix-blend-mode:multiply}
+.stamp.sig{width:calc(110px*var(--s))}.stamp.sig img{width:auto;max-width:100%;max-height:calc(44px*var(--s))}
+.box{border:1px solid #000;padding:8px 10px;margin:8px 0}.date{text-align:center;margin:calc(20px*var(--s)) 0}.small{font-size:calc(10.5px*var(--s))}
+.esig{margin-top:calc(10px*var(--s));text-align:center;font-size:calc(10px*var(--s));color:#333;border-top:1px dashed #999;padding-top:calc(4px*var(--s))}
 @media print{body{padding:0}}`;
-const wrap = (title, body, { autoPrint = true } = {}) => `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>${CSS}</style></head><body>${body}${autoPrint ? `<script>window.onload=()=>window.print();<\/script>` : ""}</body></html>`;
+// 한 장 맞춤: 본문 높이가 A4 인쇄 영역(277mm)에 들어가는 가장 큰 배율을 찾는다 (글자 크기만 줄이므로 줄바꿈이 항상 같은 폭에서 계산된다)
+const FIT_JS = `(function(){var r=document.documentElement,b=document.body,H=277*96/25.4-8;function h(s){r.style.setProperty('--s',s);return Math.max(b.offsetHeight,b.scrollHeight)}
+function fit(){var lo=.45,hi=1,i;if(h(hi)<=H){return}for(i=0;i<14;i++){var m=(lo+hi)/2;if(h(m)>H)hi=m;else lo=m}h(lo);window.__fitScale=lo}
+window.addEventListener('load',fit);window.addEventListener('beforeprint',fit)})();`;
+const wrap = (title, body, { autoPrint = true, fit = false, scale = 1 } = {}) => `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>${CSS}:root{--s:${scale}}</style></head><body${fit ? ' class="fit"' : ""}>${body}${fit ? `<script>${FIT_JS}<\/script>` : ""}${autoPrint ? `<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},60)});<\/script>` : ""}</body></html>`;
 
-function laborBody(v) {
+// 전자서명 이미지(직원이 온라인에서 서명한 경우) — 없으면 (인) 표시
+const sigSpan = (sg) => (sg?.img ? `<span class="stamp sig"><img src="${esc(sg.img)}" alt="서명"></span>` : "(인)");
+const fmtAt = (ms) => { if (!ms) return ""; const d = new Date(ms), z = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${z(d.getMonth() + 1)}.${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
+const esig = (sg) => (sg?.img ? `<div class="esig">전자서명 완료 · ${esc(fmtAt(sg.at))} · ${esc(sg.name || "")} (본인 계정으로 로그인하여 서명)</div>` : "");
+
+function laborBody(v, sg) {
   const info = COMPANY_INFO[v.company], stamp = info ? STAMP_IMAGES[info.stampKey] : "";
   const probOn = bool(v.probOn), incOn = bool(v.incentiveOn), mealOn = bool(v.mealOn), satOn = bool(v.satOn), noticeOn = bool(v.noticeOn);
   // 계약기간
@@ -121,7 +135,7 @@ function laborBody(v) {
   const etc = ["본 계약서 상에 명시되지 않은 사항은 근로기준법 및 취업규칙에 따른다.",
     `계약기간 중 일방이 계약해지를 하고자 하는 경우 ${esc(v.terminateDays)}일 이전에 사전 통보함으로써 그 효력을 발휘하며, 이를 위반하는 자는 계약위반에 대한 민·형사상 및 행정상(노동관계법 포함) 일체의 손해배상 책임을 진다.`,
     "본 근로계약의 체결을 증명하기 위하여 계약서 2통을 작성하여 쌍방 서명 날인하고 각각 1통씩 보관한다."];
-  const row = (head, body) => `<tr><th style="width:84px">${head}</th><td>${body}</td></tr>`;
+  const row = (head, body) => `<tr><th style="width:84px">${head}</th><td colspan="3">${body}</td></tr>`;
   return `<h1>근 로 계 약 서</h1>
   <table>
     <tr><th rowspan="2" style="width:70px">사용자</th><th style="width:60px">상호</th><td>${esc(v.company)}</td><th style="width:50px">대표</th><td>${esc(v.ceo)}</td></tr>
@@ -149,10 +163,10 @@ function laborBody(v) {
   </table>
   <p class="date">${esc(dot(v.signDate))}</p>
   <div class="sign"><div><b>( 사 용 자 )</b><br>${esc(v.company)}<br>대표이사 ${esc(v.ceo)} <span class="stamp">(인)${stamp ? `<img src="${stamp}" alt="">` : ""}</span></div>
-  <div><b>( 근 로 자 )</b><br>성명 ${esc(v.name)} <span style="margin-left:14px">(인)</span><br>생년월일 ${esc(dot(v.birth))}</div></div>`;
+  <div><b>( 근 로 자 )</b><br>성명 ${esc(v.name)} <span style="margin-left:14px">${sigSpan(sg)}</span><br>생년월일 ${esc(dot(v.birth))}</div></div>${esig(sg)}`;
 }
 
-function consentBody(v) {
+function consentBody(v, sg) {
   const co = v.company || "회사", mark = (on) => (on ? "☑" : "□");
   return `<h1 style="letter-spacing:2px">개인정보 수집·이용 동의서</h1>
   <table>
@@ -164,11 +178,11 @@ function consentBody(v) {
   <p class="c" style="margin:16px 0"><b>개인정보 수집 및 이용에 동의함 ${mark(v.agree === "agree")} &nbsp;&nbsp; 개인정보 수집 및 이용에 동의하지 않음 ${mark(v.agree === "disagree")}</b></p>
   <p class="small">※ 개인정보 제공자가 동의한 내용 외의 다른 목적으로 활용하지 않으며 제공된 개인정보를 변경하고자 할 때에는 개인정보취급자를 통해 열람, 정정을 요구할 수 있음.</p>
   <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
-  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; (인)</p>
-  <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>`;
+  <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:30px"><b>${esc(co)} 귀하</b></p>${esig(sg)}`;
 }
 
-function pledgeBody(v) {
+function pledgeBody(v, sg) {
   const co = v.company || "회사";
   const secrets = ["회사의 사업계획, 사업추진 방향 등에 대한 내용", "서비스의 방법 등 경영정보 일체에 관한 내용", "인사, 조직, 재무, 전산 등 관리에 관한 내용", "타사와의 제휴 사업에 관한 내용",
     "회사에서 기획, 생산 및 제공하는 교재 등 모든 교보재에 대한 내용", "업무상 발생하는 유관업체 또는 기관과의 사업정보 또는 협의내용", "회사 임직원의 활동과 그에 수반되는 부수 내용 및 기타 원 측이 영업비밀로 인정한 일체의 사항",
@@ -191,16 +205,30 @@ function pledgeBody(v) {
     <li>본인은 상기 회사에서 배운 교육방식은 영업비밀로 제정되어 특허청에 보관중임을 인지하고 있습니다. ${bool(v.confirm) ? "☑" : "□"} 확인하였습니다.</li>
   </ol>
   <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;년&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;일"}</p>
-  <p class="r" style="margin-right:30px">서약인 : ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; (인)</p>
-  <p style="margin-top:28px"><b>${esc(co)} 대표이사 귀하</b></p>`;
+  <p class="r" style="margin-right:30px">서약인 : ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
+  <p style="margin-top:28px"><b>${esc(co)} 대표이사 귀하</b></p>${esig(sg)}`;
 }
 
-// 문서 → 인쇄용 전체 HTML (autoPrint=false 면 인쇄 창을 자동으로 띄우지 않는다)
-export function buildDocHtml(type, v, opts) {
+// 문서 → 인쇄용 전체 HTML
+//   opts.autoPrint=false 면 인쇄 창을 자동으로 띄우지 않는다(화면 미리보기). 그때는 한 장 맞춤도 하지 않는다.
+//   opts.sign = { img(PNG data URL), at(ms), name } — 직원이 전자서명한 문서
+export function buildDocHtml(type, v, opts = {}) {
   const t = DOC_TYPES[type]; if (!t) throw new Error("알 수 없는 문서 종류: " + type);
-  const body = type === "labor" ? laborBody(v) : type === "consent" ? consentBody(v) : pledgeBody(v);
-  return wrap(`${t.title} ${v.name || ""}`.trim(), body, opts);
+  const sg = opts.sign || null;
+  const body = type === "labor" ? laborBody(v, sg) : type === "consent" ? consentBody(v, sg) : pledgeBody(v, sg);
+  const printing = opts.autoPrint !== false;
+  return wrap(`${t.title} ${v.name || ""}`.trim(), body, { autoPrint: printing, fit: opts.fit ?? printing, scale: type === "labor" && !(opts.fit ?? printing) ? 0.8 : 1 });
 }
+
+// 직원이 서명하면서 직접 답하는 칸 (노랑 칸 중 ‘직원 본인의 선택’인 것). 근로계약서의 식대·중식 선택은 식대 조항이 있을 때만
+export function signAnswerFields(type, v = {}) {
+  if (type === "labor") return bool(v.mealOn) ? [{ key: "mealChoice", label: "식대·중식 선택", type: "select", req: true, options: [["meal", "식대 제공"], ["lunch", "중식 제공"]] }] : [];
+  if (type === "consent") return [{ key: "agree", label: "개인정보 수집·이용에 대한 동의 여부", type: "select", req: true, options: [["agree", "동의함"], ["disagree", "동의하지 않음"]] }];
+  return [{ key: "confirm", label: "특허청에 보관 중인 영업비밀(교육방식) 확인", type: "check", req: true, text: "확인하였습니다" }];
+}
+// 저장된 문서 + 직원이 서명할 때 답한 값 → 인쇄용 값
+export const signedValues = (c) => ({ ...(c?.data || {}), ...(c?.answers || {}) });
+export const signMeta = (c, ms) => (c?.signature ? { img: c.signature, at: ms, name: c.data?.name || "" } : null);
 
 // 필수(노랑) 칸이 비어 있으면 알려 준다
 export function missingRequired(type, v) {

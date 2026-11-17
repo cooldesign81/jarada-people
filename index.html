@@ -445,6 +445,21 @@
   <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnCdCancel">닫기</button><button type="button" class="btn btn-secondary" id="btnCdSave">저장</button><button type="button" class="btn btn-primary" id="btnCdSaveOpen">저장하고 열기·인쇄</button></div>
 </dialog>
 
+<!-- 계약서 전자서명 (직원 본인) -->
+<dialog id="dlgSign" class="wide">
+  <div class="dlg-head"><h2 id="sgTitle">서명</h2></div>
+  <div class="bulk-body">
+    <iframe id="sgFrame" class="sg-frame" title="계약서 내용"></iframe>
+    <div id="sgAns"></div>
+    <div class="field full" style="margin-top:12px"><label>서명 <span class="sub">(아래 칸에 손가락이나 마우스로 서명하세요)</span></label>
+      <canvas id="sgPad" class="sg-pad" width="520" height="170"></canvas>
+      <div><button type="button" class="btn btn-secondary btn-sm" id="btnSgClear">서명 지우기</button></div></div>
+    <label class="check full"><input type="checkbox" id="sgAgree"> 위 내용을 모두 읽었으며, 이 서명이 본인의 서명임을 확인합니다.</label>
+    <div class="msg error dlg-err" id="sgErr"></div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn btn-secondary" id="btnSgCancel">닫기</button><button type="button" class="btn btn-primary" id="btnSgSubmit">서명하고 제출</button></div>
+</dialog>
+
 <!-- 근로계약서 초안 (대표 전용) -->
 <dialog id="dlgContract">
   <div class="dlg-head"><h2>근로계약서 초안</h2></div>

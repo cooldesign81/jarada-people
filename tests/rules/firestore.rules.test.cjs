@@ -553,6 +553,44 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("contract: hr deletes 서약서", true, () => hr.doc("employees/emp_0003/contracts/k2").delete());
   await t("contract: hr cannot delete 근로계약서", false, () => hr.doc("employees/emp_0003/laborContracts/c1").delete());
   await t("contract: super deletes 근로계약서", true, () => sup.doc("employees/emp_0003/laborContracts/c1").delete());
+  // ---- 전자서명: 서명 요청(sent) → 직원 본인(구글 계정)이 서명(signed)
+  const PNG = "data:image/png;base64," + "iVBORw0KGgo".repeat(40);
+  const SG = (o = {}) => ({ status: "signed", signature: PNG, signedAt: TS(), signedBy: "u_staff", answers: { mealChoice: "meal" }, ...o });
+  await sup.doc("employees/emp_0003/laborContracts/L1").set(CT("labor", { status: "draft" }));
+  await t("sign: manager creates with status sent", true, () => sup.doc("employees/emp_0003/laborContracts/L2").set(CT("labor", { status: "sent", sentAt: TS() })));
+  await t("sign: manager cannot create already-signed", false, () => sup.doc("employees/emp_0003/laborContracts/L3").set(CT("labor", { status: "signed" })));
+  await t("sign: manager cannot write a signature", false, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ signature: PNG, status: "sent", updatedAt: TS() }));
+  await t("sign: manager sends draft (status → sent)", true, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ status: "sent", sentAt: TS(), updatedAt: TS() }));
+  await t("sign: manager can cancel request (sent → draft)", true, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ status: "draft", updatedAt: TS() }));
+  await t("sign: employee cannot read a draft", false, () => stf.doc("employees/emp_0003/laborContracts/L1").get());
+  await t("sign: employee lists only sent docs (query status==sent)", true, () => stf.collection("employees/emp_0003/laborContracts").where("status", "==", "sent").get());
+  await t("sign: employee cannot list without status filter", false, () => stf.collection("employees/emp_0003/laborContracts").get());
+  await t("sign: employee reads own sent doc", true, () => stf.doc("employees/emp_0003/laborContracts/L2").get());
+  await t("sign: employee cannot send/alter content", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update({ data: { name: "x" }, updatedAt: TS() }));
+  await t("sign: employee cannot sign with a bad image", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG({ signature: "http://evil/x.png" })));
+  await t("sign: employee cannot sign without answers map", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update({ ...SG(), answers: "x" }));
+  await t("sign: employee cannot add unknown answer keys", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG({ answers: { salary: 9 } })));
+  await t("sign: signedBy must be me", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG({ signedBy: "u_super" })));
+  await t("sign: signedAt must be server time", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG({ signedAt: firebase.firestore.Timestamp.fromDate(new Date("2020-01-01")) })));
+  await t("sign: employee cannot sign a draft", false, () => stf.doc("employees/emp_0003/laborContracts/L1").update(SG()));
+  await t("sign: employee signs a sent doc", true, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG()));
+  await t("sign: signed doc readable by employee", true, () => stf.doc("employees/emp_0003/laborContracts/L2").get());
+  await t("sign: signed doc listed with status==signed", true, () => stf.collection("employees/emp_0003/laborContracts").where("status", "==", "signed").get());
+  await t("sign: cannot sign twice / change signature", false, () => stf.doc("employees/emp_0003/laborContracts/L2").update(SG({ signature: PNG + "AA" })));
+  await t("sign: manager cannot edit a signed doc", false, () => sup.doc("employees/emp_0003/laborContracts/L2").update({ title: "바꿈", updatedAt: TS() }));
+  await t("sign: manager cannot revert signed → draft", false, () => sup.doc("employees/emp_0003/laborContracts/L2").update({ status: "draft", updatedAt: TS() }));
+  await t("sign: hr (no comp) cannot delete signed", false, () => hr.doc("employees/emp_0003/laborContracts/L2").delete());
+  await t("sign: super can delete signed", true, () => sup.doc("employees/emp_0003/laborContracts/L2").delete());
+  // 동의서·서약서도 같은 방식 (관리자 = 대표이사·소속 지점 원장)
+  await hr.doc("employees/emp_0003/contracts/K1").set(CT("consent", { title: "동의서 · 이교사", status: "sent", sentAt: TS() }));
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("roles/u_staff2").set({ level: "staff", orgId: "anyang", employeeId: "emp_0005" }));
+  await t("sign: other employee's account cannot read my sent doc", false, () => as("u_staff2").doc("employees/emp_0003/contracts/K1").get());
+  await t("sign: employee signs consent with agree", true, () => stf.doc("employees/emp_0003/contracts/K1").update(SG({ answers: { agree: "agree" } })));
+  await t("sign: signed consent: hr cannot delete", false, () => hr.doc("employees/emp_0003/contracts/K1").delete());
+  await t("sign: signed consent: branch admin cannot edit", false, () => adm.doc("employees/emp_0003/contracts/K1").update({ title: "x", updatedAt: TS() }));
+  // 등록 링크(익명)로 들어온 사람은 서명할 수 없다
+  await hr.doc("employees/emp_0003/contracts/K2").set(CT("pledge", { status: "sent", sentAt: TS() }));
+  await t("sign: token (anonymous) visitor cannot read sent docs", false, async () => { await anonCtx("a1").doc("roles/a1").set({ level: "staff", employeeId: "emp_0003", selfToken: "tok123" }).catch(() => {}); return anonCtx("a1").doc("employees/emp_0003/contracts/K2").get(); });
   await t("slip: bad type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ type: "bonus" })));
   await t("slip: bad month", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ month: "10월" })));
   await t("slip: non-pdf/image content type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ contentType: "application/zip" })));

@@ -1,4 +1,4 @@
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues } from "../../js/contract-docs.js";
+import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta } from "../../js/contract-docs.js";
 let f = 0; const ok = (n, c, extra = "") => { if (!c) f++; console.log(c ? "PASS" : "FAIL", n, c ? "" : extra); };
 const emp = { name: "김효진", birthDate: "1990-05-21", joinedAt: "2026-03-02", corp: "jade" }, pi = { address: "경기도 군포시 산본동 78-32" };
 
@@ -56,4 +56,18 @@ ok("서약서: 회사명 반영·서명", ph.includes("(주)자라다교육 대�
 ok("필수 칸 점검", missingRequired("labor", { name: "", startDate: "", monthlyPay: "", signDate: "2026-04-15" }).length === 3 && missingRequired("labor", L).length === 0);
 const cv = cleanValues("labor", { name: "홍", monthlyPay: "2,400,000원", probOn: "on", incentiveOn: false, mealOn: true, extra: "가".repeat(3000), 이상한키: "x" });
 ok("값 정리: 숫자·체크·길이 제한·모르는 키 제거", cv.monthlyPay === 2400000 && cv.probOn === true && cv.incentiveOn === false && cv.mealOn === true && cv.extra.length === 2000 && !("이상한키" in cv));
+// 한 장 맞춤(인쇄) · 전자서명
+const pr = buildDocHtml("labor", L);
+ok("인쇄용: 한 장 맞춤 스크립트·A4 여백", pr.includes('class="fit"') && pr.includes("__fitScale") && pr.includes("@page{size:A4;margin:10mm}") && pr.includes("window.print()"));
+const pv = buildDocHtml("labor", L, { autoPrint: false });
+ok("미리보기: 인쇄 창·한 장 맞춤 없이 글자만 줄임", !pv.includes("window.print()") && !pv.includes("__fitScale") && pv.includes(":root{--s:0.8}") && buildDocHtml("pledge", P, { autoPrint: false }).includes(":root{--s:1}"));
+const PNG = "data:image/png;base64,iVBORw0KGgo=";
+const sg = buildDocHtml("labor", { ...L, mealChoice: "meal" }, { autoPrint: false, sign: { img: PNG, at: new Date(2026, 10, 17, 14, 3).getTime(), name: "김효진" } });
+ok("전자서명: 서명 이미지·서명 시각·서명자 표시", sg.includes(`<img src="${PNG}" alt="서명">`) && sg.includes("전자서명 완료 · 2026.11.17 14:03 · 김효진") && !sg.includes('margin-left:14px">(인)'));
+ok("서명 없으면 (인) 칸 유지", buildDocHtml("labor", L, { autoPrint: false }).includes('margin-left:14px">(인)') && !buildDocHtml("labor", L, { autoPrint: false }).includes("전자서명 완료"));
+ok("동의서·서약서도 서명 이미지 반영", buildDocHtml("consent", C, { autoPrint: false, sign: { img: PNG, at: 0, name: "김효진" } }).includes(`src="${PNG}"`) && buildDocHtml("pledge", P, { autoPrint: false, sign: { img: PNG, at: 0, name: "x" } }).includes(`src="${PNG}"`));
+ok("서명 때 직원이 답하는 항목", signAnswerFields("labor", { mealOn: true })[0].key === "mealChoice" && signAnswerFields("labor", { mealOn: false }).length === 0 && signAnswerFields("consent")[0].key === "agree" && signAnswerFields("pledge")[0].key === "confirm" && signAnswerFields("pledge")[0].type === "check");
+const svv = signedValues({ data: { name: "홍", agree: "" }, answers: { agree: "agree" } });
+ok("직원의 답이 문서 값에 합쳐짐", svv.agree === "agree" && svv.name === "홍" && buildDocHtml("consent", svv, { autoPrint: false }).includes("동의함 ☑"));
+ok("signMeta", signMeta({ signature: PNG, data: { name: "홍" } }, 5).at === 5 && signMeta({ data: {} }, 5) === null);
 console.log(f ? `\n${f} FAILURES` : "\nALL PASS"); process.exit(f ? 1 : 0);
