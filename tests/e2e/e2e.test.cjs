@@ -273,7 +273,15 @@ const buf = (s) => Buffer.from(s);
     ok("D tabs", (await count(page, "#nav .tab")) === 7 && (await page.textContent("#nav")).includes("내 정보") && (await page.textContent("#nav")).includes("내 서류") && (await page.textContent("#nav")).includes("달력"));
     ok("D 내 서류 메뉴는 내 정보 바로 옆", await page.$$eval("#nav .tab", (t) => { const i = t.findIndex((x) => x.dataset.view === "me"); return t[i + 1]?.dataset.view === "docs"; }));
     ok("D 내 정보에는 서류 카드가 없음", (await count(page, "input[data-up]")) === 0 && (await count(page, "#dPub")) === 0 && (await count(page, "#dSec")) === 0);
-    await page.evaluate(() => (location.hash = "#docs")); await page.waitForSelector('#viewDocs:not(.hidden) [data-slot="resume"]');
+    // ---- 내 서류: 내 급여와 같은 비밀번호로 한 번 더 확인 (처음이면 정함)
+    await page.evaluate(() => (location.hash = "#docs")); await page.waitForSelector("#dlgPayPw[open]");
+    ok("D 내 서류는 비밀번호부터 묻는다 (처음이라 설정)", (await page.textContent("#ppTitle")).includes("설정") && (await page.textContent("#ppDesc")).includes("내 서류") && (await page.textContent("#ppDesc")).includes("내 급여") && (await count(page, "[data-slot]")) === 0);
+    await page.click("#btnPpCancel"); await page.waitForTimeout(150);
+    ok("D 취소하면 서류가 열리지 않고 잠금 화면", (await vis(page, "#docsLocked")) && (await count(page, "[data-slot]")) === 0 && (await count(page, "input[data-up]")) === 0);
+    await page.click("#btnDocsUnlock"); await page.waitForSelector("#dlgPayPw[open]");
+    await page.fill("#ppNew", "Secret-pass9"); await page.fill("#ppNew2", "Secret-pass9"); await page.click("#btnPpOk");
+    await page.waitForSelector('#viewDocs:not(.hidden) [data-slot="resume"]');
+    ok("D 비밀번호를 정하면 내 급여와 같은 payLock 문서에 저장되고 서류가 열림", !!(await S(page, "employees/emp_0003/private/payLock"))?.hash && (await count(page, "#docsLocked")) === 0);
     ok("D 내 서류 화면: 이름·안내", (await page.textContent("#viewDocs")).includes("내 서류") && (await page.textContent("#viewDocs")).includes("담당 관리자") && (await count(page, "#detailRoot .emp-name")) === 0);
     ok("D no mgr buttons/back", !(await vis(page, "#dBtnLink")) && !(await vis(page, "#dBtnEdit")) && (await count(page, ".back-link")) === 0);
     ok("D no comp/eval", !(await vis(page, "#cBase")) && !(await vis(page, "#dEvalZone")));
@@ -282,18 +290,63 @@ const buf = (s) => Buffer.from(s);
     ok("D flags shown", (await page.textContent('[data-slot="bankbookCopy"]')).includes("이미 등록됨"));
     await page.setInputFiles('[data-up="residentCopy"]', { name: "등본.pdf", mimeType: "application/pdf", buffer: buf("x") }); await page.waitForTimeout(300);
     ok("D upload sec by self", (await FILES(page)).some((p) => p.startsWith("hr/emp_0003/sec/residentCopy__")) && (await page.textContent('[data-slot="residentCopy"]')).includes("이미 등록됨"));
+    // 화면을 벗어났다가 다시 들어오면 다시 비밀번호 (이번에는 ‘설정’이 아니라 확인)
+    await page.evaluate(() => (location.hash = "#me")); await page.waitForSelector("#viewDetail:not(.hidden) #dFront");
+    ok("D 내 정보에는 서류가 없고 비밀번호 창도 닫힘", (await count(page, "[data-slot]")) === 0 && !(await vis(page, "#dlgPayPw")));
+    await page.evaluate(() => (location.hash = "#docs")); await page.waitForSelector("#dlgPayPw[open]");
+    ok("D 다시 들어오면 비밀번호 확인 (설정이 아님, 내 서류 안내)", !(await page.textContent("#ppTitle")).includes("설정") && (await page.textContent("#ppDesc")).includes("내 서류 보호"));
+    await page.fill("#ppOld", "틀린-비밀번호1"); await page.click("#btnPpOk"); await page.waitForTimeout(150);
+    ok("D 틀린 비밀번호는 거절", (await page.textContent("#ppErr")).includes("맞지 않습니다") && (await count(page, "[data-slot]")) === 0);
+    await page.fill("#ppOld", "Secret-pass9"); await page.click("#btnPpOk"); await page.waitForSelector('#viewDocs:not(.hidden) [data-slot="resume"]');
+    ok("D 맞는 비밀번호로 다시 열림", (await count(page, "input[data-up]")) === 8);
     await page.evaluate(() => (location.hash = "#me")); await page.waitForSelector("#viewDetail:not(.hidden) #dFront");
     ok("D branches locked", (await count(page, "#dBranches input:disabled")) === 3);
-    ok("D own front shown, back empty", (await page.inputValue("#dFront")) === "810825" && (await page.inputValue("#dBack")) === "");
-    await page.fill("#dBack", "7654321"); await page.click("#dBtnRrn"); await page.waitForTimeout(200);
-    ok("D self writes back, hidden after", (await S(page, "employees/emp_0003/private/residentBack")).value === "7654321" && (await page.inputValue("#dBack")) === "");
-    await page.fill('[data-pi="address"]', "새 주소"); await page.click("#dBtnPi"); await page.waitForTimeout(150);
-    ok("D self saves personal", (await S(page, "employees/emp_0003/private/personalInfo")).address === "새 주소");
+    // ---- 한 번 입력한 개인정보·주민번호는 본인이 못 고친다
+    ok("D 주민번호: 이미 입력한 앞·뒷자리는 수정 불가", (await page.inputValue("#dFront")) === "810825" && (await page.$eval("#dFront", (e) => e.disabled)) && (await page.$eval("#dBack", (e) => e.disabled)) && (await page.$eval("#dBtnRrn", (e) => e.disabled)) && (await page.textContent("#dRrnLockNote")).includes("직접 수정할 수 없습니다"));
+    ok("D 개인정보: 이미 입력한 칸·날짜 칸은 잠기고 안내가 보임", (await page.$eval('[data-pi="address"]', (e) => e.disabled)) && (await page.$eval('[data-pi="workStartDate"]', (e) => e.disabled)) && (await page.$eval('[data-pi="resignDate"]', (e) => e.disabled)) && (await page.textContent("#dPiNote")).includes("직접 고칠 수 없습니다"));
+    ok("D 비어 있는 주소·계좌·보호자 칸은 한 번 채울 수 있음", await page.$eval('[data-pi="guardianName"]', (e) => e.disabled === !!e.value));
+    ok("D 직원에게는 수정 허용 카드가 없음", (await count(page, "#dUnlockCard")) === 0);
     await page.evaluate(() => (location.hash = "#emp/emp_0002")); await page.waitForTimeout(300);
     ok("D cannot open others", (await page.textContent("#detailRoot")).includes("이교사") || !(await page.textContent("#detailRoot")).includes("최팀장"));
     await shot(page, "G4-detail-staff");
     ok("D no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
+  }
+
+  // ================= D2. 개인정보 수정 허용 (최고관리자가 열어 준 동안만 직원이 고칠 수 있다) =================
+  {
+    const st = J(snapStore); st.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    st["employees/emp_0003/private"] = { ...(st["employees/emp_0003/private"] || {}), piUnlock: { until: { seconds: Math.floor(Date.now() / 1000) + 86400, nanoseconds: 0 } } };
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: st, files: J(snapFiles) });
+    await page.goto(BASE + "/index.html#me"); await page.waitForSelector("#viewDetail:not(.hidden) #dFront");
+    ok("D2 수정 허용 중이면 주소·계좌·보호자·주민번호 칸이 열림", !(await page.$eval('[data-pi="address"]', (e) => e.disabled)) && !(await page.$eval("#dFront", (e) => e.disabled)) && !(await page.$eval("#dBack", (e) => e.disabled)) && (await page.textContent("#dPiNote")).includes("수정을 허용했습니다"));
+    ok("D2 허용 중에도 날짜 칸(근로시작일·퇴사일 등)은 잠김", (await page.$eval('[data-pi="workStartDate"]', (e) => e.disabled)) && (await page.$eval('[data-pi="eduStartDate"]', (e) => e.disabled)) && (await page.$eval('[data-pi="insuranceRegDate"]', (e) => e.disabled)) && (await page.$eval('[data-pi="resignDate"]', (e) => e.disabled)));
+    await page.fill('[data-pi="address"]', "허용 중 바꾼 주소"); await page.click("#dBtnPi"); await page.waitForTimeout(200);
+    ok("D2 허용 중에는 직원이 개인정보를 저장할 수 있음", (await S(page, "employees/emp_0003/private/personalInfo")).address === "허용 중 바꾼 주소");
+    await page.fill("#dBack", "7654321"); await page.click("#dBtnRrn"); await page.waitForTimeout(200);
+    ok("D2 허용 중에는 주민번호 뒷자리도 저장할 수 있음", (await S(page, "employees/emp_0003/private/residentBack")).value === "7654321");
+    ok("D2 no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 최고관리자: 직원 상세에서 수정 허용 / 잠그기
+    const su = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: J(snapFiles) });
+    await su.page.goto(BASE + "/index.html#emp/emp_0003"); await su.page.waitForSelector("#dUnlockCard");
+    ok("D2 최고관리자에게 ‘직원 본인 수정 허용’ 카드가 보이고 처음엔 잠김", (await su.page.textContent("#dUnlockState")).includes("잠김") && !(await vis(su.page, "#dBtnRelock")));
+    await su.page.selectOption("#dUnlockDays", "3"); await su.page.click("#dBtnUnlock"); await su.page.waitForTimeout(300);
+    const ul = await S(su.page, "employees/emp_0003/private/piUnlock"), days = ul ? (ul.until.seconds * 1000 - Date.now()) / 86400000 : 0;
+    ok("D2 3일 수정 허용이 저장됨(기한 포함)", ul && days > 2.9 && days < 3.1 && (await su.page.textContent("#dUnlockState")).includes("허용 중") && (await vis(su.page, "#dBtnRelock")), JSON.stringify(ul));
+    await su.page.click("#dBtnRelock"); await su.page.waitForTimeout(300);
+    ok("D2 잠그기: 허용 기록이 지워지고 다시 잠김", !(await S(su.page, "employees/emp_0003/private/piUnlock")) && (await su.page.textContent("#dUnlockState")).includes("잠김"));
+    const acts = Object.values(await su.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).map((l) => l.action);
+    ok("D2 감사로그: 수정 허용·잠금", acts.includes("pi_unlock") && acts.includes("pi_lock"));
+    ok("D2 관리자(최고관리자)는 직원의 잠긴 개인정보도 직접 수정 가능", !(await su.page.$eval('[data-pi="address"]', (e) => e.disabled)) && !(await su.page.$eval("#dFront", (e) => e.disabled)));
+    ok("D2 no errors (super)", su.errors.length === 0, su.errors.join(" | "));
+    await su.ctx.close();
+    // 내 정보를 보는 관리자(원장)는 잠금 대상이 아니다 (관리자 권한으로 쓸 수 있음)
+    const sa = J(snapStore); sa.roles.u4 = { level: "admin", orgId: "banpo", employeeId: "emp_0004" };
+    const ad = await newPage(browser, { user: { uid: "u4", email: "park@jarada.kr" }, store: sa, files: J(snapFiles) });
+    await ad.page.goto(BASE + "/index.html#me"); await ad.page.waitForSelector("#viewDetail:not(.hidden) #dFront");
+    ok("D2 원장 본인 화면은 잠기지 않음", (await count(ad.page, "#dPiNote")) === 0 && !(await ad.page.$eval('[data-pi="address"]', (e) => e.disabled)));
+    await ad.ctx.close();
   }
 
   // ================= E. 등록 링크 (익명) =================
