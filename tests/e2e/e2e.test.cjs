@@ -1210,7 +1210,7 @@ const buf = (s) => Buffer.from(s);
     ok("X detail delete", (await count(page, "#dSlips [data-sdel]")) === 1);
     // ---- 한 직원에게 2개 이상: 구분(label)으로 나누거나 ‘추가 올리기’, 그리고 방금 올린 것 삭제 ----
     const toSlips = async () => { await page.goto(BASE + "/index.html#admin").catch(() => {}); };
-    const resetTab = async () => { await page.click('#adminTabs [data-t="export"]'); await page.click('#adminTabs [data-t="slips"]'); await page.waitForSelector("#dsZone"); };
+    const resetTab = async () => { await page.click('#adminTabs [data-t="export"]'); await page.click('#adminTabs [data-t="slips"]'); await page.waitForSelector("#dsZone"); if (await count(page, "#btnDsClear")) { await page.click("#btnDsClear"); await page.waitForTimeout(100); } await page.uncheck("#dsAppend"); await page.fill("#dsLabel", ""); };
     const slipsOf = async (id) => Object.values(await page.evaluate((i) => globalThis.__mockStore["employees/" + i + "/payslips"] || {}, id));
     await page.evaluate(() => (location.hash = "#admin")); await page.waitForSelector("#adminTabs"); await resetTab();
     await page.selectOption("#dsType", "incentive"); await page.fill("#dsMonth", "2026-12");
