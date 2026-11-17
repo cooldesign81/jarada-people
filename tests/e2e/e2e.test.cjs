@@ -355,6 +355,71 @@ const buf = (s) => Buffer.from(s);
     await ad.ctx.close();
   }
 
+  // ================= CT. 계약서·동의서 온라인 작성 (근로계약서 · 개인정보 동의서 · 서약서) =================
+  {
+    const st = J(snapStore); st.employees.emp_0003.corp = "jade";
+    const c = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles) });
+    const pg = c.page, coll = (n) => pg.evaluate((k) => Object.values(globalThis.__mockStore["employees/emp_0003/" + k] || {}), n);
+    await pg.goto(BASE + "/index.html#emp/emp_0003"); await pg.waitForSelector("#dContractsCard");
+    ok("CT 최고관리자: 3종 작성 버튼", (await count(pg, "#dContracts [data-new]")) === 3 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
+    // 근로계약서: 노랑은 직원 정보로 채워지고, 주황은 기본 옵션
+    await pg.click('[data-new="labor"]'); await pg.waitForSelector("#dlgContractDoc[open]");
+    ok("CT 근로계약서 창: 노랑·주황 묶음", (await pg.textContent("#cdTitle")).includes("근로계약서 작성") && (await count(pg, "#cdY #cdf_name")) === 1 && (await count(pg, "#cdY #cdf_monthlyPay")) === 1 && (await count(pg, "#cdO #cdf_probMonths")) === 1 && (await count(pg, "#cdO #cdf_incentiveHead")) === 1 && (await vis(pg, "#cdOWrap")));
+    ok("CT 노랑 기본값: 이름·계약 시작일(입사일)·사용자(법인)", (await pg.inputValue("#cdf_name")) === "이교사" && (await pg.inputValue("#cdf_startDate")) === "2024-03-02" && (await pg.inputValue("#cdf_company")) === "(주)제이드에듀", [await pg.inputValue("#cdf_name"), await pg.inputValue("#cdf_startDate"), await pg.inputValue("#cdf_company")].join("|"));
+    ok("CT 주황 기본 옵션(첨부 양식 값)", (await pg.inputValue("#cdf_probMonths")) === "2" && (await pg.inputValue("#cdf_incentiveHead")) === "42" && (await pg.inputValue("#cdf_incentiveAmt")) === "30000" && (await pg.inputValue("#cdf_mealAmt")) === "200000" && (await pg.inputValue("#cdf_noticeDays")) === "60" && (await pg.isChecked("#cdf_probOn")));
+    await pg.fill("#cdf_monthlyPay", ""); await pg.click("#btnCdSave"); await pg.waitForTimeout(150);
+    ok("CT 필수(노랑) 칸이 비면 저장 막힘", (await pg.textContent("#cdErr")).includes("월 지급액") && (await coll("laborContracts")).length === 0);
+    await pg.fill("#cdf_monthlyPay", "2400000"); await pg.fill("#cdf_incentiveHead", "30"); await pg.uncheck("#cdf_mealOn"); await pg.fill("#cdf_birth", "1990-05-21");
+    const [popup] = await Promise.all([c.ctx.waitForEvent("page"), pg.click("#btnCdSaveOpen")]); await popup.waitForLoadState();
+    const ph = await popup.content();
+    ok("CT 저장하고 열기: 인쇄용 근로계약서(바꾼 옵션 반영, 끈 조항 제외)", ph.includes("근 로 계 약 서") && ph.includes("월 지급액 2,400,000원") && ph.includes("30명을 초과하는 경우") && !ph.includes("식대 200,000원 또는") && ph.includes("1990.05.21") && ph.includes("이교사"));
+    await popup.close();
+    let lc = await coll("laborContracts");
+    ok("CT 근로계약서가 laborContracts 에 저장됨", lc.length === 1 && lc[0].type === "labor" && lc[0].data.monthlyPay === 2400000 && lc[0].data.incentiveHead === 30 && lc[0].data.mealOn === false && lc[0].data.probOn === true && lc[0].title.includes("이교사") && lc[0].createdByName, JSON.stringify(lc[0]).slice(0, 200));
+    ok("CT 목록에 표시", (await pg.textContent("#dContracts")).includes("근로계약서") && (await count(pg, "#dContracts [data-open]")) === 1);
+    // 수정: 저장된 값이 그대로 열리고, 옵션을 기본값으로 되돌릴 수 있다
+    await pg.click("#dContracts [data-edit]"); await pg.waitForSelector("#dlgContractDoc[open]");
+    ok("CT 수정 창에 저장한 값이 열림", (await pg.inputValue("#cdf_incentiveHead")) === "30" && !(await pg.isChecked("#cdf_mealOn")) && (await pg.inputValue("#cdf_monthlyPay")) === "2400000");
+    await pg.click("#btnCdReset");
+    ok("CT ‘옵션을 기본값으로’: 주황만 되돌아가고 노랑은 그대로", (await pg.inputValue("#cdf_incentiveHead")) === "42" && (await pg.isChecked("#cdf_mealOn")) && (await pg.inputValue("#cdf_monthlyPay")) === "2400000");
+    await pg.fill("#cdf_noticeDays", "45"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
+    lc = await coll("laborContracts");
+    ok("CT 수정 저장(새 문서가 아니라 갱신)", lc.length === 1 && lc[0].data.noticeDays === 45 && lc[0].data.incentiveHead === 42);
+    // 동의서·서약서
+    await pg.click('[data-new="consent"]'); await pg.waitForSelector("#dlgContractDoc[open]");
+    ok("CT 동의서 창: 문구가 주황 옵션으로 들어 있음", (await pg.inputValue("#cdf_items")).includes("입사자 인사정보") && (await pg.inputValue("#cdf_company")) === "㈜자라다교육" && (await pg.inputValue("#cdf_name")) === "이교사");
+    await pg.selectOption("#cdf_agree", "agree"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
+    await pg.click('[data-new="pledge"]'); await pg.waitForSelector("#dlgContractDoc[open]");
+    ok("CT 서약서 창: 주황 옵션은 회사명뿐", (await count(pg, "#cdO .field")) === 1 && (await pg.inputValue("#cdf_address")).length > 0);
+    await pg.fill("#cdf_dept", "평촌원"); await pg.check("#cdf_confirm"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
+    const ct = await coll("contracts");
+    ok("CT 동의서·서약서는 contracts 에 저장", ct.length === 2 && ct.some((x) => x.type === "consent" && x.data.agree === "agree") && ct.some((x) => x.type === "pledge" && x.data.dept === "평촌원" && x.data.confirm === true));
+    const [p2] = await Promise.all([c.ctx.waitForEvent("page"), pg.click('#dContracts tr:has-text("서약서") [data-open]')]); await p2.waitForLoadState();
+    const pt = await p2.content(); await p2.close();
+    ok("CT 서약서 열기: 인쇄용 문서", pt.includes("서 약 서") && pt.includes("평촌원") && pt.includes("☑ 확인하였습니다"));
+    // 삭제
+    await pg.click('#dContracts tr:has-text("동의서") [data-del]'); await pg.waitForTimeout(400);
+    ok("CT 삭제", (await coll("contracts")).length === 1 && !(await pg.textContent("#dContracts .rec-tbl")).includes("개인정보 수집"));
+    const acts = Object.values(await pg.evaluate(() => globalThis.__mockStore.auditLogs || {})).map((l) => l.action);
+    ok("CT 감사로그: 저장·열람·삭제", acts.includes("contract_save") && acts.includes("contract_open") && acts.includes("contract_delete"));
+    ok("CT no errors", c.errors.length === 0, c.errors.join(" | "));
+    await c.ctx.close();
+    // 대표이사(급여 권한 없음): 동의서·서약서만, 근로계약서는 버튼도 목록도 없음
+    const sh = J(snapStore); sh.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    sh["employees/emp_0003/laborContracts"] = { c1: { type: "labor", title: "근로계약서 · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, updatedAt: { seconds: 1, nanoseconds: 0 } } };
+    const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {} });
+    await h.page.goto(BASE + "/index.html#emp/emp_0003"); await h.page.waitForSelector("#dContractsCard");
+    ok("CT 대표이사: 동의서·서약서 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 2 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
+    ok("CT 대표이사: 근로계약서 기록은 목록에 안 보임", !(await h.page.textContent("#dContracts")).includes("근로계약서"));
+    await h.ctx.close();
+    // 직원 본인: 계약서 카드 없음
+    const ss = J(snapStore); ss.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: ss, files: {} });
+    await e.page.goto(BASE + "/index.html#me"); await e.page.waitForSelector("#viewDetail:not(.hidden) #dFront");
+    ok("CT 직원 본인 화면에는 계약서 카드가 없음", (await count(e.page, "#dContractsCard")) === 0);
+    await e.ctx.close();
+  }
+
   // ================= E. 등록 링크 (익명) =================
   {
     const se = J(snapStore); delete se["employees/emp_0003/private"].personalInfo; delete se["employees/emp_0003/private"].residentFront; delete se["employees/emp_0003/private"].residentBack; delete se["employees/emp_0003/private"].flags;   // 처음 입력하는 직원

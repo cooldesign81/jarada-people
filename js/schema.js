@@ -28,7 +28,7 @@ export const COMP_FIELDS = [
   ["incentiveThreshold", "인센티브 기준"], ["incentiveAmount", "인센티브 금액"], ["otherSalary", "기타 급여"], ["memo", "급여 메모"],
 ];
 export const AUDIT_ACTIONS = {
-  view_sensitive: "민감정보 조회", rrn_save: "주민번호 저장", comp_save: "급여 수정", pi_unlock: "직원 개인정보 수정 허용", pi_lock: "직원 개인정보 다시 잠금", personal_save: "개인정보 수정",
+  view_sensitive: "민감정보 조회", rrn_save: "주민번호 저장", comp_save: "급여 수정", contract_save: "계약서·동의서 저장", contract_open: "계약서·동의서 열람·인쇄", contract_delete: "계약서·동의서 삭제", pi_unlock: "직원 개인정보 수정 허용", pi_lock: "직원 개인정보 다시 잠금", personal_save: "개인정보 수정",
   file_upload: "파일 업로드", file_download: "파일 다운로드", file_delete: "파일 삭제",
   emp_create: "직원 등록", emp_update: "직원 수정", emp_trash: "직원 휴지통 이동", emp_restore: "직원 복원", emp_purge: "직원 완전 삭제",
   branch_save: "지점 변경", bulk_import: "일괄 등록", export: "엑셀 내보내기", backup: "전체 백업", settings_change: "설정 변경", rrn_back_purge: "주민번호 뒷자리 일괄 삭제",

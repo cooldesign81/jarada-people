@@ -525,6 +525,34 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("slip: label edit cannot carry other fields", false, () => sup.doc("employees/emp_0003/payslips/s8").update({ label: "x", fileName: "y.pdf", updatedAt: TS() }));
   await t("slip: employee cannot edit label", false, () => stf.doc("employees/emp_0003/payslips/s8").update({ label: "내가바꿈" }));
   await t("slip: super deletes labelled slips", true, async () => { await sup.doc("employees/emp_0003/payslips/s6").delete(); await sup.doc("employees/emp_0003/payslips/s8").delete(); });
+  // ---- 계약서·동의서 (온라인 작성본): 근로계약서는 급여 권한자만, 동의서·서약서는 대표이사·소속 지점 원장 등
+  const CT = (type, o = {}) => ({ type, title: (type === "labor" ? "근로계약서" : "서약서") + " · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, createdAt: TS(), updatedAt: TS(), createdBy: "u1", createdByName: "대표", ...o });
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("roles/u_adm2").set({ level: "admin", orgId: "daechi", employeeId: "emp_a2" }));   // 이 직원(안양·반포)과 겹치지 않는 지점의 원장
+  const adm2 = as("u_adm2");
+  await t("contract: super creates 근로계약서", true, () => sup.doc("employees/emp_0003/laborContracts/c1").set(CT("labor")));
+  await t("contract: hr WITHOUT comp cannot create 근로계약서", false, () => hr.doc("employees/emp_0003/laborContracts/c2").set(CT("labor")));
+  await t("contract: hr WITHOUT comp cannot read 근로계약서", false, () => hr.doc("employees/emp_0003/laborContracts/c1").get());
+  await t("contract: branch admin cannot read 근로계약서", false, () => adm.doc("employees/emp_0003/laborContracts/c1").get());
+  await t("contract: employee cannot read own 근로계약서", false, () => stf.doc("employees/emp_0003/laborContracts/c1").get());
+  await t("contract: super lists 근로계약서", true, () => sup.collection("employees/emp_0003/laborContracts").get());
+  await t("contract: 근로계약서 type must be labor", false, () => sup.doc("employees/emp_0003/laborContracts/c3").set(CT("pledge")));
+  await t("contract: extra key rejected", false, () => sup.doc("employees/emp_0003/laborContracts/c3").set(CT("labor", { hack: 1 })));
+  await t("contract: title too long rejected", false, () => sup.doc("employees/emp_0003/laborContracts/c3").set(CT("labor", { title: "가".repeat(121) })));
+  await t("contract: data must be a map", false, () => sup.doc("employees/emp_0003/laborContracts/c3").set(CT("labor", { data: "x" })));
+  await t("contract: super edits 근로계약서", true, () => sup.doc("employees/emp_0003/laborContracts/c1").update({ title: "근로계약서 · 이교사(수정)", data: { name: "이교사", signDate: "2026-04-16" }, updatedAt: TS() }));
+  await t("contract: type cannot be changed", false, () => sup.doc("employees/emp_0003/laborContracts/c1").update({ type: "consent", updatedAt: TS() }));
+  await t("contract: hr creates 서약서", true, () => hr.doc("employees/emp_0003/contracts/k1").set(CT("pledge")));
+  await t("contract: hr creates 동의서", true, () => hr.doc("employees/emp_0003/contracts/k2").set(CT("consent", { title: "동의서 · 이교사" })));
+  await t("contract: 서약서 collection rejects labor type", false, () => hr.doc("employees/emp_0003/contracts/k3").set(CT("labor")));
+  await t("contract: hr reads/lists 서약서·동의서", true, () => hr.collection("employees/emp_0003/contracts").get());
+  await t("contract: branch admin (same org) creates 서약서", true, () => adm.doc("employees/emp_0003/contracts/k4").set(CT("pledge")));
+  await t("contract: branch admin of another org cannot read", false, () => adm2.doc("employees/emp_0003/contracts/k1").get());
+  await t("contract: employee cannot read own 서약서", false, () => stf.doc("employees/emp_0003/contracts/k1").get());
+  await t("contract: employee cannot create 서약서", false, () => stf.doc("employees/emp_0003/contracts/k5").set(CT("pledge")));
+  await t("contract: manager (실장) cannot read", false, () => mgr.doc("employees/emp_0003/contracts/k1").get());
+  await t("contract: hr deletes 서약서", true, () => hr.doc("employees/emp_0003/contracts/k2").delete());
+  await t("contract: hr cannot delete 근로계약서", false, () => hr.doc("employees/emp_0003/laborContracts/c1").delete());
+  await t("contract: super deletes 근로계약서", true, () => sup.doc("employees/emp_0003/laborContracts/c1").delete());
   await t("slip: bad type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ type: "bonus" })));
   await t("slip: bad month", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ month: "10월" })));
   await t("slip: non-pdf/image content type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ contentType: "application/zip" })));

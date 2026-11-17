@@ -12,6 +12,7 @@ import {
 } from "./core.js";
 import { PERSONAL_FIELDS, COMP_FIELDS, PUBLIC_DOCS, SECRET_DOCS } from "./schema.js";
 import { mountEmployeeSlips } from "./payslips.js";
+import { mountContracts } from "./contracts.js";
 import { requirePayPassword } from "./paylock.js";
 import { birthFromRrn } from "./rrn.js";
 import { openPayslip, openContract, bindPayroll, severanceLine } from "./payroll.js";
@@ -221,6 +222,7 @@ function draw() {
 
     ${unlockCardHtml()}
     ${can("comp") ? compHtml() : ""}
+    ${mgr ? `<div class="card" id="dContractsCard"><h3 class="sec-title">계약서·동의서 (온라인 작성)</h3><div id="dContracts"></div></div>` : ""}
     ${can("comp") ? `<div class="card"><div class="card-head-inline"><h3 class="sec-title" style="margin:0;border:0;padding:0">급여 명세서·세부내역서</h3><a class="btn btn-secondary btn-sm" href="#admin" data-goslips>급여 배포로 가기</a></div><div id="dSlips"></div></div>` : ""}
     ${state.selfMode ? "" : `<div id="dRecords"></div>`}
 
@@ -229,6 +231,7 @@ function draw() {
   renderOrgChecks($("dBranches"), { selected: e.orgIds, disabled: !isHR() || state.selfMode });
   rrnStatus();
   bindHead(); bindRrn(); bindPi(); bindUnlock();
+  if (mgr) mountContracts($("dContracts"), { emp: cur.emp, pi: cur.pi, comp: cur.comp });
   if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
   if (docsInDetail()) { if (can("secDocs")) bindEval(); drawFiles(); }
   if (!state.selfMode && $("dRecords")) {
@@ -704,7 +707,7 @@ function addEtcDraft() {
 }
 
 // 직원 완전 삭제 시 하위 데이터/파일 정리 (최고관리자)
-export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips"];
+export const SUBCOLLECTIONS = ["assignments", "certs", "enrollments", "reviews", "compHistory", "certIssues", "payslips", "contracts", "laborContracts"];
 export async function deleteEmployeeData(empId) {
   for (const n of ["personalInfo", "flags", "residentFront", "residentBack", "compensation", "payLock"]) {
     try { await deleteDoc(doc(db, "employees", empId, "private", n)); } catch (e) { console.warn("삭제 실패", n, e.code || e); }
