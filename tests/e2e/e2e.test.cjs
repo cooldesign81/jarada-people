@@ -1325,13 +1325,13 @@ const buf = (s) => Buffer.from(s);
     ok("X after setting: file opens + viewedAt", !!(await S(e.page, "employees/emp_0003/payslips/p1")).viewedAt && !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
     // 두 번째부터는 열 때마다 비밀번호를 묻는다
     await e.page.click('[data-view="p3"]'); await e.page.waitForSelector("#dlgPayPw[open]");
-    ok("X every open asks for the password", (await e.page.textContent("#ppTitle")).includes("급여 열람 비밀번호") && !(await e.page.textContent("#ppTitle")).includes("설정") && !(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt);
+    ok("X every open asks for the password", (await e.page.textContent("#ppTitle")).includes("열람 비밀번호") && !(await e.page.textContent("#ppTitle")).includes("설정") && !(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt);
     await e.page.fill("#ppOld", "wrong-pass-1"); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(600);
     ok("X wrong password does not open", (await e.page.textContent("#ppErr")).includes("맞지 않습니다") && !(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt && (await e.page.$eval("#dlgPayPw", (d) => d.open)));
     await e.page.fill("#ppOld", "Secret-pass9"); await e.page.click("#btnPpOk"); await e.page.waitForTimeout(700);
     ok("X correct password opens + records viewedAt", !!(await S(e.page, "employees/emp_0003/payslips/p3")).viewedAt && !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
     await e.page.click('[data-dl="p2"]'); await e.page.waitForSelector("#dlgPayPw[open]");
-    ok("X download also asks", (await e.page.textContent("#ppTitle")).includes("급여 열람 비밀번호")); await e.page.click("#btnPpCancel"); await e.page.waitForTimeout(200);
+    ok("X download also asks", (await e.page.textContent("#ppTitle")).includes("열람 비밀번호")); await e.page.click("#btnPpCancel"); await e.page.waitForTimeout(200);
     ok("X cancel does nothing", !(await e.page.$eval("#dlgPayPw", (d) => d.open)));
     // 5번 틀리면 1분 잠금
     await e.page.click('[data-view="p2"]'); await e.page.waitForSelector("#dlgPayPw[open]");

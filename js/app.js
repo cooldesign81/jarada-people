@@ -14,7 +14,7 @@ import {
 } from "./core.js";
 import { CORPS, corpName, corpFromText } from "./company.js";
 import { birthFromRrn } from "./rrn.js";
-import { initDetail, renderDetail, renderMyDocs, bindCertModal, deleteEmployeeData } from "./detail.js";
+import { initDetail, renderDetail, renderMyDocs, lockDocs, bindCertModal, deleteEmployeeData } from "./detail.js";
 import { initLeave, loadLeaves, loadEvents, renderLeaves, pendingCount } from "./leave.js";
 import { initAdmin, renderAdmin } from "./admin.js";
 import { exportEmployees } from "./export.js";
@@ -287,6 +287,7 @@ function route() {
     const id = decodeURIComponent(hash.slice(4));
     if (canManage() || id === state.role.employeeId) {
       navId = canManage() ? "employees" : "me";
+      lockDocs();
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === navId));
       showView("Detail"); renderDetail(id);
       return;
@@ -296,6 +297,7 @@ function route() {
     || allowed.find((n) => n.id === (canManage() ? "dash" : "me"))
     || allowed[0];
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === nav.id));
+  if (nav.id !== "docs") lockDocs();   // ‘내 서류’는 들어올 때마다 비밀번호 확인
   showView(nav.view);
   ({ dash: renderDash, calendar: renderCalendar, leaves: renderLeaves, notices: renderNotices, payslips: renderMyPayslips, employees: () => renderEmployees(), orgs: renderOrgs, admin: renderAdmin, me: renderMe, docs: renderDocs })[nav.id]();
   updateBadges();
