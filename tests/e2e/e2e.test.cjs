@@ -32,6 +32,7 @@ async function newPage(browser, { user = null, store = {}, files = {}, viewport 
   if (now) await page.clock.setFixedTime(new Date(now));
   await page.route("https://www.gstatic.com/firebasejs/**", (r) => r.fulfill({ contentType: "application/javascript", body: mocks[r.request().url().split("/").pop()] || "" }));
   await page.route("https://cdn.jsdelivr.net/**", (r) => r.fulfill({ contentType: "text/css", body: "" }));
+  await page.route("https://cooldesign81.github.io/**", (r) => r.fulfill({ contentType: "application/javascript", body: "" }));   // JP ONE 공통 부품(헤더·로그인)은 테스트에서 불러오지 않는다
   await page.addInitScript(({ user, store, files }) => {
     globalThis.__mockUser = user; globalThis.__mockStore = store; globalThis.__mockFiles = files;
     Object.defineProperty(navigator, "clipboard", { value: { writeText: async (t) => { window.__copied = t; } }, configurable: true });
@@ -955,6 +956,7 @@ const buf = (s) => Buffer.from(s);
     const ctx = await browser.newContext({ locale: "ko-KR" }); const page = await ctx.newPage();
     await page.route("https://www.gstatic.com/firebasejs/**", (r) => r.fulfill({ contentType: "application/javascript", body: mocks[r.request().url().split("/").pop()] || "" }));
     await page.route("https://cdn.jsdelivr.net/**", (r) => r.fulfill({ contentType: "text/css", body: "" }));
+    await page.route("https://cooldesign81.github.io/**", (r) => r.fulfill({ contentType: "application/javascript", body: "" }));
     await page.addInitScript(() => { globalThis.__mockUser = null; globalThis.__mockStore = {}; globalThis.__mockFiles = {}; });
     await page.goto(BASE + "/index.html"); await page.waitForSelector("#viewLogin:not(.hidden)");
     const mf = await (await page.request.get(BASE + "/manifest.webmanifest")).json();
