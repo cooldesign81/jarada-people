@@ -361,7 +361,7 @@ const buf = (s) => Buffer.from(s);
     const c = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles) });
     const pg = c.page, coll = (n) => pg.evaluate((k) => Object.values(globalThis.__mockStore["employees/emp_0003/" + k] || {}), n);
     await pg.goto(BASE + "/index.html#emp/emp_0003"); await pg.waitForSelector("#dContractsCard");
-    ok("CT 최고관리자: 3종 작성 버튼", (await count(pg, "#dContracts [data-new]")) === 3 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
+    ok("CT 최고관리자: 4종 작성 버튼(계약서 3종 + 자유 서식)", (await count(pg, "#dContracts [data-new]")) === 4 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
     // 근로계약서: 노랑은 직원 정보로 채워지고, 주황은 기본 옵션
     await pg.click('[data-new="labor"]'); await pg.waitForSelector("#dlgContractDoc[open]");
     ok("CT 근로계약서 창: 노랑·주황 묶음", (await pg.textContent("#cdTitle")).includes("근로계약서 작성") && (await count(pg, "#cdY #cdf_name")) === 1 && (await count(pg, "#cdY #cdf_monthlyPay")) === 1 && (await count(pg, "#cdO #cdf_probMonths")) === 1 && (await count(pg, "#cdO #cdf_incentiveHead")) === 1 && (await vis(pg, "#cdOWrap")));
@@ -409,7 +409,7 @@ const buf = (s) => Buffer.from(s);
     sh["employees/emp_0003/laborContracts"] = { c1: { type: "labor", title: "근로계약서 · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, updatedAt: { seconds: 1, nanoseconds: 0 } } };
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {} });
     await h.page.goto(BASE + "/index.html#emp/emp_0003"); await h.page.waitForSelector("#dContractsCard");
-    ok("CT 대표이사: 동의서·서약서 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 2 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
+    ok("CT 대표이사: 동의서·서약서·자유 서식 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 3 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
     ok("CT 대표이사: 근로계약서 기록은 목록에 안 보임", !(await h.page.textContent("#dContracts")).includes("근로계약서"));
     await h.ctx.close();
     // 직원 본인: 계약서 카드 없음
@@ -515,6 +515,91 @@ const buf = (s) => Buffer.from(s);
     const r3 = await pages("consent", cm.defaultsFor("consent", base)), r4 = await pages("pledge", cm.defaultsFor("pledge", base));
     ok("CS 동의서·서약서 한 장", r3.n === 1 && r4.n === 1, JSON.stringify([r3, r4]));
     await pb.close();
+  }
+
+  // ================= SB. 자유 서식 서명 문서 + 일괄 발송 (관리 → 서명 문서) =================
+  {
+    const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    // --- 직원 상세에서 자유 서식 한 건 작성
+    const a1 = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
+    await a1.page.goto(BASE + "/index.html#emp/emp_0003"); await a1.page.waitForSelector("#dContractsCard");
+    await a1.page.click('[data-new="custom"]'); await a1.page.waitForSelector("#dlgContractDoc[open]");
+    ok("SB 자유 서식 창: 양식 불러오기 + 제목·본문 칸", (await vis(a1.page, "#cdTplWrap")) && (await count(a1.page, "#cdTpl option")) === 5 && (await count(a1.page, "#cdY #cdf_title")) === 1 && (await count(a1.page, "#cdY #cdf_body")) === 1);
+    await a1.page.click("#btnCdSave"); await a1.page.waitForTimeout(150);
+    ok("SB 제목·본문 없으면 저장 막힘", (await a1.page.textContent("#cdErr")).includes("문서 제목") && (await a1.page.textContent("#cdErr")).includes("본문"));
+    await a1.page.selectOption("#cdTpl", "training");
+    ok("SB 양식을 고르면 제목·본문이 채워짐", (await a1.page.inputValue("#cdf_title")) === "교육 이수 확인서" && (await a1.page.inputValue("#cdf_body")).includes("교육명"));
+    await a1.page.fill("#cdf_body", "본인은 2026년 11월 직무 교육을 이수하였음을 확인합니다."); await a1.page.click("#btnCdSave"); await a1.page.waitForTimeout(300);
+    const cu = Object.values(await COL(a1.page, "employees/emp_0003/contracts")).find((x) => x.type === "custom");
+    ok("SB 자유 서식 저장(contracts, status draft)", cu && cu.status === "draft" && cu.data.title === "교육 이수 확인서" && cu.title.startsWith("교육 이수 확인서") && cu.data.name === "이교사", JSON.stringify(cu));
+    ok("SB 목록에는 직접 쓴 제목이 표시됨", (await a1.page.textContent("#dContracts .rec-tbl")).includes("교육 이수 확인서"));
+    await a1.ctx.close();
+
+    // --- 관리 → 서명 문서: 여러 명에게 일괄 발송
+    const sa = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
+    await sa.page.goto(BASE + "/index.html#admin"); await sa.page.waitForSelector('#adminTabs [data-t="signs"]');
+    await sa.page.click('#adminTabs [data-t="signs"]'); await sa.page.waitForSelector("#sbSend");
+    ok("SB 관리 탭: 서명 문서 + 양식 5종 + 직원 목록", (await count(sa.page, "#sbTpl option")) === 5 && (await count(sa.page, "#sbList [data-e]")) >= 2);
+    await sa.page.click("#sbSend"); ok("SB 제목·받는 직원 없으면 막힘", (await sa.page.textContent("#sbErr")).includes("문서 제목") && (await COL(sa.page, "signBatches")) && Object.keys(await COL(sa.page, "signBatches")).length === 0);
+    await sa.page.selectOption("#sbTpl", "rules");
+    ok("SB 양식 선택 → 제목·본문 입력됨", (await sa.page.inputValue("#sbTitle")) === "취업규칙 확인 및 동의서" && (await sa.page.inputValue("#sbBody")).includes("{회사}"));
+    await sa.page.click("#sbSend"); ok("SB 받는 직원 없으면 막힘", (await sa.page.textContent("#sbErr")).includes("받는 직원"));
+    await sa.page.click("#sbNone");
+    const ids = await sa.page.$$eval("#sbList [data-e]", (l) => l.map((x) => x.dataset.e));
+    const pick = ["emp_0003", ids.find((x) => x !== "emp_0003")];
+    for (const id of pick) await sa.page.check(`#sbList [data-e="${id}"]`);
+    ok("SB 선택 인원 표시", (await sa.page.textContent("#sbCount")).includes("2명"));
+    await sa.page.click("#sbSend"); await sa.page.waitForSelector("#sbHist .rec-tbl");
+    const batchId = Object.keys(await COL(sa.page, "signBatches"))[0], batch = (await COL(sa.page, "signBatches"))[batchId];
+    ok("SB 보낸 기록(signBatches): 제목·받는 사람·보낸 사람", batch.title === "취업규칙 확인 및 동의서" && JSON.stringify([...batch.recipients].sort()) === JSON.stringify([...pick].sort()) && batch.count === 2 && batch.createdBy === "u1");
+    const docs = await Promise.all(pick.map(async (id) => Object.values(await COL(sa.page, `employees/${id}/contracts`)).find((x) => x.batchId === batchId)));
+    ok("SB 직원마다 서명 대기 문서가 생김(이름 반영, batchId)", docs.every((d) => d && d.type === "custom" && d.status === "sent" && d.batchId === batchId && d.data.mode === "confirm") && docs.some((d) => d.data.name === "이교사") && docs[0].data.name !== docs[1].data.name);
+    ok("SB 보낸 문서 목록 표시", (await sa.page.textContent("#sbHist")).includes("취업규칙 확인 및 동의서") && (await sa.page.textContent("#sbHist")).includes("2명"));
+    await sa.page.click("#sbHist [data-st]"); await sa.page.waitForSelector("#sbStatus .rec-tbl");
+    ok("SB 서명 현황: 0 / 2명, 모두 서명 대기", (await sa.page.textContent("#sbStatus")).includes("0 / 2명") && (await count(sa.page, "#sbStatus .badge.o-hq")) === 2);
+    ok("SB 일괄 발송 감사로그", Object.values(await sa.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "contract_send" && String(l.detail).includes("일괄 발송")));
+    ok("SB no errors", sa.errors.length === 0, sa.errors.join(" | "));
+    const afterSend = J(await sa.page.evaluate(() => globalThis.__mockStore));
+    await sa.ctx.close();
+
+    // --- 직원: 내 서류에서 확인·서명 → 관리자 현황에 반영
+    afterSend.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J(afterSend), files: {} });
+    await e.page.goto(BASE + "/index.html"); await e.page.waitForSelector("#dSignNotice .notice");
+    await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
+    await e.page.waitForSelector("#mySign [data-sign]");
+    ok("SB 직원 내 서류: 직접 쓴 제목으로 표시", (await e.page.textContent("#mySign")).includes("취업규칙 확인 및 동의서") && !(await e.page.textContent("#mySign")).includes("교육 이수 확인서"));
+    await e.page.click("#mySign [data-sign]"); await e.page.waitForSelector("#dlgSign[open]");
+    const fr = await e.page.$eval("#sgFrame", (f) => f.srcdoc);
+    ok("SB 서명 창: 본문({회사} 치환) + 확인 체크 항목", fr.includes("취업규칙 확인 및 동의서") && fr.includes("(주)제이드에듀의 취업규칙") && (await e.page.textContent("#sgTitle")).includes("취업규칙 확인") && (await count(e.page, "#sga_confirm")) === 1);
+    await e.page.click("#btnSgSubmit"); ok("SB 확인 체크 안 하면 막힘", (await e.page.textContent("#sgErr")).includes("체크"));
+    await e.page.check("#sga_confirm");
+    const bx = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(bx.x + 30, bx.y + 70); await e.page.mouse.down(); await e.page.mouse.move(bx.x + 160, bx.y + 100, { steps: 5 }); await e.page.mouse.up();
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(400);
+    const mine = Object.values(await COL(e.page, "employees/emp_0003/contracts")).find((x) => x.batchId === batchId);
+    ok("SB 서명 저장: signed + 확인 답", mine.status === "signed" && mine.answers.confirm === true && mine.signature.startsWith("data:image/png"));
+    const [pv] = await Promise.all([e.ctx.waitForEvent("page"), e.page.click("#mySign [data-view]")]); await pv.waitForLoadState();
+    const pvh = await pv.content(); await pv.close();
+    ok("SB 서명본: 제목·☑ 확인·서명 이미지", pvh.includes("취업규칙 확인 및 동의서") && pvh.includes("☑ 위 내용을 확인하였으며") && pvh.includes('alt="서명"'));
+    ok("SB 직원 no errors", e.errors.length === 0, e.errors.join(" | "));
+    const afterSign = J(await e.page.evaluate(() => globalThis.__mockStore));
+    await e.ctx.close();
+    const sb = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(afterSign), files: {} });
+    await sb.page.goto(BASE + "/index.html#admin"); await sb.page.waitForSelector('#adminTabs [data-t="signs"]');
+    await sb.page.click('#adminTabs [data-t="signs"]'); await sb.page.waitForSelector("#sbHist [data-st]"); await sb.page.click("#sbHist [data-st]"); await sb.page.waitForSelector("#sbStatus .rec-tbl");
+    ok("SB 서명 현황: 1 / 2명 서명 완료 · 답 표시", (await sb.page.textContent("#sbStatus")).includes("1 / 2명") && (await sb.page.textContent("#sbStatus")).includes("확인·동의") && (await count(sb.page, "#sbStatus .badge.s-active")) === 1 && (await count(sb.page, "#sbStatus .badge.o-hq")) === 1);
+    await sb.ctx.close();
+    // --- 지점 원장은 자기 지점 직원만 받는 사람 목록에 나온다
+    const og = J(afterSign); og.roles.u_adm5 = { level: "principal", orgId: "banpo", employeeId: "emp_0002" };
+    const ad = await newPage(browser, { user: { uid: "u_adm5", email: "p@jarada.kr" }, store: og, files: {} });
+    await ad.page.goto(BASE + "/index.html#admin"); await ad.page.waitForSelector('#adminTabs [data-t="signs"]');
+    await ad.page.click('#adminTabs [data-t="signs"]'); await ad.page.waitForSelector("#sbSend");
+    const adIds = await ad.page.$$eval("#sbList [data-e]", (l) => l.map((x) => x.dataset.e));
+    const orgOf = (id) => (og.employees[id]?.orgIds || [og.employees[id]?.orgId]);
+    ok("SB 지점 원장: 받는 사람은 자기 지점 직원만", adIds.length > 0 && adIds.every((id) => orgOf(id).includes("banpo")), JSON.stringify(adIds));
+    ok("SB 지점 원장: 다른 사람이 보낸 기록은 안 보임", (await count(ad.page, "#sbHist [data-st]")) === 0);
+    await ad.ctx.close();
   }
 
   // ================= E. 등록 링크 (익명) =================
@@ -815,7 +900,7 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#viewAdmin:not(.hidden) .subtab");
     const tabs = await page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
-    ok("M super sees 8 admin tabs", tabs.length === 8 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
+    ok("M super sees 9 admin tabs", tabs.length === 9 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
     // CSV 내보내기
     await page.check("#xpPersonal"); await page.check("#xpComp");
     const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#btnXp")]);
@@ -902,12 +987,12 @@ const buf = (s) => Buffer.from(s);
     const st2 = J(snapStore); st2.roles.u4 = { level: "admin", orgId: "banpo", employeeId: "emp_0004" }; st2.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
     const a = await newPage(browser, { user: { uid: "u4", email: "park@jarada.kr" }, store: st2, files: {}, now: NOW });
     await a.page.goto(BASE + "/index.html#admin"); await a.page.waitForSelector("#adminTabs .subtab");
-    ok("M admin sees only export tab", (await count(a.page, "#adminTabs .subtab")) === 1 && !(await vis(a.page, "#btnBackup")) && !(await count(a.page, "#xpComp")) && (await count(a.page, "#xpPersonal")) === 0);
+    ok("M admin sees only export + 서명 문서 tabs", (await count(a.page, "#adminTabs .subtab")) === 2 && (await a.page.textContent("#adminTabs")).includes("서명 문서") && !(await vis(a.page, "#btnBackup")) && !(await count(a.page, "#xpComp")) && (await count(a.page, "#xpPersonal")) === 0);
     await a.ctx.close();
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: st2, files: {}, now: NOW });
     await h.page.goto(BASE + "/index.html#admin"); await h.page.waitForSelector("#adminTabs .subtab");
     const ht = await h.page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
-    ok("M hr sees export/status/audit/trash but not settings", ht.length === 4 && !ht.some((x) => x.includes("설정")) && (await count(h.page, "#xpPersonal")) === 1 && (await count(h.page, "#xpComp")) === 0 && (await count(h.page, "#btnBackup")) === 0, JSON.stringify(ht));
+    ok("M hr sees export/status/서명 문서/audit/trash but not settings", ht.length === 5 && !ht.some((x) => x.includes("설정")) && (await count(h.page, "#xpPersonal")) === 1 && (await count(h.page, "#xpComp")) === 0 && (await count(h.page, "#btnBackup")) === 0, JSON.stringify(ht));
     await h.ctx.close();
     const sf = J(snapStore); sf.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const s = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: sf, files: {}, now: NOW });

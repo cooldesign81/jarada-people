@@ -61,6 +61,7 @@ Firebase(Authentication + Firestore + Storage) 위에서 동작하는 정적 웹
 | `js/calendar.js`, `js/holidays.js`, `js/dates.js` | 달력 / 공휴일 / 날짜 유틸 |
 | `js/notices.js` | 공지·읽음 확인 |
 | `js/contract-docs.js`, `js/contracts.js` | 계약서 3종 칸 정의·기본 문구·인쇄용 HTML(한 장 맞춤, 서명 이미지 반영)(순수 함수) / 직원 상세의 작성·서명 요청 화면과 직원 ‘내 서류’의 확인·서명 화면. 노랑=직원마다 입력, 주황=기본값 있는 옵션. 서명 상태: 작성중 → 서명 대기 → 서명 완료(완료 후 수정 불가) |
+| `js/sign-batch.js` | 관리 → ‘서명 문서’: 자유 서식 서명 문서(취업규칙 확인·교육 이수 확인 등)를 여러 직원에게 일괄 발송하고 서명 현황 확인 (기록은 `signBatches`) |
 | `js/payroll.js`, `js/payroll-calc.js` | 급여 명세서·근로계약서 초안 / 급여·퇴직금 계산(순수 함수) |
 | `js/admin.js`, `js/export.js` | 관리 화면(현황 점검·인건비·감사 로그·설정·휴지통) / CSV·백업 |
 | `js/charts.js`, `js/todo.js` | 대시보드 차트·조직도 / 할 일 패널 |
@@ -194,7 +195,7 @@ employees/{employeeId}       { name, phone, email(소문자), orgIds[], orgId(=o
   private/residentFront|residentBack   주민등록번호 앞 6 / 뒤 7
   private/compensation       급여 (대표 전용)          private/flags  등록 여부 표시
   assignments / certs / enrollments / reviews / certIssues / compHistory   인사 기록
-  contracts (동의서·서약서: 대표이사·원장) / laborContracts (근로계약서: 급여 권한자만)
+  contracts (동의서·서약서·자유 서식 서명 문서: 대표이사·원장) / signBatches (서명 문서 일괄 발송 기록) / laborContracts (근로계약서: 급여 권한자만)
 orgs/{orgId}                 { name, type(hq|branch), order, active }
 leaveRequests/{id}           휴가 신청 { employeeId, orgIds[], type, startDate, endDate, days, status, ... }
 calendarEvents/{id}          휴일·행사 { title, kind(holiday|event|training), startDate, endDate, orgIds[] }

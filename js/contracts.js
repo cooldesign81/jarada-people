@@ -6,7 +6,7 @@ import { db, auth } from "./firebase.js";
 import { collection, doc, getDocs, addDoc, updateDoc, deleteDoc, serverTimestamp, query, where } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { $, state, can, canManage, isSuper, esc, toast, errMsg, audit, tsMillis } from "./core.js";
 import { today } from "./dates.js";
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta } from "./contract-docs.js";
+import { DOC_TYPES, CUSTOM_TEMPLATES, docTitle, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta } from "./contract-docs.js";
 import { fixedItems } from "./payroll-calc.js";
 
 const collOf = (empId, type) => collection(db, "employees", empId, DOC_TYPES[type].coll);
@@ -43,7 +43,7 @@ function draw() {
     ${cur.list.length ? `<div class="tbl-wrap"><table class="tbl rec-tbl"><thead><tr><th>종류</th><th>이름·작성일</th><th>상태</th><th>저장</th><th></th></tr></thead><tbody>${cur.list.map((c) => {
       const st = stOf(c);
       return `<tr>
-      <td class="nowrap"><span class="badge s-active">${esc(DOC_TYPES[c.type]?.title || c.type)}</span></td>
+      <td class="nowrap"><span class="badge s-active">${esc(docTitle(c))}</span></td>
       <td>${esc(c.data?.name || "")} <span class="sub">${esc(c.data?.signDate || "")}</span></td>
       <td class="nowrap">${statusBadge(c)}${st === "signed" ? ` <span class="sub">${esc(fmtTs(c.signedAt))}</span>` : st === "sent" ? ` <span class="sub">${esc(fmtTs(c.sentAt))} 요청</span>` : ""}</td>
       <td class="sub">${esc(fmtTs(c.updatedAt || c.createdAt))}${c.createdByName ? " · " + esc(c.createdByName) : ""}</td>
@@ -65,10 +65,10 @@ function draw() {
 async function setStatus(c, status) {
   if (!c) return;
   const send = status === "sent";
-  if (!confirm(send ? `‘${DOC_TYPES[c.type].title}’ 서명 요청을 ${c.data?.name || "직원"}님에게 보낼까요?\n직원이 내 서류에서 내용을 확인하고 서명합니다.` : "서명 요청을 취소할까요? 직원 화면에서 사라집니다.")) return;
+  if (!confirm(send ? `‘${docTitle(c)}’ 서명 요청을 ${c.data?.name || "직원"}님에게 보낼까요?\n직원이 내 서류에서 내용을 확인하고 서명합니다.` : "서명 요청을 취소할까요? 직원 화면에서 사라집니다.")) return;
   try {
     await updateDoc(doc(db, "employees", cur.emp.id, DOC_TYPES[c.type].coll, c.id), send ? { status: "sent", sentAt: serverTimestamp(), updatedAt: serverTimestamp() } : { status: "draft", updatedAt: serverTimestamp() });
-    audit(send ? "contract_send" : "contract_unsend", { targetEmployeeId: cur.emp.id, detail: DOC_TYPES[c.type].title });
+    audit(send ? "contract_send" : "contract_unsend", { targetEmployeeId: cur.emp.id, detail: docTitle(c) });
     toast(send ? "서명 요청을 보냈습니다" : "서명 요청을 취소했습니다");
     await mountContracts(cur.el, { emp: cur.emp, pi: cur.pi, comp: cur.comp });
   } catch (e) { console.error(e); toast(errMsg(e), true); }
@@ -79,14 +79,14 @@ export function openDoc(c) {
   const w = window.open("", "_blank");
   if (!w) return toast("팝업이 차단됐습니다. 이 사이트의 팝업을 허용한 뒤 다시 눌러 주세요.", true);
   w.document.write(buildDocHtml(c.type, signedValues(c), { sign: signMeta(c, tsMillis(c.signedAt)) })); w.document.close();
-  audit("contract_open", { targetEmployeeId: cur.emp?.id, detail: `${DOC_TYPES[c.type].title}${c.id ? "" : " (미저장)"}` });
+  audit("contract_open", { targetEmployeeId: cur.emp?.id, detail: `${docTitle(c)}${c.id ? "" : " (미저장)"}` });
 }
 
 // ---------- 작성·수정 창 ----------
 const inputHtml = (f, val) => {
   const id = "cdf_" + f.key, v = val ?? "";
   if (f.type === "check") return `<label class="check ${f.wide ? "full" : ""}"><input type="checkbox" id="${id}" ${v === true ? "checked" : ""}> ${esc(f.label)}</label>`;
-  const body = f.type === "textarea" ? `<textarea class="input" id="${id}" rows="3" maxlength="2000">${esc(v)}</textarea>`
+  const body = f.type === "textarea" ? `<textarea class="input" id="${id}" rows="${f.rows || 3}" maxlength="${f.max || 2000}">${esc(v)}</textarea>`
     : f.type === "select" ? `<select id="${id}">${f.options.map(([k, l]) => `<option value="${esc(k)}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`
     : `<input class="input" id="${id}" type="${f.type === "number" ? "number" : f.type || "text"}" maxlength="300" value="${esc(v)}">`;
   return `<div class="field ${f.wide ? "full" : ""}"><label for="${id}">${esc(f.label)}${f.req ? '<span class="req">*</span>' : ""}</label>${body}</div>`;
@@ -98,6 +98,11 @@ function openForm(type, existing) {
   const base = defaultsFor(type, { emp: cur.emp, pi: cur.pi, today: today(), payTotal: can("comp") ? fixedItems(cur.comp || {}).total : 0 });
   const vals = { ...base, ...(existing?.data || {}) };
   $("cdTitle").textContent = `${DOC_TYPES[type].title} ${existing ? "수정" : "작성"}`;
+  const tw = $("cdTplWrap"); tw.classList.toggle("hidden", type !== "custom");
+  if (type === "custom") {
+    $("cdTpl").innerHTML = CUSTOM_TEMPLATES.map((t) => `<option value="${t.key}">${esc(t.label)}</option>`).join("");
+    $("cdTpl").onchange = () => { const t = CUSTOM_TEMPLATES.find((x) => x.key === $("cdTpl").value); if (!t) return; $("cdf_title").value = t.title; $("cdf_body").value = t.body; $("cdf_mode").value = t.mode; };
+  }
   $("cdY").innerHTML = FIELDS[type].filter((f) => f.grp === "y").map((f) => inputHtml(f, vals[f.key])).join("");
   $("cdO").innerHTML = FIELDS[type].filter((f) => f.grp === "o").map((f) => inputHtml(f, vals[f.key])).join("");
   $("cdOWrap").classList.toggle("hidden", !FIELDS[type].some((f) => f.grp === "o"));
@@ -113,7 +118,7 @@ async function save(openAfter) {
   const type = cur.type, values = cleanValues(type, readForm(type));
   const miss = missingRequired(type, values);
   if (miss.length) return ($("cdErr").textContent = `${miss.join(", ")}을(를) 입력하세요.`);
-  const title = `${DOC_TYPES[type].title} · ${values.name}`;
+  const title = `${type === "custom" ? values.title : DOC_TYPES[type].title} · ${values.name}`;
   $("btnCdSave").disabled = $("btnCdSaveOpen").disabled = true;
   try {
     const now = serverTimestamp();
@@ -122,7 +127,7 @@ async function save(openAfter) {
     } else {
       await addDoc(collOf(cur.emp.id, type), { type, title, data: values, status: "draft", createdAt: now, updatedAt: now, createdBy: auth.currentUser?.uid || "", createdByName: state.me?.name || auth.currentUser?.email || "" });
     }
-    audit("contract_save", { targetEmployeeId: cur.emp.id, detail: `${DOC_TYPES[type].title}${cur.editing ? " 수정" : " 작성"}` });
+    audit("contract_save", { targetEmployeeId: cur.emp.id, detail: `${type === "custom" ? values.title : DOC_TYPES[type].title}${cur.editing ? " 수정" : " 작성"}` });
     $("dlgContractDoc").close(); toast("저장했습니다");
     if (openAfter) openDoc({ type, data: values });
     await mountContracts(cur.el, { emp: cur.emp, pi: cur.pi, comp: cur.comp });
@@ -132,10 +137,10 @@ async function save(openAfter) {
 
 async function removeDoc(id) {
   const c = cur.list.find((x) => x.id === id); if (!c) return;
-  if (!confirm(`${DOC_TYPES[c.type]?.title || "문서"}(${c.data?.name || ""})를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+  if (!confirm(`${docTitle(c)}(${c.data?.name || ""})를 삭제할까요? 되돌릴 수 없습니다.`)) return;
   try {
     await deleteDoc(doc(db, "employees", cur.emp.id, DOC_TYPES[c.type].coll, id));
-    audit("contract_delete", { targetEmployeeId: cur.emp.id, detail: DOC_TYPES[c.type].title });
+    audit("contract_delete", { targetEmployeeId: cur.emp.id, detail: docTitle(c) });
     toast("삭제했습니다"); await mountContracts(cur.el, { emp: cur.emp, pi: cur.pi, comp: cur.comp });
   } catch (e) { console.error(e); toast(errMsg(e), true); }
 }
@@ -171,7 +176,7 @@ export async function mountMySignatures(el, { empId, emp }) {
   mine.list = list;
   if (!list.length) { el.innerHTML = `<div class="msg">서명할 계약서·동의서가 없습니다.</div>`; return; }
   el.innerHTML = `<div class="tbl-wrap"><table class="tbl rec-tbl"><thead><tr><th>문서</th><th>상태</th><th></th></tr></thead><tbody>${list.map((c) => `<tr>
-    <td><b>${esc(DOC_TYPES[c.type]?.title || c.type)}</b> <span class="sub">${esc(c.data?.signDate || "")}</span></td>
+    <td><b>${esc(docTitle(c))}</b> <span class="sub">${esc(c.data?.signDate || "")}</span></td>
     <td class="nowrap">${statusBadge(c)} <span class="sub">${esc(stOf(c) === "signed" ? fmtTs(c.signedAt) : fmtTs(c.sentAt) + " 요청")}</span></td>
     <td class="nowrap">${stOf(c) === "sent" ? `<button class="btn btn-primary btn-sm" data-sign="${esc(c.id)}" type="button">확인하고 서명</button>` : `<button class="btn btn-secondary btn-sm" data-view="${esc(c.id)}" type="button">보기</button>`}</td></tr>`).join("")}</tbody></table></div>`;
   el.querySelectorAll("[data-sign]").forEach((b) => (b.onclick = () => openSign(mine.list.find((x) => x.id === b.dataset.sign), el)));
@@ -196,7 +201,7 @@ function bindPad() {
 function openSign(c, listEl) {
   if (!c) return;
   const type = c.type, t = DOC_TYPES[type], fields = signAnswerFields(type, c.data || {});
-  $("sgTitle").textContent = `${t.title} — 내용 확인 및 서명`;
+  $("sgTitle").textContent = `${docTitle(c)} — 내용 확인 및 서명`;
   $("sgFrame").srcdoc = buildDocHtml(type, signedValues(c), { autoPrint: false });
   $("sgAns").innerHTML = fields.length ? `<h3 class="sec-title" style="margin:12px 0 6px">직접 선택할 항목</h3><div class="grid-fields">${fields.map((f) => f.type === "check"
     ? `<label class="check full"><input type="checkbox" id="sga_${f.key}"> ${esc(f.text || f.label)}<span class="req">*</span></label>`
@@ -223,7 +228,7 @@ async function submitSign(c, fields, listEl) {
   $("btnSgSubmit").disabled = true;
   try {
     await updateDoc(doc(db, "employees", mine.empId, c.coll, c.id), { status: "signed", signature, signedAt: serverTimestamp(), signedBy: auth.currentUser?.uid || "", answers });
-    audit("contract_sign", { targetEmployeeId: mine.empId, detail: DOC_TYPES[c.type].title });
+    audit("contract_sign", { targetEmployeeId: mine.empId, detail: docTitle(c) });
     $("dlgSign").close(); toast("서명했습니다. 서명한 문서는 ‘보기’에서 다시 볼 수 있습니다.");
     await mountMySignatures(listEl, { empId: mine.empId, emp: mine.emp });
   } catch (e) { console.error(e); err(errMsg(e)); }

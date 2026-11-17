@@ -588,6 +588,35 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("sign: employee signs consent with agree", true, () => stf.doc("employees/emp_0003/contracts/K1").update(SG({ answers: { agree: "agree" } })));
   await t("sign: signed consent: hr cannot delete", false, () => hr.doc("employees/emp_0003/contracts/K1").delete());
   await t("sign: signed consent: branch admin cannot edit", false, () => adm.doc("employees/emp_0003/contracts/K1").update({ title: "x", updatedAt: TS() }));
+  // ---- 자유 서식 서명 문서(custom) + 일괄 발송 기록(signBatches)
+  const CU = (o = {}, d = {}) => CT("custom", { title: "취업규칙 확인 · 이교사", data: { name: "이교사", title: "취업규칙 확인 및 동의서", body: "본문", mode: "confirm" , ...d }, status: "sent", sentAt: TS(), batchId: "B1", ...o });
+  await t("custom: hr sends a custom doc (status sent, batchId)", true, () => hr.doc("employees/emp_0003/contracts/C1").set(CU()));
+  await t("custom: branch admin (same org) sends a custom doc", true, () => adm.doc("employees/emp_0003/contracts/C2").set(CU()));
+  await t("custom: branch admin of another org cannot", false, () => adm2.doc("employees/emp_0003/contracts/C3").set(CU()));
+  await t("custom: body over 5000 chars rejected", false, () => hr.doc("employees/emp_0003/contracts/C3").set(CU({}, { body: "가".repeat(5001) })));
+  await t("custom: title over 100 chars rejected", false, () => hr.doc("employees/emp_0003/contracts/C3").set(CU({}, { title: "가".repeat(101) })));
+  await t("custom: batchId too long rejected", false, () => hr.doc("employees/emp_0003/contracts/C3").set(CU({ batchId: "x".repeat(41) })));
+  await t("custom: collection 'laborContracts' rejects custom type", false, () => sup.doc("employees/emp_0003/laborContracts/C3").set(CU()));
+  await t("custom: manager queries a batch (where batchId ==)", true, () => hr.collection("employees/emp_0003/contracts").where("batchId", "==", "B1").get());
+  await t("custom: employee reads own sent custom doc", true, () => stf.doc("employees/emp_0003/contracts/C1").get());
+  await t("custom: employee signs a custom doc (confirm)", true, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
+  await t("custom: employee cannot sign it twice", false, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
+  await t("custom: employee cannot move it to another batch", false, () => stf.doc("employees/emp_0003/contracts/C2").update(SG({ answers: { confirm: true }, batchId: "B9" })));
+  const BA = (o = {}) => ({ title: "취업규칙 확인", recipients: ["emp_0003"], count: 1, createdAt: TS(), createdBy: "u_hr", createdByName: "인사", ...o });
+  await t("batch: hr creates a batch record", true, () => hr.doc("signBatches/B1").set(BA()));
+  await t("batch: createdBy must be me", false, () => hr.doc("signBatches/B2").set(BA({ createdBy: "someone" })));
+  await t("batch: extra key rejected", false, () => hr.doc("signBatches/B2").set(BA({ hack: 1 })));
+  await t("batch: too many recipients rejected", false, () => hr.doc("signBatches/B2").set(BA({ recipients: Array.from({ length: 501 }, (_, i) => "e" + i) })));
+  await t("batch: employee cannot create", false, () => stf.doc("signBatches/B3").set(BA({ createdBy: "u_staff" })));
+  await t("batch: branch admin creates own", true, () => adm.doc("signBatches/B4").set(BA({ createdBy: "u_adm" })));
+  await t("batch: branch admin reads own batch", true, () => adm.doc("signBatches/B4").get());
+  await t("batch: branch admin cannot read others' batch", false, () => adm.doc("signBatches/B1").get());
+  await t("batch: branch admin lists own (createdBy filter)", true, () => adm.collection("signBatches").where("createdBy", "==", "u_adm").get());
+  await t("batch: branch admin cannot list all", false, () => adm.collection("signBatches").get());
+  await t("batch: hr lists all", true, () => hr.collection("signBatches").get());
+  await t("batch: nobody updates", false, () => sup.doc("signBatches/B1").update({ title: "x" }));
+  await t("batch: hr cannot delete, super can", false, () => hr.doc("signBatches/B1").delete());
+  await t("batch: super deletes", true, () => sup.doc("signBatches/B1").delete());
   // 등록 링크(익명)로 들어온 사람은 서명할 수 없다
   await hr.doc("employees/emp_0003/contracts/K2").set(CT("pledge", { status: "sent", sentAt: TS() }));
   await t("sign: token (anonymous) visitor cannot read sent docs", false, async () => { await anonCtx("a1").doc("roles/a1").set({ level: "staff", employeeId: "emp_0003", selfToken: "tok123" }).catch(() => {}); return anonCtx("a1").doc("employees/emp_0003/contracts/K2").get(); });

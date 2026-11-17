@@ -472,14 +472,17 @@ service cloud.firestore {
       //  · 직원 본인(구글 계정)은 ‘서명 요청’(sent)·서명 완료(signed) 문서만 읽고, sent 문서에 서명만 할 수 있다 (내용·상태 외 필드는 못 바꾼다).
       //  · 관리자는 서명 필드를 쓸 수 없고, 서명이 끝난 문서는 고치거나 지울 수 없다 (삭제는 최고관리자만).
       function contractKeys() {
-        return ['type', 'title', 'data', 'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'status', 'sentAt', 'signature', 'signedAt', 'signedBy', 'answers'];
+        return ['type', 'title', 'data', 'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'status', 'sentAt', 'signature', 'signedAt', 'signedBy', 'answers', 'batchId'];
       }
       function validContractDoc(types) {
         let d = request.resource.data;
         return d.keys().hasOnly(contractKeys())
           && d.type in types && d.title is string && d.title.size() <= 120
           && d.data is map && d.data.keys().size() <= 60
-          && d.get('status', 'draft') in ['draft', 'sent', 'signed'];
+          && d.get('status', 'draft') in ['draft', 'sent', 'signed']
+          && d.get('batchId', '') is string && d.get('batchId', '').size() <= 40
+          && (d.type != 'custom' || (d.data.get('title', '') is string && d.data.get('title', '').size() <= 100
+                                      && d.data.get('body', '') is string && d.data.get('body', '').size() <= 5000));
       }
       // 관리자가 쓰는 문서: 상태는 draft/sent, 서명 관련 필드는 넣을 수 없다
       function mgrContractDoc(types) {
@@ -501,9 +504,9 @@ service cloud.firestore {
       match /contracts/{contractId} {
         allow read: if isHR() || orgAdminOfEmp(empId)
                     || (isSelfAccount(empId) && resource.data.status in ['sent', 'signed']);
-        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'pledge']);
-        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge']) && request.resource.data.type == resource.data.type)
-                      || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge']));
+        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'pledge', 'custom']);
+        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge', 'custom']) && request.resource.data.type == resource.data.type)
+                      || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge', 'custom']));
         allow delete: if isSuper() || ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned());
       }
       match /laborContracts/{contractId} {
@@ -535,6 +538,19 @@ service cloud.firestore {
         allow update: if isHR();
         allow delete: if false;
       }
+    }
+
+    // ---------- 서명 문서 일괄 발송 기록 (관리 → 서명 문서) ----------
+    // 여러 직원에게 같은 서명 문서를 보낸 기록. 문서 자체는 각 직원의 contracts 에 따로 저장된다.
+    match /signBatches/{batchId} {
+      allow read: if isHR() || (isOrgAdmin() && resource.data.createdBy == request.auth.uid);
+      allow create: if (isHR() || isOrgAdmin())
+                    && request.resource.data.keys().hasOnly(['title', 'recipients', 'count', 'createdAt', 'createdBy', 'createdByName'])
+                    && request.resource.data.title is string && request.resource.data.title.size() <= 120
+                    && request.resource.data.recipients is list && request.resource.data.recipients.size() <= 500
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update: if false;
+      allow delete: if isSuper();
     }
 
     // ---------- 접근 요청 ----------
