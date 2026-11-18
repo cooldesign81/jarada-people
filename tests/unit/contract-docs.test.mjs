@@ -1,4 +1,4 @@
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT, canonicalJson, sha256Hex, docHashOf, signedHashOf, maskPhone, toE164, CONTRACT_VERSION } from "../../js/contract-docs.js";
+import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT, canonicalJson, sha256Hex, docHashOf, signedHashOf, maskPhone, toE164, CONTRACT_VERSION, setDocDefaults, cleanDefaults, effectiveDefaults, BUILTIN_DEFAULTS } from "../../js/contract-docs.js";
 let f = 0; const ok = (n, c, extra = "") => { if (!c) f++; console.log(c ? "PASS" : "FAIL", n, c ? "" : extra); };
 const emp = { name: "김효진", birthDate: "1990-05-21", joinedAt: "2026-03-02", corp: "jade" }, pi = { address: "경기도 군포시 산본동 78-32" };
 
@@ -72,7 +72,7 @@ ok("직원의 답이 문서 값에 합쳐짐", svv.agree === "agree" && svv.name
 ok("signMeta", signMeta({ signature: PNG, data: { name: "홍" } }, 5).at === 5 && signMeta({ data: {} }, 5) === null);
 // 자유 서식(서명 문서)
 ok("자유 서식: 종류·저장 위치", DOC_TYPES.custom.coll === "contracts" && !DOC_TYPES.custom.needs && FIELDS.custom.filter((x) => x.req).map((x) => x.key).join() === "title,body,name,signDate");
-ok("자유 서식: 양식 5종(빈 양식 + 4)", CUSTOM_TEMPLATES.length === 5 && CUSTOM_TEMPLATES[0].key === "blank" && CUSTOM_TEMPLATES.slice(1).every((t) => t.title && t.body));
+ok("자유 서식: 양식 6종(빈 양식 + 5)", CUSTOM_TEMPLATES.length === 6 && CUSTOM_TEMPLATES[0].key === "blank" && CUSTOM_TEMPLATES.slice(1).every((t) => t.title && t.body));
 const U = { ...defaultsFor("custom", { emp, today: "2026-11-17" }), title: "취업규칙 확인 및 동의서", body: CUSTOM_TEMPLATES[1].body };
 ok("자유 서식 기본값: 이름·작성일·회사", U.name === "김효진" && U.signDate === "2026-11-17" && U.company === "(주)제이드에듀" && U.mode === "confirm");
 const uh = buildDocHtml("custom", U, { autoPrint: false });
@@ -103,4 +103,15 @@ ok("서명 해시: 직원이 고른 답이 바뀌면 달라짐", (await signedHa
 ok("전화번호: 국제 형식·가리기", toE164("010-1234-5678") === "+821012345678" && toE164("+82 10 1234 5678") === "+821012345678" && toE164("821012345678") === "+821012345678" && toE164("") === "" && maskPhone("+821012345678") === "010-****-5678" && maskPhone("") === "");
 const sigh = buildDocHtml("consent", defaultsFor("consent", { emp, today: "2026-11-17" }), { autoPrint: false, sign: { img: "data:image/png;base64,AA", at: 0, name: "김효진", hash: h1, version: "2026.11", phone: "+821012345678" } });
 ok("서명본 하단: 해시 일부·문서 버전·문자 인증 번호(가림)", sigh.includes(h1.slice(0, 16)) && sigh.includes("문서 버전 2026.11") && sigh.includes("문자 인증 010-****-5678") && !sigh.includes("1012345678"));
+// 문서 기본값 (관리 → 문서 기본값)
+ok("자유 서식: 현금 수령 확인서 양식", CUSTOM_TEMPLATES.some((t) => t.key === "cash" && t.title === "현금 수령 확인서" && t.body.includes("수령 금액")));
+setDocDefaults({ labor: { probMonths: 3, mealAmt: 150000, monthlyPay: 999, bogus: 1 }, consent: { company: "㈜테스트" }, security: { company: "(주)바꾼회사", rules: "1. 새 수칙" } });
+const L2 = defaultsFor("labor", { emp, pi, today: "2026-04-15", payTotal: 2400000 });
+ok("기본값 바꾸면 근로계약서 옵션에 반영 (정해진 항목만)", L2.probMonths === 3 && L2.mealAmt === 150000 && L2.monthlyPay === "2400000" && !("bogus" in L2) && L2.incentiveHead === BUILTIN_DEFAULTS.labor.incentiveHead);
+ok("동의서·서약서 기본값 반영", defaultsFor("consent", { emp }).company === "㈜테스트" && defaultsFor("security", { emp }).company === "(주)바꾼회사" && defaultsFor("security", { emp }).rules === "1. 새 수칙");
+setDocDefaults({ security: { company: "" } });
+ok("서약서 회사명을 비우면 직원 소속 법인", defaultsFor("security", { emp }).company !== "" && defaultsFor("security", { emp }).rules === SECURITY_DEFAULT.rules);
+ok("저장 값 정리: 숫자·체크 형식, 정해진 항목만", (() => { const c = cleanDefaults("labor", { probMonths: "4개월", probOn: "on", name: "x" }); return c.probMonths === 4 && c.probOn === true && !("name" in c); })());
+setDocDefaults({});
+ok("기본값 지우면 원래 문구", effectiveDefaults("consent").items === BUILTIN_DEFAULTS.consent.items);
 console.log(f ? `\n${f} FAILURES` : "\nALL PASS"); process.exit(f ? 1 : 0);

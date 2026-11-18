@@ -772,7 +772,7 @@ const buf = (s) => Buffer.from(s);
     const sa = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
     await sa.page.goto(BASE + "/index.html#admin"); await sa.page.waitForSelector('#adminTabs [data-t="signs"]');
     await sa.page.click('#adminTabs [data-t="signs"]'); await sa.page.waitForSelector("#sbSend");
-    ok("SB 관리 탭: 서명 문서 + 양식 5종 + 직원 목록", (await count(sa.page, "#sbTpl option")) === 5 && (await count(sa.page, "#sbList [data-e]")) >= 2);
+    ok("SB 관리 탭: 서명 문서 + 양식 6종 + 직원 목록", (await count(sa.page, "#sbTpl option")) === 6 && (await count(sa.page, "#sbList [data-e]")) >= 2);
     await sa.page.click("#sbSend"); ok("SB 제목·받는 직원 없으면 막힘", (await sa.page.textContent("#sbErr")).includes("문서 제목") && (await COL(sa.page, "signBatches")) && Object.keys(await COL(sa.page, "signBatches")).length === 0);
     await sa.page.selectOption("#sbTpl", "rules");
     ok("SB 양식 선택 → 제목·본문 입력됨", (await sa.page.inputValue("#sbTitle")) === "취업규칙 확인 및 동의서" && (await sa.page.inputValue("#sbBody")).includes("{회사}"));

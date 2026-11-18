@@ -24,6 +24,7 @@ import { initPayslips, loadMyPayslips, renderMyPayslips, unseenSlips } from "./p
 import { initNotices, loadNotices, renderNotices, unreadCount } from "./notices.js";
 import { addAssignments, diffEmployee } from "./records.js";
 import { initCalendar, renderCalendar } from "./calendar.js";
+import { setDocDefaults } from "./contract-docs.js";
 
 const NAV = [
   { id: "notices",   label: "공지",     view: "Notices",   levels: Object.keys(LEVELS) },
@@ -178,6 +179,8 @@ async function resolveRole(user) {
 async function loadSettings() {
   try { const s = await getDoc(doc(db, "settings", "app")); state.settings = s.exists() ? s.data() : {}; }
   catch (e) { state.settings = {}; }
+  try { const dd = await getDoc(doc(db, "settings", "docDefaults")); setDocDefaults(dd.exists() ? dd.data() : {}); }   // 문서 기본값 (관리 → 문서 기본값)
+  catch (e) { setDocDefaults({}); }
   try { const p = await getDoc(doc(db, "settings", "permissions")); state.perms = p.exists() ? p.data() : {}; }
   catch (e) { state.perms = {}; }
 }

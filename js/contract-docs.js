@@ -103,6 +103,8 @@ export const CUSTOM_TEMPLATES = [
     body: "본인은 아래 교육을 이수하였음을 확인합니다.\n\n- 교육명 : \n- 일 시 : \n- 장 소(방식) : " },
   { key: "pay", label: "급여 명세서 수령 확인서", title: "급여 명세서 수령 확인서", mode: "confirm",
     body: "본인은 아래 기간의 급여 명세서(세부 내역서)를 수령하고 그 내용을 확인하였습니다.\n\n- 대상 기간 : 　　년　　월분" },
+  { key: "cash", label: "현금 수령 확인서", title: "현금 수령 확인서", mode: "confirm",
+    body: "본인은 {회사}로부터 아래와 같이 현금을 틀림없이 수령하였음을 확인합니다.\n\n- 수령 금액 : 금　　　　　　　　원정 (₩　　　　　　　)\n- 수령 일자 : 　　　　년　　월　　일\n- 지급 내용(사유) : \n- 지급 방법 : 현금 직접 수령" },
   { key: "notice", label: "안내 사항 확인서", title: "안내 사항 확인서", mode: "confirm",
     body: "본인은 {회사}에서 안내한 아래 사항을 모두 읽고 이해하였으며, 이에 따를 것을 확인합니다.\n\n- 안내 내용 : " },
 ];
@@ -135,6 +137,26 @@ export const SECURITY_DEFAULT = {
   ].map((t, i) => `${i + 1}. ${t}`).join("\n"),
 };
 
+// ---------- 문서 기본값 (관리 → 문서 기본값, settings/docDefaults) ----------
+// 대표가 근로계약서·개인정보 동의서·서약서의 기본 문구·숫자를 바꿔 둘 수 있다. 새로 만드는 문서부터 적용되고, 이미 저장·서명한 문서는 그대로다.
+// 서약서 회사명은 비워 두면 직원 소속 법인으로 들어간다.
+export const BUILTIN_DEFAULTS = { labor: LABOR_DEFAULT, consent: CONSENT_DEFAULT, security: { company: "", ...SECURITY_DEFAULT } };
+export const DEFAULT_KEYS = { labor: Object.keys(LABOR_DEFAULT), consent: Object.keys(CONSENT_DEFAULT), security: ["company", "rules"] };
+let DOC_OV = {};
+export function setDocDefaults(o) { DOC_OV = o && typeof o === "object" ? o : {}; }
+export function getDocDefaults() { return DOC_OV; }
+// 저장할 값 정리 (정해진 항목만, 항목 종류에 맞게)
+export function cleanDefaults(type, raw) {
+  const keys = DEFAULT_KEYS[type] || [], defs = Object.fromEntries((FIELDS[type] || []).map((f) => [f.key, f]));
+  const all = cleanValues(type, raw || {});
+  return Object.fromEntries(keys.filter((k) => defs[k]).map((k) => [k, all[k]]));
+}
+// 지금 쓰는 기본값 = 원래 문구 위에 대표가 바꾼 값
+export function effectiveDefaults(type) {
+  const ov = DOC_OV[type] || {}, keys = DEFAULT_KEYS[type] || [];
+  return { ...BUILTIN_DEFAULTS[type], ...Object.fromEntries(Object.entries(ov).filter(([k, v]) => keys.includes(k) && v !== undefined && v !== null)) };
+}
+
 // 직원 정보로 미리 채운 기본값. ctx: { emp, pi, comp, today }
 export function defaultsFor(type, ctx = {}) {
   const emp = ctx.emp || {}, pi = ctx.pi || {}, today = ctx.today || "";
@@ -142,12 +164,12 @@ export function defaultsFor(type, ctx = {}) {
   if (type === "labor") {
     const corp = corpName(emp.corp) || "(주)제이드에듀", info = COMPANY_INFO[corp] || {};
     const total = Number(ctx.payTotal) || 0;
-    return { ...base, ...LABOR_DEFAULT, startDate: pi.workStartDate || emp.joinedAt || "", endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
+    return { ...base, ...effectiveDefaults("labor"), startDate: pi.workStartDate || emp.joinedAt || "", endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
-  if (type === "security") return { name: base.name, dept: "", signDate: today, company: corpName(emp.corp) || "(주)제이드에듀", ...SECURITY_DEFAULT };
+  if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, dept: "", signDate: today, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }
   if (type === "custom") return { name: base.name, signDate: today, title: "", body: "", mode: "confirm", company: corpName(emp.corp) || "(주)제이드에듀" };
-  if (type === "consent") return { name: base.name, agree: "", signDate: today, ...CONSENT_DEFAULT };
+  if (type === "consent") return { name: base.name, agree: "", signDate: today, ...effectiveDefaults("consent") };
   return { ...base, dept: "", confirm: false, ...PLEDGE_DEFAULT };
 }
 

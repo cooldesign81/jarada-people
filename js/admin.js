@@ -13,6 +13,7 @@ import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
 import { renderSignBatches } from "./sign-batch.js";
+import { FIELDS, BUILTIN_DEFAULTS, DEFAULT_KEYS, cleanDefaults, effectiveDefaults, getDocDefaults, setDocDefaults } from "./contract-docs.js";
 
 let ctx = { reload: async () => {}, rerender: () => {} };
 export function initAdmin(c) { ctx = { ...ctx, ...c }; }
@@ -25,6 +26,7 @@ const TABS = [
   { id: "audit",  label: "감사 로그",     ok: () => can("audit") },
   { id: "perms",  label: "권한 설정",      ok: () => isSuper() },
   { id: "settings", label: "설정",        ok: () => isSuper() },
+  { id: "docdefs", label: "문서 기본값",  ok: () => isSuper() },
   { id: "trash",  label: "휴지통",        ok: () => can("trash") },
 ];
 const adm = { tab: "" };
@@ -36,7 +38,7 @@ export async function renderAdmin() {
   $("adminTabs").innerHTML = tabs.map((t) => `<button class="subtab ${t.id === adm.tab ? "active" : ""}" data-t="${t.id}">${t.label}${t.id === "trash" && state.trash.length ? ` <span class="tab-badge" style="background:#767676">${state.trash.length}</span>` : ""}</button>`).join("");
   $("adminTabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { adm.tab = b.dataset.t; renderAdmin(); }));
   const body = $("adminBody");
-  ({ signs: renderSignBatches, slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, trash: renderTrash })[adm.tab]?.(body);
+  ({ signs: renderSignBatches, slips: renderDistribute, perms: renderPerms, labor: renderLabor, status: renderStatus, export: renderExport, audit: renderAudit, settings: renderSettings, docdefs: renderDocDefaults, trash: renderTrash })[adm.tab]?.(body);
 }
 
 // ---------- 생년월일 채우기: 주민번호가 등록돼 있는데 생년월일이 비어 있는 직원 ----------
@@ -335,6 +337,53 @@ function renderSettings(body) {
     }
     audit("rrn_back_purge", { detail: `${n}명` }); toast(`${n}명의 뒷자리를 삭제했습니다`); $("btnRrnPurge").disabled = false;
   };
+}
+
+// ---------- 문서 기본값: 근로계약서 · 개인정보 동의서 · 서약서 (settings/docDefaults, 대표만) ----------
+// 새로 작성하는 문서의 주황 항목(기본 문구·숫자)이 여기 값으로 채워진다. 이미 저장·서명한 문서는 바뀌지 않는다.
+const DD_DOCS = [
+  { type: "labor", title: "근로계약서", note: "회사명·대표자·회사 주소는 직원 소속 법인 정보로 자동으로 들어가요. 직원마다 다른 칸(성명·계약일·월 지급액 등)은 작성할 때 넣어요." },
+  { type: "consent", title: "개인정보 수집·이용 동의서", note: "본문에 {회사}라고 쓰면 회사명으로 바뀌어요." },
+  { type: "security", title: "서약서", note: "회사명을 비워 두면 직원 소속 법인 이름이 들어가요." },
+];
+const ddInput = (type, f, val) => {
+  const id = `dd_${type}_${f.key}`, v = val ?? "", label = type === "security" && f.key === "company" ? "회사명 (비우면 직원 소속 법인)" : f.label;
+  if (f.type === "check") return `<label class="check ${f.wide ? "full" : ""}"><input type="checkbox" id="${id}" ${v === true ? "checked" : ""}> ${esc(label)}</label>`;
+  const body = f.type === "textarea" ? `<textarea class="input" id="${id}" rows="${f.rows || 4}" maxlength="${f.max || 2000}">${esc(v)}</textarea>`
+    : `<input class="input" id="${id}" type="${f.type === "number" ? "number" : f.type || "text"}" maxlength="300" value="${esc(v)}">`;
+  return `<div class="field ${f.wide || f.type === "textarea" ? "full" : ""}"><label for="${id}">${esc(label)}</label>${body}</div>`;
+};
+function renderDocDefaults(body) {
+  const fieldsOf = (type) => DEFAULT_KEYS[type].map((k) => FIELDS[type].find((f) => f.key === k) || { key: k, label: k, type: "text" });
+  const changed = (type) => Object.keys(getDocDefaults()[type] || {}).length > 0;
+  body.innerHTML = `<div class="notice">근로계약서·개인정보 동의서·서약서를 <b>새로 작성할 때</b> 미리 들어가는 기본 문구와 숫자예요. 바꾸면 그다음에 만드는 문서부터 적용되고, <b>이미 저장하거나 서명한 문서는 그대로</b>예요. 작성 창에서 문서마다 따로 고칠 수도 있어요.</div>
+    ${DD_DOCS.map((d) => `<div class="card" data-dd="${d.type}"><h2>${esc(d.title)} ${changed(d.type) ? '<span class="badge">바꾼 값 사용 중</span>' : '<span class="badge" style="opacity:.6">원래 문구</span>'}</h2>
+      <p class="sub">${esc(d.note)}</p>
+      <div class="grid-fields">${fieldsOf(d.type).map((f) => ddInput(d.type, f, effectiveDefaults(d.type)[f.key])).join("")}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-primary" data-dd-save="${d.type}">${esc(d.title)} 기본값 저장</button>
+        <button class="btn btn-secondary" data-dd-reset="${d.type}">원래 문구로 채우기</button></div></div>`).join("")}`;
+  const readDD = (type) => Object.fromEntries(fieldsOf(type).map((f) => { const e = $(`dd_${type}_${f.key}`); return [f.key, f.type === "check" ? !!e?.checked : (e?.value ?? "")]; }));
+  body.querySelectorAll("[data-dd-reset]").forEach((b) => b.onclick = () => {
+    const type = b.dataset.ddReset, base = BUILTIN_DEFAULTS[type];
+    fieldsOf(type).forEach((f) => { const e = $(`dd_${type}_${f.key}`); if (!e) return; if (f.type === "check") e.checked = base[f.key] === true; else e.value = base[f.key] ?? ""; });
+    toast("원래 문구로 채웠어요. ‘기본값 저장’을 눌러야 적용돼요.");
+  });
+  body.querySelectorAll("[data-dd-save]").forEach((b) => b.onclick = async () => {
+    const type = b.dataset.ddSave, title = DD_DOCS.find((d) => d.type === type).title;
+    const vals = cleanDefaults(type, readDD(type)), base = BUILTIN_DEFAULTS[type];
+    // 원래 문구와 같은 항목은 저장하지 않음 → 나중에 앱의 원래 문구가 고쳐지면 그대로 따라감
+    const diff = Object.fromEntries(Object.entries(vals).filter(([k, v]) => String(v) !== String(base[k] ?? "")));
+    b.disabled = true;
+    try {
+      // 문서 한 장(settings/docDefaults)에 세 문서를 함께 저장. 이번 문서만 통째로 바꾸고(지운 항목은 원래 문구로) 나머지는 그대로
+      const cur = getDocDefaults(), all = { labor: cur.labor || {}, consent: cur.consent || {}, security: cur.security || {}, [type]: diff };
+      await setDoc(doc(db, "settings", "docDefaults"), { ...all, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.email || "" });
+      setDocDefaults(all);
+      audit("settings_change", { detail: `문서 기본값: ${title} (${Object.keys(diff).length}개 항목 변경)` });
+      toast(`${title} 기본값을 저장했어요. 새로 만드는 문서부터 적용돼요.`); renderDocDefaults(body);
+    } catch (e) { console.error(e); toast(errMsg(e), true); }
+    finally { b.disabled = false; }
+  });
 }
 
 // ---------- 휴지통 ----------
