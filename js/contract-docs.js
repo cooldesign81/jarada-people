@@ -84,7 +84,8 @@ export const FIELDS = {
     T("company", "회사명", "o"),
   ],
   security: [
-    T("name", "성명", "y", { req: true }), T("dept", "소속·부서", "y"), T("signDate", "작성일", "y", { type: "date", req: true }),
+    T("name", "성명", "y", { req: true }), T("birth", "생년월일", "y", { type: "date" }), T("dept", "소속·부서", "y"), T("address", "주소", "y", { wide: true }),
+    T("signDate", "작성일", "y", { type: "date", req: true }),
     T("company", "회사명", "o"), T("rules", "정보보안 수칙", "o", { type: "textarea", wide: true, rows: 12, max: 5000 }),
   ],
   custom: [
@@ -169,7 +170,7 @@ export function defaultsFor(type, ctx = {}) {
     return { ...base, ...effectiveDefaults("labor"), startDate: start, endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
-  if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, dept: "", signDate: base.signDate, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }
+  if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, birth: base.birth, address: base.address, dept: "", signDate: base.signDate, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }
   if (type === "custom") return { name: base.name, signDate: today, title: "", body: "", mode: "confirm", company: corpName(emp.corp) || "(주)제이드에듀" };
   if (type === "consent") return { name: base.name, agree: "", signDate: base.signDate, ...effectiveDefaults("consent") };
   return { ...base, dept: "", confirm: false, ...PLEDGE_DEFAULT };
@@ -194,6 +195,7 @@ th{background:#f2f2f2;font-weight:600;text-align:center;white-space:nowrap}.c{te
 .stamp{position:relative;display:inline-block;width:calc(58px*var(--s));height:calc(40px*var(--s));text-align:center;vertical-align:middle}.stamp img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:calc(56px*var(--s));mix-blend-mode:multiply}
 .sigbox{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:calc(150px*var(--s));height:calc(54px*var(--s));border:1px solid #000;color:#999;font-size:calc(10px*var(--s));line-height:1;box-sizing:border-box;overflow:hidden;background:#fff}.sigbox img{max-width:96%;max-height:94%;object-fit:contain}
 .box{border:1px solid #000;padding:8px 10px;margin:8px 0}.date{text-align:center;margin:calc(20px*var(--s)) 0}.small{font-size:calc(10.5px*var(--s))}
+.co-to{margin-top:calc(30px*var(--s));font-weight:800;font-size:calc(16px*var(--s));letter-spacing:1px}
 .esig{margin-top:calc(10px*var(--s));text-align:center;font-size:calc(10px*var(--s));color:#333;border-top:1px dashed #999;padding-top:calc(4px*var(--s))}
 @media print{body{padding:0}}`;
 // 한 장 맞춤: 본문 높이가 A4 인쇄 영역(277mm)에 들어가는 가장 큰 배율을 찾는다 (글자 크기만 줄이므로 줄바꿈이 항상 같은 폭에서 계산된다)
@@ -279,13 +281,15 @@ function consentBody(v, sg) {
 function securityBody(v, sg) {
   const co = v.company || "회사";
   return `<h1 style="letter-spacing:8px">서 약 서</h1>
-  <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td><th style="width:90px">소속·부서</th><td>${esc(v.dept)}</td></tr></table>
+  <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td><th style="width:90px">생년월일</th><td>${esc(dot(v.birth))}</td></tr>
+    <tr><th>소속·부서</th><td colspan="3">${esc(v.dept)}</td></tr>
+    <tr><th>주 소</th><td colspan="3">${esc(v.address)}</td></tr></table>
   <p style="margin:calc(12px*var(--s)) 0">본인은 ${esc(co)}[이하 ‘회사’]의 임직원으로서 아래 정보보안 수칙을 숙지하고 이를 성실히 지킬 것을 서약합니다.</p>
   <div class="box pre">${nl(v.rules)}</div>
   <p class="c" style="margin:16px 0"><b>${bool(v.confirm) ? "☑" : "□"} 위 정보보안 수칙을 모두 읽고 이해하였으며 성실히 준수할 것을 서약합니다.</b></p>
   <p class="date">${esc(dot(v.signDate)) || "20&nbsp;&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;.&nbsp;&nbsp;&nbsp;."}</p>
   <p class="r" style="margin-right:30px">성명 ${esc(v.name)} &nbsp;&nbsp;&nbsp;&nbsp; ${sigSpan(sg)}</p>
-  <p style="margin-top:30px"><b>${esc(co)} 대표이사 귀하</b></p>${esig(sg)}`;
+  <p class="c co-to">${esc(co)} 대표이사 귀하</p>${esig(sg)}`;
 }
 
 function customBody(v, sg) {

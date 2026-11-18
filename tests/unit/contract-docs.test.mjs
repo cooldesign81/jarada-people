@@ -88,7 +88,7 @@ const seh = buildDocHtml("security", { ...SE, dept: "평촌원" }, { autoPrint: 
 ok("서약서(보안 수칙): 기본값(이름·회사·9개 수칙)", SE.name === "김효진" && SE.company === "(주)제이드에듀" && SECURITY_DEFAULT.rules.split("\n").length === 9 && SECURITY_DEFAULT.rules.startsWith("1. "));
 ok("서약서(보안 수칙): 제목·인적 사항·수칙·확인 문구·서명란", seh.includes("서 약 서") && !seh.includes("확인서") && DOC_TYPES.security.title === "서약서" && seh.includes("평촌원") && seh.includes("9. 위 사항을 위반") && seh.includes("□ 위 정보보안 수칙을") && seh.includes("sigbox") && seh.includes("(주)제이드에듀 대표이사 귀하"));
 ok("보안 수칙: 직원이 서약하면 ☑ + 서명 항목", buildDocHtml("security", { ...SE, confirm: true }, { autoPrint: false }).includes("☑ 위 정보보안 수칙을") && signAnswerFields("security")[0].key === "confirm" && signAnswerFields("security")[0].type === "check");
-ok("보안 수칙: 주황 옵션(수칙·회사), 노랑(이름·부서·작성일)", FIELDS.security.filter((x) => x.grp === "o").map((x) => x.key).join() === "company,rules" && FIELDS.security.filter((x) => x.grp === "y").map((x) => x.key).join() === "name,dept,signDate" && DOC_TYPES.security.coll === "contracts" && !DOC_TYPES.security.needs);
+ok("보안 수칙: 주황 옵션(수칙·회사), 노랑(이름·생년월일·부서·주소·작성일)", FIELDS.security.filter((x) => x.grp === "o").map((x) => x.key).join() === "company,rules" && FIELDS.security.filter((x) => x.grp === "y").map((x) => x.key).join() === "name,birth,dept,address,signDate" && DOC_TYPES.security.coll === "contracts" && !DOC_TYPES.security.needs);
 ok("보안 수칙: 수칙 문구는 이스케이프", !buildDocHtml("security", { ...SE, rules: "<img src=x onerror=1>" }, { autoPrint: false }).includes("<img src=x"));
 ok("이전 양식 서약서는 legacy 표시(새로 만들기 대상 아님)이고 서약서는 보안 수칙 문서", DOC_TYPES.pledge.legacy === true && DOC_TYPES.pledge.title.includes("이전 양식") && !DOC_TYPES.security.legacy);
 ok("이전 양식 서약서 문서도 여전히 열린다", buildDocHtml("pledge", defaultsFor("pledge", { emp, today: "2026-11-17" }), { autoPrint: false }).includes("서 약 서"));
@@ -105,6 +105,8 @@ const sigh = buildDocHtml("consent", defaultsFor("consent", { emp, today: "2026-
 ok("서명본 하단: 해시 일부·문서 버전·문자 인증 번호(가림)", sigh.includes(h1.slice(0, 16)) && sigh.includes("문서 버전 2026.11") && sigh.includes("문자 인증 010-****-5678") && !sigh.includes("1012345678"));
 ok("동의서·서약서 작성일 = 근로 시작일, 자유 서식은 오늘", defaultsFor("consent", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("security", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("custom", { emp, today: "2026-11-19" }).signDate === "2026-11-19");
 ok("근로계약서 체결일 기본값 = 계약 시작일", defaultsFor("labor", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("labor", { emp: { name: "x" }, today: "2026-11-19" }).signDate === "2026-11-19");
+{ const sd = defaultsFor("security", { emp, pi, today: "2026-11-19" }), sh = buildDocHtml("security", sd, { autoPrint: false });
+  ok("서약서: 생년월일·주소 칸, 회사명 가운데 굵게", sd.birth === "1990-05-21" && sh.includes("1990.05.21") && sh.includes("산본동") && /class="c co-to">[^<]*대표이사 귀하/.test(sh)); }
 // 문서 기본값 (관리 → 문서 기본값)
 ok("자유 서식: 현금 수령 확인서 양식", CUSTOM_TEMPLATES.some((t) => t.key === "cash" && t.title === "현금 수령 확인서" && t.body.includes("수령 금액")));
 setDocDefaults({ labor: { probMonths: 3, mealAmt: 150000, monthlyPay: 999, bogus: 1 }, consent: { company: "㈜테스트" }, security: { company: "(주)바꾼회사", rules: "1. 새 수칙" } });
