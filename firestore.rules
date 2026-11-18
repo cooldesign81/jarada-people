@@ -505,7 +505,8 @@ service cloud.firestore {
       match /contracts/{contractId} {
         allow read: if isHR() || orgAdminOfEmp(empId)
                     || (isSelfAccount(empId) && resource.data.status in ['sent', 'signed']);
-        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'pledge', 'custom', 'security']);
+        // pledge(이전 양식 서약서)는 새로 만들 수 없고, 이미 있는 문서의 열람·서명·삭제만 가능하다
+        allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'custom', 'security']);
         allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge', 'custom', 'security']) && request.resource.data.type == resource.data.type)
                       || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge', 'custom', 'security']));
         allow delete: if isSuper() || ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned());

@@ -9,8 +9,8 @@ import { COMPANY_INFO, STAMP_IMAGES, corpName } from "./company.js";
 export const DOC_TYPES = {
   labor:   { title: "근로계약서",                  coll: "laborContracts", needs: "comp" },   // 급여가 들어 있어 ‘급여 정보’ 권한자만
   consent: { title: "개인정보 수집·이용 동의서",   coll: "contracts" },
-  pledge:  { title: "서약서",                      coll: "contracts" },
-  security:{ title: "정보보안 수칙 확인서",       coll: "contracts" },   // 보안 규칙(개인정보·계정·기기·촬영물·반출 금지 …)을 읽고 준수를 서약
+  pledge:  { title: "서약서(이전 양식)",           coll: "contracts", legacy: true },   // 더 이상 새로 만들지 않는다 (이미 저장·서명된 문서를 볼 수 있도록 남김)
+  security:{ title: "서약서",                      coll: "contracts" },   // 보안 규칙(개인정보·계정·기기·촬영물·반출 금지 …)을 읽고 준수를 서약
   custom:  { title: "서명 문서(자유 서식)",        coll: "contracts" },   // 제목·본문을 직접 쓰는 확인서·동의서 (취업규칙 확인, 교육 이수 확인 …). 여러 직원에게 일괄 발송 가능
 };
 // 문서의 이름 (자유 서식은 직접 쓴 제목)
@@ -225,7 +225,7 @@ function consentBody(v, sg) {
 
 function securityBody(v, sg) {
   const co = v.company || "회사";
-  return `<h1 style="letter-spacing:2px">정보보안 수칙 확인서</h1>
+  return `<h1 style="letter-spacing:8px">서 약 서</h1>
   <table><tr><th style="width:90px">성 명</th><td>${esc(v.name)}</td><th style="width:90px">소속·부서</th><td>${esc(v.dept)}</td></tr></table>
   <p style="margin:calc(12px*var(--s)) 0">본인은 ${esc(co)}[이하 ‘회사’]의 임직원으로서 아래 정보보안 수칙을 숙지하고 이를 성실히 지킬 것을 서약합니다.</p>
   <div class="box pre">${nl(v.rules)}</div>

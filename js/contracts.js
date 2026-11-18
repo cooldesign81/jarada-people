@@ -38,8 +38,8 @@ const statusBadge = (c) => `<span class="badge ${STATUS[stOf(c)][1]}">${STATUS[s
 
 function draw() {
   const el = cur.el, types = allowedTypes();
-  el.innerHTML = `<div class="row-actions" style="margin-bottom:10px">${types.map((t) => `<button class="btn btn-secondary btn-sm" data-new="${t}" type="button">+ ${esc(DOC_TYPES[t].title)} 작성</button>`).join("")}
-    ${canManage() ? `<button class="btn btn-primary btn-sm" data-bundle type="button">입사 서류 묶음 보내기 (동의서·서약서·보안 수칙)</button>` : ""}</div>
+  el.innerHTML = `<div class="row-actions" style="margin-bottom:10px">${types.filter((t) => !DOC_TYPES[t].legacy).map((t) => `<button class="btn btn-secondary btn-sm" data-new="${t}" type="button">+ ${esc(DOC_TYPES[t].title)} 작성</button>`).join("")}
+    ${canManage() ? `<button class="btn btn-primary btn-sm" data-bundle type="button">입사 서류 묶음 보내기 (동의서·서약서)</button>` : ""}</div>
     <div class="help" style="margin:-4px 0 10px">작성한 문서는 <b>‘서명 요청’</b>을 보내면 직원이 <b>내 서류</b>에서 내용을 보고 직접 서명합니다 (직원이 구글 계정으로 로그인해 있어야 합니다). 서명이 끝나면 고치거나 지울 수 없습니다.</div>
     ${cur.list.length ? `<div class="tbl-wrap"><table class="tbl rec-tbl"><thead><tr><th>종류</th><th>이름·작성일</th><th>상태</th><th>저장</th><th></th></tr></thead><tbody>${cur.list.map((c) => {
       const st = stOf(c);
@@ -63,9 +63,9 @@ function draw() {
   el.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => removeDoc(b.dataset.del)));
 }
 
-// 입사 서류 묶음: 개인정보 수집·이용 동의서 · 서약서 · 정보보안 수칙 확인서를 기본 문구로 한 번에 서명 요청으로 보낸다
+// 입사 서류 묶음: 개인정보 수집·이용 동의서 · 서약서(정보보안 수칙)를 기본 문구로 한 번에 서명 요청으로 보낸다
 // (이미 서명 요청했거나 서명이 끝난 종류는 건너뛰고, 작성중인 문서가 있으면 그것을 보낸다. 근로계약서는 급여가 들어 있어 내용을 확인한 뒤 따로 보낸다)
-const BUNDLE = ["consent", "pledge", "security"];
+const BUNDLE = ["consent", "security"];
 async function sendBundle() {
   const todo = BUNDLE.filter((t) => !cur.list.some((c) => c.type === t && ["sent", "signed"].includes(stOf(c))));
   if (!todo.length) return toast("이미 모두 서명 요청했거나 서명이 끝났습니다");
