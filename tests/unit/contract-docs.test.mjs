@@ -41,7 +41,7 @@ const C = defaultsFor("consent", { emp, pi, today: "2026-04-15" });
 const ch = buildDocHtml("consent", { ...C, agree: "agree" }, { autoPrint: false });
 ok("동의서: 제목·항목·목적·기간 문구", ch.includes("개인정보 수집·이용 동의서") && ch.includes("입사자 인사정보 및 근로계약에 관한 정보") && ch.includes("근로기준법 제39조") && ch.includes("㈜자라다교육은 사용자의 개인정보를"));
 ok("동의서: 동의 선택에 따라 체크 표시", ch.includes("동의함 ☑") && ch.includes("동의하지 않음 □") && buildDocHtml("consent", { ...C, agree: "disagree" }, { autoPrint: false }).includes("동의하지 않음 ☑") && buildDocHtml("consent", C, { autoPrint: false }).includes("동의함 □"));
-ok("동의서: 작성일·성명·회사 귀하", ch.includes("2026.04.15") && ch.includes("성명 김효진") && ch.includes("㈜자라다교육 귀하"));
+ok("동의서: 작성일·성명·회사 귀하", ch.includes("2026.03.02") && ch.includes("성명 김효진") && ch.includes("㈜자라다교육 귀하"));
 ok("동의서: 회사명을 바꾸면 보유기간 문구에도 반영", buildDocHtml("consent", { ...C, company: "(주)제이드에듀" }, { autoPrint: false }).includes("(주)제이드에듀은 사용자의 개인정보를"));
 ok("동의서: 작성일을 비우면 빈칸 양식", buildDocHtml("consent", { ...C, signDate: "" }, { autoPrint: false }).includes("20&nbsp;"));
 
@@ -103,6 +103,7 @@ ok("서명 해시: 직원이 고른 답이 바뀌면 달라짐", (await signedHa
 ok("전화번호: 국제 형식·가리기", toE164("010-1234-5678") === "+821012345678" && toE164("+82 10 1234 5678") === "+821012345678" && toE164("821012345678") === "+821012345678" && toE164("") === "" && maskPhone("+821012345678") === "010-****-5678" && maskPhone("") === "");
 const sigh = buildDocHtml("consent", defaultsFor("consent", { emp, today: "2026-11-17" }), { autoPrint: false, sign: { img: "data:image/png;base64,AA", at: 0, name: "김효진", hash: h1, version: "2026.11", phone: "+821012345678" } });
 ok("서명본 하단: 해시 일부·문서 버전·문자 인증 번호(가림)", sigh.includes(h1.slice(0, 16)) && sigh.includes("문서 버전 2026.11") && sigh.includes("문자 인증 010-****-5678") && !sigh.includes("1012345678"));
+ok("동의서·서약서 작성일 = 근로 시작일, 자유 서식은 오늘", defaultsFor("consent", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("security", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("custom", { emp, today: "2026-11-19" }).signDate === "2026-11-19");
 ok("근로계약서 체결일 기본값 = 계약 시작일", defaultsFor("labor", { emp, pi, today: "2026-11-19" }).signDate === "2026-03-02" && defaultsFor("labor", { emp: { name: "x" }, today: "2026-11-19" }).signDate === "2026-11-19");
 // 문서 기본값 (관리 → 문서 기본값)
 ok("자유 서식: 현금 수령 확인서 양식", CUSTOM_TEMPLATES.some((t) => t.key === "cash" && t.title === "현금 수령 확인서" && t.body.includes("수령 금액")));

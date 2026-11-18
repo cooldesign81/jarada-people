@@ -160,18 +160,18 @@ export function effectiveDefaults(type) {
 // 직원 정보로 미리 채운 기본값. ctx: { emp, pi, comp, today }
 export function defaultsFor(type, ctx = {}) {
   const emp = ctx.emp || {}, pi = ctx.pi || {}, today = ctx.today || "";
-  const base = { name: emp.name || "", birth: emp.birthDate || "", address: pi.address || "", signDate: today };
+  // 작성일(체결일) 기본값 = 근로 시작일 (근로계약서·동의서·서약서). 시작일을 모르면 오늘. 자유 서식(확인서 등)은 오늘
+  const start = pi.workStartDate || emp.joinedAt || "";
+  const base = { name: emp.name || "", birth: emp.birthDate || "", address: pi.address || "", signDate: start || today };
   if (type === "labor") {
     const corp = corpName(emp.corp) || "(주)제이드에듀", info = COMPANY_INFO[corp] || {};
     const total = Number(ctx.payTotal) || 0;
-    const start = pi.workStartDate || emp.joinedAt || "";
-    // 계약 체결일 기본값 = 근로(계약) 시작일. 시작일을 모르면 오늘
-    return { ...base, ...effectiveDefaults("labor"), signDate: start || today, startDate: start, endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
+    return { ...base, ...effectiveDefaults("labor"), startDate: start, endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
-  if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, dept: "", signDate: today, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }
+  if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, dept: "", signDate: base.signDate, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }
   if (type === "custom") return { name: base.name, signDate: today, title: "", body: "", mode: "confirm", company: corpName(emp.corp) || "(주)제이드에듀" };
-  if (type === "consent") return { name: base.name, agree: "", signDate: today, ...effectiveDefaults("consent") };
+  if (type === "consent") return { name: base.name, agree: "", signDate: base.signDate, ...effectiveDefaults("consent") };
   return { ...base, dept: "", confirm: false, ...PLEDGE_DEFAULT };
 }
 
