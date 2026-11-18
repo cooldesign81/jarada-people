@@ -164,7 +164,9 @@ export function defaultsFor(type, ctx = {}) {
   if (type === "labor") {
     const corp = corpName(emp.corp) || "(주)제이드에듀", info = COMPANY_INFO[corp] || {};
     const total = Number(ctx.payTotal) || 0;
-    return { ...base, ...effectiveDefaults("labor"), startDate: pi.workStartDate || emp.joinedAt || "", endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
+    const start = pi.workStartDate || emp.joinedAt || "";
+    // 계약 체결일 기본값 = 근로(계약) 시작일. 시작일을 모르면 오늘
+    return { ...base, ...effectiveDefaults("labor"), signDate: start || today, startDate: start, endDate: emp.contractEndDate || "", monthlyPay: total ? String(total) : "", mealChoice: "",
       company: corp, ceo: info.ceo || "", companyAddr: info.address || "" };
   }
   if (type === "security") { const d = effectiveDefaults("security"); return { name: base.name, dept: "", signDate: today, company: d.company || corpName(emp.corp) || "(주)제이드에듀", rules: d.rules }; }

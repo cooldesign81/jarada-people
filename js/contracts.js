@@ -166,6 +166,11 @@ function openForm(type, existing) {
   $("cdO").innerHTML = FIELDS[type].filter((f) => f.grp === "o").map((f) => inputHtml(f, vals[f.key])).join("");
   $("cdOWrap").classList.toggle("hidden", !FIELDS[type].some((f) => f.grp === "o"));
   $("cdErr").textContent = "";
+  // 근로계약서: 계약 시작일을 바꾸면 계약 체결일도 따라감 (체결일을 직접 다른 날로 고친 뒤에는 그대로 둠)
+  if (type === "labor" && !existing) {
+    const st = $("cdf_startDate"), sd = $("cdf_signDate");
+    if (st && sd) { let last = st.value; st.oninput = () => { if (!sd.value || sd.value === last) sd.value = st.value; last = st.value; }; }
+  }
   $("btnCdCancel").onclick = () => $("dlgContractDoc").close();
   $("btnCdSave").onclick = () => save(false);
   $("btnCdSaveOpen").onclick = () => save(true);
