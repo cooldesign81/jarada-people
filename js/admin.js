@@ -4,7 +4,7 @@ import { ref, listAll } from "https://www.gstatic.com/firebasejs/11.0.2/firebase
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, orderBy, limit, serverTimestamp, deleteField
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
-import { $, state, can, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
+import { $, state, can, permLevels, isSuper, isHR, isAdmin, canManage, esc, toast, errMsg, orgNames, statusBadge, syncRoles, audit, tsMillis, toEmp, branchTags } from "./core.js";
 import { AUDIT_ACTIONS, PERMS, PERM_LEVELS, PUBLIC_DOCS, SECRET_DOCS, DEFAULT_REQUIRED_DOCS } from "./schema.js";
 import { today, diffDays } from "./dates.js";
 import { birthFromRrn } from "./rrn.js";
@@ -266,7 +266,7 @@ async function renderAudit(body) {
 
 // ---------- 권한 설정 (최고관리자 전용): 등급별로 기능을 켜고 끈다 ----------
 function renderPerms(body) {
-  const cur = (p) => (Array.isArray(state.perms?.[p.key]) ? state.perms[p.key] : p.def);
+  const cur = (p) => permLevels(p.key);
   body.innerHTML = `<div class="card"><h2>등급별 권한 설정</h2>
     <p>체크한 등급이 해당 기능을 쓸 수 있습니다. <b>최고관리자는 항상 모든 권한</b>을 가지며 바꿀 수 없습니다. 대표이사는 <b>전체 지점</b>, 원장·부원장·실장·팀장은 <b>소속 지점</b>에 대해서만 적용됩니다. 회색 ―는 그 등급에는 줄 수 없는 항목입니다.</p>
     <div class="tbl-wrap"><table class="tbl perm-tbl"><thead><tr><th>기능</th><th class="c">최고관리자</th>${PERM_LEVELS.map(([, n]) => `<th class="c">${n}</th>`).join("")}</tr></thead><tbody>

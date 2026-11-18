@@ -101,6 +101,12 @@ export async function renderDetail(empId) {
     return;
   }
   cur.emp = emp;
+  if (!state.selfMode && empId !== state.role?.employeeId && !canManage()) {   // 실장·팀장: 제한 보기 (개인정보는 읽지 않는다)
+    Object.assign(cur, { pi: {}, flags: {}, front: "", back: "", unlock: null, comp: {}, severance: [], files: { pub: [], sec: [] }, filesLoaded: false });
+    drawLimited();
+    if (can("evalFiles")) { const sec = await listFolder("sec"); if (token !== cur.token) return; cur.files.sec = sec; cur.filesLoaded = true; drawEval(); }
+    return;
+  }
   const [pi, flags, front, back, comp, unlock] = await Promise.all([
     get(...priv("personalInfo")), get(...priv("flags")),
     canSeeFront() ? get(...priv("residentFront")) : null,
@@ -121,7 +127,7 @@ export async function renderDetail(empId) {
 }
 async function loadFiles(token) {
   if (!(isHR() || isAdmin())) return;
-  const [pub, sec] = await Promise.all([listFolder("pub"), can("secDocs") ? listFolder("sec") : []]);
+  const [pub, sec] = await Promise.all([listFolder("pub"), can("secDocs") || can("evalFiles") ? listFolder("sec") : []]);
   if (token !== cur.token) return;
   cur.files = { pub, sec }; cur.filesLoaded = true;
   drawFiles();
@@ -160,7 +166,8 @@ export async function renderMyDocs(empId) {
   root.innerHTML = `<div class="card" id="mySignCard"><h3 class="sec-title">서명할 계약서·동의서</h3><div id="mySign"></div></div>
     <div class="notice" style="margin-bottom:16px">올린 서류는 담당 관리자(비공개서류는 최고관리자)만 열람할 수 있습니다. 파일은 30MB 이하로 올려 주세요.</div>${docsHtml()}`;
   mountMySignatures($("mySign"), { empId, emp });
-  if (can("secDocs")) bindEval();
+  if (can("evalFiles")) bindEval();
+  if (can("secDocs")) bindEtc();
   drawFiles();
   await loadFiles(token);
 }
@@ -240,7 +247,7 @@ function draw() {
     countPendingSign(eid).then((n) => { const box = $("dSignNotice"); if (n && box && cur.id === eid) box.innerHTML = `<div class="notice" style="margin-bottom:16px">✍️ 서명할 계약서·동의서가 <b>${n}건</b> 있습니다. <a href="#docs"><b>내 서류</b></a>에서 내용을 확인하고 서명해 주세요.</div>`; });
   }
   if (can("comp")) { bindComp(); mountEmployeeSlips($("dSlips"), cur.emp); $("detailRoot").querySelector("[data-goslips]")?.addEventListener("click", () => { try { sessionStorage.setItem("jarada.adminTab", "slips"); } catch {} }); }
-  if (docsInDetail()) { if (can("secDocs")) bindEval(); drawFiles(); }
+  if (docsInDetail()) { if (can("evalFiles")) bindEval(); if (can("secDocs")) bindEtc(); drawFiles(); }
   if (!state.selfMode && $("dRecords")) {
     const tk = cur.token;
     mountRecords($("dRecords"), e).then(() => { if (tk === cur.token && $("cHist")) $("cHist").innerHTML = compHistoryHtml(); });
@@ -251,13 +258,34 @@ function draw() {
 function docsHtml() {
   return `<div class="card"><h3 class="sec-title">공개서류 (이력서·포트폴리오·범죄기록조회서·졸업증명서)</h3><div id="dPub"></div></div>
     <div class="card"><h3 class="sec-title">비공개서류 (주민등록등본·통장사본·사업자등록확인서·고용보험 관련서류)</h3><div id="dSec"></div></div>
+    ${can("evalFiles") ? evalCardHtml() : ""}
     ${can("secDocs") ? `
-    <div class="card"><h3 class="sec-title">인사 평가 파일</h3>
-      <div class="dropzone" id="dEvalZone"><div class="dz-title">📎 여러 파일을 한번에 끌어다 놓거나 클릭해서 선택</div><div class="sub">(여러 개 선택 가능)</div>
-        <input type="file" id="dEvalInput" multiple hidden></div>
-      <div id="dEval" style="margin-top:12px"></div></div>
     <div class="card"><h3 class="sec-title">기타</h3><div id="dEtc"></div>
       <button class="btn btn-secondary" id="dBtnEtc" style="margin-top:8px">+ 항목 추가</button></div>` : ""}`;
+}
+// 인사 평가 파일 카드 (‘인사 평가 파일’ 권한이 있는 사람만 — 비공개서류 권한과 따로 설정한다)
+function evalCardHtml() {
+  return `<div class="card" id="dEvalCard"><h3 class="sec-title">인사 평가 파일</h3>
+      <div class="dropzone" id="dEvalZone"><div class="dz-title">📎 여러 파일을 한번에 끌어다 놓거나 클릭해서 선택</div><div class="sub">(여러 개 선택 가능)</div>
+        <input type="file" id="dEvalInput" multiple hidden></div>
+      <div id="dEval" style="margin-top:12px"></div></div>`;
+}
+
+// 직원 화면의 제한 보기: 관리자 등급이 아닌 실장·팀장이 권한 설정에서 받은 기능(기본 정보 수정, 인사 평가 파일)만 쓰는 화면
+// (주소·계좌·주민번호·서류·급여 같은 개인정보는 이 화면에 없다)
+const isLimitedView = () => !state.selfMode && !!cur.emp && state.role?.employeeId !== cur.id && !canManage();
+function drawLimited() {
+  const e = cur.emp, root = $("detailRoot");
+  root.innerHTML = `<a class="back-link" href="#employees">← 목록으로</a>
+    <div class="card"><div class="head-top">
+      <div class="name-row"><div class="avatar avatar-lg">${esc((e.name || "?").slice(0, 1))}</div><div><h2 class="emp-name">${esc(e.name)}</h2></div></div>
+      ${can("empWrite") ? `<div class="row-actions"><button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button></div>` : ""}</div>
+      <div class="label">전번</div><div class="big-phone">${esc(e.phone || "—")}</div>
+      <div class="sub" style="margin:6px 0 2px">입사일 <b>${esc(e.joinedAt || "—")}</b></div>
+      <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} ${e.corp ? `<span class="badge o-hq">${esc(corpName(e.corp))}</span>` : ""} <span class="mono sub">${esc(e.id)}</span></div></div>
+    ${can("evalFiles") ? evalCardHtml() : `<div class="notice">이 화면에서는 기본 정보만 볼 수 있습니다.</div>`}`;
+  $("dBtnEdit")?.addEventListener("click", () => ctx.openEdit(cur.emp));
+  if (can("evalFiles")) bindEval();
 }
 
 // 날짜 칸 안내 (최고관리자 외에는 입력할 수 없다)
@@ -581,7 +609,7 @@ function slotHtml(item) {
 
 function drawFiles() {
   const pubEl = $("dPub"), secEl = $("dSec");
-  if (!pubEl || !secEl) return;
+  if (pubEl && secEl) {
   pubEl.innerHTML = PUBLIC_DOCS.map(slotHtml).join("");
   secEl.innerHTML = SECRET_DOCS.map(slotHtml).join("");
   for (const item of [...PUBLIC_DOCS, ...SECRET_DOCS]) {
@@ -595,7 +623,9 @@ function drawFiles() {
     slot.querySelector("[data-dl]")?.addEventListener("click", (e) => download(e.currentTarget.dataset.dl, e.currentTarget.dataset.name));
     slot.querySelector("[data-del-key]")?.addEventListener("click", () => deleteFixed(item));
   }
-  if (can("secDocs")) { drawEval(); drawEtc(); }
+  }
+  if (can("evalFiles")) drawEval();
+  if (can("secDocs")) drawEtc();
 }
 
 async function uploadFixed(item, file) {
@@ -667,8 +697,8 @@ function bindEval() {
   zone.addEventListener("click", (e) => { if (e.target !== input) input.click(); });
   input.addEventListener("change", () => { go([...input.files]); input.value = ""; });
   dropzone(zone, go);
-  $("dBtnEtc").addEventListener("click", addEtcDraft);
 }
+function bindEtc() { $("dBtnEtc")?.addEventListener("click", addEtcDraft); }
 
 // 기타 (항목명 + 설명 + 파일)
 function drawEtc() {

@@ -10,6 +10,8 @@ module.exports = () => {
   s = s.replace(/    function role\(\) \{[^\n]*\n/, "");
   s = s.split("role().level").join("request.auth.token.lvl").split("role().get('employeeId', '')").join("request.auth.token.get('eid', '')");
   s = s.replace(/function secAllowed\(\) \{[\s\S]*?\n    \}\n/, "function secAllowed() { return isSuper() || (roleExists() && request.auth.token.lvl == 'hr' && request.auth.token.get('sec', false)); }\n");
+  s = s.replace(/    function evalList\(\) \{[\s\S]*?\n    \}\n/, "");
+  s = s.replace(/function evalAllowed\(empId\) \{[\s\S]*?\n    \}\n/, "function evalAllowed(empId) {\n      return isSuper() || (roleExists() && ((request.auth.token.lvl == 'hr' && request.auth.token.get('evalHr', false))\n        || (request.auth.token.lvl in ['principal', 'admin', 'manager', 'lead'] && request.auth.token.get('evalLv', false) && request.auth.token.org in request.auth.token.get('emp_' + empId, []))));\n    }\n");
   s = s.replace(/function payAllowed\(\) \{[\s\S]*?\n    \}\n/, "function payAllowed() { return isSuper() || (roleExists() && request.auth.token.lvl == 'hr' && request.auth.token.get('pay', false)); }\n");
   s = s.replace("function selfAccount(empId) { return isSelf(empId) && !('selfToken' in role()); }", "function selfAccount(empId) { return isSelf(empId) && !request.auth.token.get('link', false); }");
   s = s.replace(/function selfTokenValid\(empId\) \{[\s\S]*?\n    \}\n/, "function selfTokenValid(empId) { return true; }\n");

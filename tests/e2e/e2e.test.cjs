@@ -565,6 +565,82 @@ const buf = (s) => Buffer.from(s);
     await e.ctx.close();
   }
 
+  // ================= LP. 실장·팀장 권한 옵션 (직원 등록·수정·일괄 등록 / 인사 평가 파일) =================
+  {
+    const COLS = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const base = J(snapStore); base.roles.u_m2 = { level: "manager", orgId: "anyang", employeeId: "emp_0002" }; base.roles.u_l2 = { level: "lead", orgId: "anyang", employeeId: "emp_0002" };
+    const withPerms = (permissions) => { const x = J(base); x.settings = { ...(x.settings || {}), permissions }; return x; };
+    const navTabs = (pg) => pg.$$eval("#nav .tab", (t) => t.map((x) => x.dataset.view));
+    // 기본(꺼짐): 실장에게 직원 탭이 없다
+    const d0 = await newPage(browser, { user: { uid: "u_m2", email: "multi@jarada.kr" }, store: J(base), files: J(snapFiles) });
+    await d0.page.goto(BASE + "/index.html"); await d0.page.waitForSelector("#nav .tab", { state: "attached" });
+    ok("LP 기본값: 실장에게는 직원 탭이 없다", !(await navTabs(d0.page)).includes("employees"));
+    await d0.ctx.close();
+    // 실장에게 직원 등록·수정을 열어 줌
+    const m1 = await newPage(browser, { user: { uid: "u_m2", email: "multi@jarada.kr" }, store: withPerms({ empWrite: ["hr", "principal", "admin", "manager"] }), files: J(snapFiles) });
+    await m1.page.goto(BASE + "/index.html#employees"); await m1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    ok("LP 실장(권한 열림): 직원 탭 + 직원 등록·일괄 등록 버튼, 삭제/선택 도구는 없음", (await navTabs(m1.page)).includes("employees") && (await vis(m1.page, "#btnAddEmp")) && (await vis(m1.page, "#btnBulk")) && (await count(m1.page, "#selAll")) === 0);
+    ok("LP 실장: 목록에는 소속 지점 직원만", (await m1.page.$$eval("#tblEmp tbody tr[data-id]", (r) => r.every((x) => x.dataset.id !== "emp_0004"))) && (await count(m1.page, '#tblEmp tr[data-id="emp_0003"]')) === 1);
+    await m1.page.click('#tblEmp tr[data-id="emp_0003"]'); await m1.page.waitForSelector("#dlgEmp[open]");
+    ok("LP 실장: 행을 누르면 기본 정보 수정 창 (직원 상세 대신), 등급은 사원·팀장만 선택", (await m1.page.textContent("#dlgEmpTitle")).includes("수정") && JSON.stringify((await m1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))).sort()) === '["lead","staff"]' && (await m1.page.evaluate(() => location.hash)) !== "#emp/emp_0003", (await m1.page.textContent("#dlgEmpTitle")) + " | " + JSON.stringify(await m1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))) + " | " + (await m1.page.evaluate(() => location.hash)));
+    await m1.page.fill("#fName", "이교사(실장수정)"); await m1.page.click("#btnEmpSave"); await m1.page.waitForTimeout(500);
+    ok("LP 실장이 수정 저장", (await COLS(m1.page, "employees")).emp_0003.name === "이교사(실장수정)");
+    await m1.page.click("#btnAddEmp"); await m1.page.waitForSelector("#dlgEmp[open]");
+    await m1.page.fill("#fName", "실장등록"); await m1.page.fill("#fEmail", "mgr-new@jarada.kr"); await m1.page.click("#btnEmpSave"); await m1.page.waitForTimeout(600);
+    const created = Object.values(await COLS(m1.page, "employees")).find((x) => x.email === "mgr-new@jarada.kr");
+    ok("LP 실장이 직원 등록: 소속 지점 고정(안양)·등급 사원", created && JSON.stringify(created.orgIds) === '["anyang"]' && created.level === "staff");
+    await m1.page.click("#btnBulk"); await m1.page.waitForSelector("#dlgBulk[open]");
+    ok("LP 실장: 일괄 등록 창이 열리고 소속 지점이 고정됨", (await m1.page.$eval("#bulkOrg", (s) => s.disabled)) && (await m1.page.$eval("#bulkOrg", (s) => s.value)) === "anyang");
+    await m1.page.fill("#bulkText", "이름\t이메일\t권한\n일괄등록A\tbulk-a@jarada.kr\t사원\n일괄등록B\tbulk-b@jarada.kr\t실장"); await m1.page.waitForTimeout(300);
+    const sm = await m1.page.textContent("#bulkPreview");
+    ok("LP 실장 일괄 등록: 사원은 통과, 실장 등급은 막힘(자기보다 높거나 같은 등급)", sm.includes("사원·팀장 등급만 부여") && (await m1.page.textContent("#bulkSummary")).includes("등록 가능 1명"), (await m1.page.textContent("#bulkSummary")) + " | " + sm.slice(0, 200));
+    ok("LP 실장 no errors", m1.errors.length === 0, m1.errors.join(" | "));
+    await m1.ctx.close();
+    // 팀장: 사원 등급만
+    const l1 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms({ empWrite: ["hr", "principal", "admin", "lead"] }), files: J(snapFiles) });
+    await l1.page.goto(BASE + "/index.html#employees"); await l1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    await l1.page.click("#btnAddEmp"); await l1.page.waitForSelector("#dlgEmp[open]");
+    ok("LP 팀장(권한 열림): 등급은 사원만 선택", JSON.stringify(await l1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))) === '["staff"]');
+    await l1.ctx.close();
+
+    // 인사 평가 파일: 팀장에게 열어 줌 → 직원 탭 + 제한 보기(개인정보 없음) + 평가 파일 업로드·삭제
+    const evalPerm = { evalFiles: ["lead"] };
+    const e1 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms(evalPerm), files: { ...J(snapFiles), "hr/emp_0003/sec/eval__1__old.xlsx": "x", "hr/emp_0003/sec/residentCopy__1__r.pdf": "x" } });
+    await e1.page.goto(BASE + "/index.html#employees"); await e1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    ok("LP 팀장(인사 평가 파일만 열림): 직원 탭은 보이고 직원 등록 버튼은 없음", (await navTabs(e1.page)).includes("employees") && !(await vis(e1.page, "#btnAddEmp")) && !(await vis(e1.page, "#btnBulk")));
+    await e1.page.click('#tblEmp tr[data-id="emp_0003"]'); await e1.page.waitForSelector("#dEvalCard");
+    ok("LP 팀장: 제한 보기 = 기본 정보 + 인사 평가 파일만 (주민번호·개인정보·서류·급여·계약서 없음)", (await e1.page.textContent("#detailRoot .emp-name")).includes("이교사") && (await count(e1.page, "#dFront")) === 0 && (await count(e1.page, "[data-pi]")) === 0 && (await count(e1.page, "#dPub")) === 0 && (await count(e1.page, "#dSec")) === 0 && (await count(e1.page, "#dContractsCard")) === 0 && (await count(e1.page, "#dEtc")) === 0 && (await count(e1.page, "#dBtnEdit")) === 0);
+    await e1.page.waitForFunction(() => document.querySelector("#dEval")?.textContent.includes("old.xlsx"));
+    ok("LP 팀장: 인사 평가 파일 목록에는 평가 파일만 (비공개서류 파일은 안 보임)", (await e1.page.textContent("#dEval")).includes("old.xlsx") && !(await e1.page.textContent("#dEval")).includes("r.pdf"));
+    await e1.page.setInputFiles("#dEvalInput", { name: "평가2026.xlsx", mimeType: "application/octet-stream", buffer: buf("x") }); await e1.page.waitForTimeout(500);
+    ok("LP 팀장: 평가 파일 업로드", (await FILES(e1.page)).some((x) => x.startsWith("hr/emp_0003/sec/eval__")) && (await e1.page.textContent("#dEval")).includes("평가2026.xlsx"));
+    await e1.page.click('#dEval [data-del-path*="old.xlsx"]'); await e1.page.waitForTimeout(400);
+    ok("LP 팀장: 평가 파일 삭제", !(await FILES(e1.page)).includes("hr/emp_0003/sec/eval__1__old.xlsx") && (await FILES(e1.page)).includes("hr/emp_0003/sec/residentCopy__1__r.pdf"));
+    ok("LP 팀장 no errors", e1.errors.length === 0, e1.errors.join(" | "));
+    await e1.ctx.close();
+    // 팀장: 평가 파일 + 직원 수정 둘 다 → 제한 보기에 ‘기본 정보 수정’ 버튼
+    const e2 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms({ evalFiles: ["lead"], empWrite: ["hr", "principal", "admin", "lead"] }), files: J(snapFiles) });
+    await e2.page.goto(BASE + "/index.html#emp/emp_0003"); await e2.page.waitForSelector("#dEvalCard");
+    ok("LP 팀장(둘 다 열림): 제한 보기에 기본 정보 수정 버튼", (await count(e2.page, "#dBtnEdit")) === 1);
+    await e2.ctx.close();
+    // 대표이사: 인사 평가 파일만 열면 평가 카드는 보이고 ‘기타’(비공개서류 권한)는 안 보임 / 비공개서류만 열면 반대
+    const hrBase = J(base); hrBase.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    const hx = (permissions) => { const x = J(hrBase); x.settings = { ...(x.settings || {}), permissions }; return x; };
+    const h1 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ evalFiles: ["hr"], secDocs: [] }), files: J(snapFiles) });
+    await h1.page.goto(BASE + "/index.html#emp/emp_0003"); await h1.page.waitForSelector(".emp-name"); await h1.page.waitForSelector("#dEvalCard");
+    ok("LP 대표이사: 인사 평가 파일만 열림 → 평가 카드 O, 기타 카드 X", (await count(h1.page, "#dEvalCard")) === 1 && (await count(h1.page, "#dEtc")) === 0);
+    await h1.ctx.close();
+    const h2 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ evalFiles: [], secDocs: ["hr"] }), files: J(snapFiles) });
+    await h2.page.goto(BASE + "/index.html#emp/emp_0003"); await h2.page.waitForSelector(".emp-name"); await h2.page.waitForSelector("#dEtc");
+    ok("LP 대표이사: 비공개서류만 열림 → 기타 카드 O, 인사 평가 카드 X", (await count(h2.page, "#dEvalCard")) === 0 && (await count(h2.page, "#dEtc")) === 1);
+    await h2.ctx.close();
+    // 예전 설정 호환: evalFiles 를 저장한 적 없으면 비공개서류 설정을 이어받는다
+    const h3 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ secDocs: ["hr"] }), files: J(snapFiles) });
+    await h3.page.goto(BASE + "/index.html#emp/emp_0003"); await h3.page.waitForSelector(".emp-name"); await h3.page.waitForSelector("#dEtc");
+    ok("LP 예전 설정 호환: 인사 평가 파일을 따로 저장하기 전에는 비공개서류 설정을 따름", (await count(h3.page, "#dEvalCard")) === 1);
+    await h3.ctx.close();
+  }
+
   // ================= SB. 자유 서식 서명 문서 + 일괄 발송 (관리 → 서명 문서) =================
   {
     const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
@@ -1463,9 +1539,11 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs");
     await page.click('#adminTabs [data-t="perms"]'); await page.waitForSelector(".perm-tbl");
-    ok("W matrix renders all capabilities", (await count(page, ".perm-tbl tbody tr")) === 8 && (await count(page, '.perm-tbl input[data-perm="comp"]')) === 1);
+    ok("W matrix renders all capabilities (비공개서류와 인사 평가 파일은 따로)", (await count(page, ".perm-tbl tbody tr")) === 9 && (await count(page, '.perm-tbl input[data-perm="comp"]')) === 1);
     ok("W defaults: audit/trash on for hr, comp off", (await page.isChecked('input[data-perm="audit"][value="hr"]')) && !(await page.isChecked('input[data-perm="comp"][value="hr"]')) && (await page.isChecked('input[data-perm="leaveApprove"][value="lead"]')));
     ok("W branch levels cannot be given comp", (await count(page, 'input[data-perm="comp"][value="principal"]')) === 0);
+    ok("W 비공개서류는 대표이사만 선택, 인사 평가 파일은 대표이사·원장·부원장·실장·팀장 모두 선택 가능(기본 꺼짐)", (await count(page, 'input[data-perm="secDocs"]')) === 1 && (await count(page, 'input[data-perm="evalFiles"]')) === 5 && (await count(page, 'input[data-perm="evalFiles"]:checked')) === 0 && (await page.textContent(".perm-tbl")).includes("인사 평가 파일") && !(await page.textContent(".perm-tbl")).includes("비공개서류·인사평가"));
+    ok("W 직원 등록·수정·일괄 등록: 실장·팀장도 선택 가능(기본 꺼짐)", (await count(page, 'input[data-perm="empWrite"]')) === 5 && !(await page.isChecked('input[data-perm="empWrite"][value="manager"]')) && !(await page.isChecked('input[data-perm="empWrite"][value="lead"]')) && (await page.isChecked('input[data-perm="empWrite"][value="principal"]')));
     await page.check('input[data-perm="comp"][value="hr"]'); await page.uncheck('input[data-perm="audit"][value="hr"]'); await page.uncheck('input[data-perm="noticeWrite"][value="admin"]');
     await page.click("#btnPermSave"); await page.waitForTimeout(500);
     const pm = await S(page, "settings/permissions");

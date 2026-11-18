@@ -26,14 +26,30 @@ export const isAdmin   = () => ["admin", "principal"].includes(state.role?.level
 export const canManage = () => isHR() || isAdmin();
 export const isMgr     = () => ["admin", "principal", "manager", "lead"].includes(state.role?.level);   // 휴가 승인 등 지점 관리자 계열(실장 포함)
 export const canApprove = () => isHR() || isMgr();
+export const isBranchLead = () => ["manager", "lead"].includes(state.role?.level);                // 실장·팀장 (권한 설정에서 열어 준 기능만 소속 지점 안에서 쓴다)
+export const isBranchScoped = () => isAdmin() || isBranchLead();                                   // 소속 지점 직원만 다루는 등급 (원장·부원장·실장·팀장)
+// 이 등급이 직원 등록·수정에서 부여할 수 있는 직원 등급 (실장은 사원·팀장, 팀장은 사원까지 — 자기보다 높은 등급을 만들어 권한을 키우는 것을 막는다)
+export const assignableLevels = () => (isAdmin() ? ORG_LEVELS : state.role?.level === "manager" ? ["staff", "lead"] : state.role?.level === "lead" ? ["staff"] : []);
 export const canSeeBalance = () => isHR();   // 남은 연차·연차 계산은 최고관리자·대표이사만 본다
 // 관리 → 권한 설정에서 정한 기능 권한 (최고관리자는 항상 true). 규칙(firestore.rules)이 실제로 막고, 이 값은 화면 표시용
+export function permLevels(cap) {
+  const def = PERMS.find((p) => p.key === cap); if (!def) return [];
+  const v = state.perms?.[cap];
+  if (Array.isArray(v)) return v;
+  // ‘인사 평가 파일’은 예전에 ‘비공개서류’ 권한에 묶여 있었다 — 아직 따로 저장하지 않았으면 그 설정을 이어받는다
+  if (cap === "evalFiles" && Array.isArray(state.perms?.secDocs)) return state.perms.secDocs.filter((l) => def.levels.includes(l));
+  return def.def;
+}
 export function can(cap) {
   if (isSuper()) return true;
   const def = PERMS.find((p) => p.key === cap); if (!def) return false;
   const lv = state.role?.level;
-  return def.levels.includes(lv) && (Array.isArray(state.perms?.[cap]) ? state.perms[cap] : def.def).includes(lv);
+  return def.levels.includes(lv) && permLevels(cap).includes(lv);
 }
+// 직원 목록·직원 화면을 쓸 수 있는가: 관리자 등급 + 권한 설정에서 직원 등록·수정 또는 인사 평가 파일을 열어 준 실장·팀장
+export const canEmpList = () => canManage() || (isBranchLead() && (can("empWrite") || can("evalFiles")));
+// 직원 정보를 고치는 화면(등록·수정·일괄 등록)을 열 수 있는가
+export const canEmpEdit = () => canManage() || (isBranchLead() && can("empWrite"));
 
 export function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>

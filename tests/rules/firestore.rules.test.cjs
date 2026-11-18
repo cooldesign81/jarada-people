@@ -525,6 +525,45 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("slip: label edit cannot carry other fields", false, () => sup.doc("employees/emp_0003/payslips/s8").update({ label: "x", fileName: "y.pdf", updatedAt: TS() }));
   await t("slip: employee cannot edit label", false, () => stf.doc("employees/emp_0003/payslips/s8").update({ label: "내가바꿈" }));
   await t("slip: super deletes labelled slips", true, async () => { await sup.doc("employees/emp_0003/payslips/s6").delete(); await sup.doc("employees/emp_0003/payslips/s8").delete(); });
+  // ---- 실장·팀장에게 ‘직원 등록·수정·일괄 등록’을 열어 주는 옵션 (기본은 꺼짐)
+  const AN = (o = {}) => newEmp({ orgId: "anyang", orgIds: ["anyang"], ...o });
+  await setPerms(null);
+  await t("lead-perm off: manager cannot create employee", false, () => mgr.doc("employees/emp_n1").set(AN()));
+  await t("lead-perm off: team lead cannot create employee", false, () => lead.doc("employees/emp_n1").set(AN()));
+  await t("lead-perm off: manager cannot touch meta counters", false, () => mgr.doc("meta/counters").get());
+  await setPerms({ empWrite: ["hr", "principal", "admin", "manager"] });
+  await t("lead-perm(manager on): manager creates staff in own org", true, () => mgr.doc("employees/emp_n1").set(AN()));
+  await t("lead-perm(manager on): manager creates team lead", true, () => mgr.doc("employees/emp_n2").set(AN({ level: "lead" })));
+  await t("lead-perm(manager on): manager cannot create manager", false, () => mgr.doc("employees/emp_n3").set(AN({ level: "manager" })));
+  await t("lead-perm(manager on): manager cannot create branch admin / principal / hr", false, async () => { await mgr.doc("employees/emp_n3").set(AN({ level: "admin" })); });
+  await t("lead-perm(manager on): manager cannot create in another org", false, () => mgr.doc("employees/emp_n3").set(AN({ orgId: "banpo", orgIds: ["banpo"] })));
+  await t("lead-perm(manager on): manager cannot create multi-org", false, () => mgr.doc("employees/emp_n3").set(AN({ orgIds: ["anyang", "banpo"] })));
+  await t("lead-perm(manager on): manager updates staff of own org", true, () => mgr.doc("employees/emp_0005").update({ name: "안양전용(수정)" }));
+  await t("lead-perm(manager on): manager updates multi-org staff (own org included)", true, () => mgr.doc("employees/emp_0002").update({ name: "다지점(수정)" }));
+  await t("lead-perm(manager on): manager updates a team lead", true, () => mgr.doc("employees/emp_l").update({ name: "팀장(수정)" }));
+  await t("lead-perm(manager on): manager cannot promote staff to manager", false, () => mgr.doc("employees/emp_0005").update({ level: "manager" }));
+  await t("lead-perm(manager on): manager cannot edit a branch admin of other org", false, () => mgr.doc("employees/emp_0004").update({ name: "x" }));
+  await t("lead-perm(manager on): manager cannot move employee to another org", false, () => mgr.doc("employees/emp_0005").update({ orgIds: ["banpo"], orgId: "banpo" }));
+  await t("lead-perm(manager on): manager cannot delete", false, () => mgr.doc("employees/emp_n1").delete());
+  await t("lead-perm(manager on): manager cannot trash (휴지통) — needs trash perm", false, () => mgr.doc("employees/emp_0005").update({ deletedBy: "manager" }));
+  await t("lead-perm(manager on): team lead still denied", false, () => lead.doc("employees/emp_n4").set(AN()));
+  await t("lead-perm(manager on): manager uses meta counters (사번 부여)", true, () => mgr.doc("meta/counters").set({ employee: 30 }, { merge: true }));
+  await t("lead-perm(manager on): manager reads/writes personal info of own-org staff (일괄 등록)", true, async () => { await mgr.doc("employees/emp_0005/private/personalInfo").get(); await mgr.doc("employees/emp_0005/private/personalInfo").set({ address: "수정 주소" }); });
+  await t("lead-perm(manager on): manager writes resident front of own-org staff", true, () => mgr.doc("employees/emp_0005/private/residentFront").set({ value: "900101" }));
+  await t("lead-perm(manager on): manager cannot read personal info of a branch admin (higher level)", false, () => mgr.doc("employees/emp_0004/private/personalInfo").get());
+  await t("lead-perm(manager on): manager still cannot read resident back / compensation", false, async () => { await mgr.doc("employees/emp_0005/private/residentBack").get(); });
+  await t("lead-perm(manager on): manager cannot write compensation", false, () => mgr.doc("employees/emp_0005/private/compensation").set({ base: 1 }));
+  await t("lead-perm(manager on): manager cannot write date fields (최고관리자만)", false, () => mgr.doc("employees/emp_0005/private/personalInfo").set({ address: "a", workStartDate: "2026-01-01" }));
+  await setPerms({ empWrite: ["hr", "principal", "admin", "manager", "lead"] });
+  await t("lead-perm(lead on): team lead creates staff", true, () => lead.doc("employees/emp_n5").set(AN()));
+  await t("lead-perm(lead on): team lead cannot create team lead", false, () => lead.doc("employees/emp_n6").set(AN({ level: "lead" })));
+  await t("lead-perm(lead on): team lead updates staff", true, () => lead.doc("employees/emp_0005").update({ name: "안양전용(팀장수정)" }));
+  await t("lead-perm(lead on): team lead cannot edit a team lead (incl. self)", false, () => lead.doc("employees/emp_l").update({ name: "내가바꿈" }));
+  await t("lead-perm(lead on): team lead writes personal info of staff", true, () => lead.doc("employees/emp_0005/private/personalInfo").set({ address: "팀장이 입력" }));
+  await setPerms({ empWrite: ["hr", "principal", "admin", "lead"] });
+  await t("lead-perm(only lead on): manager denied again", false, () => mgr.doc("employees/emp_n7").set(AN()));
+  await setPerms(null);
+
   // ---- 계약서·동의서 (온라인 작성본): 근로계약서는 급여 권한자만, 동의서·서약서는 대표이사·소속 지점 원장 등
   const CT = (type, o = {}) => ({ type, title: (type === "labor" ? "근로계약서" : "서약서") + " · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, createdAt: TS(), updatedAt: TS(), createdBy: "u1", createdByName: "대표", ...o });
   await env.withSecurityRulesDisabled((c) => c.firestore().doc("roles/u_adm2").set({ level: "admin", orgId: "daechi", employeeId: "emp_a2" }));   // 이 직원(안양·반포)과 겹치지 않는 지점의 원장

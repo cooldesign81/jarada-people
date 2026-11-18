@@ -132,6 +132,19 @@ service cloud.firestore {
     function orgAdminOfEmp(id) {
       return isOrgAdmin() && exists(empPath(id)) && me().orgId in orgsOf(get(empPath(id)).data);
     }
+    // 실장·팀장이 다룰 수 있는 직원 등급: 실장은 사원·팀장, 팀장은 사원 (자기보다 높은 등급을 만들어 권한을 키우는 것을 막는다)
+    function leadTarget(l) {
+      return hasRole() && (me().level == 'manager' ? l in ['staff', 'lead'] : l == 'staff');
+    }
+    // 관리 → 권한 설정에서 ‘직원 등록·수정·일괄 등록’을 열어 준 실장·팀장 (기본은 꺼져 있음)
+    function leadEmpWrite() {
+      return capBranch('empWrite', ['hr', 'principal', 'admin'], ['manager', 'lead']);
+    }
+    // 위 권한을 받은 실장·팀장이 소속 지점의 (자기보다 낮은 등급) 직원 정보를 다루는가
+    function leadEditorOf(id) {
+      return leadEmpWrite() && exists(empPath(id)) && me().orgId in orgsOf(get(empPath(id)).data)
+        && leadTarget(get(empPath(id)).data.get('level', 'staff'));
+    }
 
     // 대표가 설정에서 ‘주민번호 뒷자리 수집 안 함’으로 바꾸면 새로 저장할 수 없다 (기존 값 삭제는 가능)
     function rrnBackAllowed() {
@@ -232,7 +245,7 @@ service cloud.firestore {
 
     // ---------- 사번 카운터 ----------
     match /meta/{docId} {
-      allow read, write: if isHR() || isOrgAdmin();
+      allow read, write: if isHR() || isOrgAdmin() || leadEmpWrite();
     }
 
     // ---------- 직원: 공개 인사정보 ----------
@@ -270,11 +283,22 @@ service cloud.firestore {
         && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
         && orgLevel(resource.data.level) && orgLevel(request.resource.data.level);
 
+      // 실장·팀장 (권한 설정에서 ‘직원 등록·수정·일괄 등록’을 열어 준 경우만): 소속 지점 안에서, 자기보다 낮은 등급 직원만. 지점 목록은 바꿀 수 없음
+      allow create: if leadEmpWrite() && validEmployee()
+        && request.resource.data.orgIds == [me().orgId]
+        && leadTarget(request.resource.data.level);
+      allow update: if leadEmpWrite() && validEmployee()
+        && !trashFieldsChanged()
+        && me().orgId in orgsOf(resource.data)
+        && request.resource.data.orgIds == orgsOf(resource.data)
+        && request.resource.data.orgId == resource.data.get('orgId', request.resource.data.orgId)
+        && leadTarget(resource.data.level) && leadTarget(request.resource.data.level);
+
       allow delete: if isSuper();   // 퇴사는 status 변경이 원칙. 완전 삭제는 대표만 (하위 문서·파일은 앱이 함께 정리)
 
       // ---------- 개인 정보 / 주민등록번호 앞뒤 / 급여 (앱 사용) ----------
       match /private/{docId} {
-        function managerOf() { return isHR() || orgAdminOfEmp(empId); }
+        function managerOf() { return isHR() || orgAdminOfEmp(empId) || leadEditorOf(empId); }
         function ownerOrManager() { return isSelf(empId) || managerOf(); }
         function validPersonal() {
           let d = request.resource.data;
