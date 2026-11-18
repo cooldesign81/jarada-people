@@ -12,7 +12,9 @@ rules_version = '2';
 //                                                인사평가(eval), 기타(etc)
 //
 // 공개서류  : 열람/삭제 = 최고관리자·본사 인사(hr), 해당 지점 관리자(admin/principal) / 업로드 = 위 + 본인
-// 비공개·평가·기타 : 열람/삭제 = 최고관리자만 / 업로드 = 최고관리자, 본인(비공개서류 4종만)
+// 비공개서류·기타 : 열람/삭제 = 최고관리자(+ 관리 → 권한 설정에서 ‘비공개서류’를 열어 준 대표이사) / 업로드 = 위 + 본인(비공개서류 4종만)
+// 인사 평가 파일(eval): 열람·업로드·삭제 = 최고관리자 + 권한 설정의 ‘인사 평가 파일’을 열어 준 등급
+//                       (대표이사는 전체, 원장·부원장·실장·팀장은 소속 지점 직원만)
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -29,6 +31,19 @@ service firebase.storage {
       return isSuper() || (roleExists() && role().level == 'hr'
         && firestore.exists(/databases/(default)/documents/settings/permissions)
         && 'hr' in firestore.get(/databases/(default)/documents/settings/permissions).data.get('secDocs', []));
+    }
+    // 관리 → 권한 설정에서 ‘인사 평가 파일’을 열어 준 등급인지. 따로 저장한 적이 없으면 예전 ‘비공개서류’ 설정을 이어받는다 (최고관리자는 항상 허용)
+    function evalList() {
+      return firestore.exists(/databases/(default)/documents/settings/permissions)
+        ? firestore.get(/databases/(default)/documents/settings/permissions).data.get('evalFiles',
+            firestore.get(/databases/(default)/documents/settings/permissions).data.get('secDocs', []))
+        : [];
+    }
+    function evalAllowed(empId) {
+      return isSuper() || (roleExists() && (
+        (role().level == 'hr' && 'hr' in evalList())
+        || (role().level in ['principal', 'admin', 'manager', 'lead'] && role().level in evalList()
+            && firestore.exists(empPath(empId)) && role().orgId in orgsOf(firestore.get(empPath(empId)).data))));
     }
     // 급여·인센티브 명세서: ‘급여 정보’ 권한(settings/permissions 의 comp)이 대표이사에게 열려 있는지
     function payAllowed() {
@@ -92,9 +107,12 @@ service firebase.storage {
     }
 
     match /hr/{empId}/sec/{file} {
-      allow read, delete: if secAllowed();
+      // 폴더 목록(이름만)은 비공개서류·인사 평가 권한자 모두 볼 수 있고, 파일 내용(get)·삭제는 권한별로 나눈다.
+      allow list: if secAllowed() || evalAllowed(empId);
+      allow get, delete: if secAllowed() || (evalAllowed(empId) && file.matches('eval__[0-9]+__.*'));
       allow create: if small() && (
         (secAllowed() && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc|eval|etc)__[0-9]+__.*'))
+        || (evalAllowed(empId) && file.matches('eval__[0-9]+__.*'))
         || (isSelf(empId) && file.matches('(residentCopy|bankbookCopy|businessRegistration|employmentInsuranceDoc)__[0-9]+__.*'))
       );
     }

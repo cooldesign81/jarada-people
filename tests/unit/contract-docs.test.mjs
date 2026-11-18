@@ -1,9 +1,9 @@
-import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT } from "../../js/contract-docs.js";
+import { DOC_TYPES, FIELDS, defaultsFor, buildDocHtml, missingRequired, cleanValues, signAnswerFields, signedValues, signMeta, CUSTOM_TEMPLATES, docTitle, SECURITY_DEFAULT, canonicalJson, sha256Hex, docHashOf, signedHashOf, maskPhone, toE164, CONTRACT_VERSION } from "../../js/contract-docs.js";
 let f = 0; const ok = (n, c, extra = "") => { if (!c) f++; console.log(c ? "PASS" : "FAIL", n, c ? "" : extra); };
 const emp = { name: "김효진", birthDate: "1990-05-21", joinedAt: "2026-03-02", corp: "jade" }, pi = { address: "경기도 군포시 산본동 78-32" };
 
 // 종류·항목 구성: 노랑(y)은 직원마다, 주황(o)은 기본값이 있는 옵션
-ok("문서 종류: 계약서 3종 + 보안 수칙 + 자유 서식", Object.keys(DOC_TYPES).join() === "labor,consent,pledge,security,custom");
+ok("문서 종류: 근로계약서·동의서·(이전 양식 서약서)·서약서(보안 수칙)·자유 서식", Object.keys(DOC_TYPES).join() === "labor,consent,pledge,security,custom");
 for (const t of Object.keys(FIELDS)) ok(`${t}: 노랑 칸이 있음`, FIELDS[t].some((x) => x.grp === "y"));
 ok("근로계약서·동의서에는 주황 옵션이 있음", FIELDS.labor.some((x) => x.grp === "o") && FIELDS.consent.some((x) => x.grp === "o"));
 ok("근로계약서만 급여 권한(comp)이 필요", DOC_TYPES.labor.needs === "comp" && !DOC_TYPES.consent.needs && !DOC_TYPES.pledge.needs);
@@ -82,12 +82,25 @@ ok("자유 서식: 동의 선택 방식", buildDocHtml("custom", { ...U, mode: "
 ok("자유 서식: 본문은 이스케이프", !buildDocHtml("custom", { ...U, body: "<script>x</script>" }, { autoPrint: false }).includes("<script>x"));
 ok("자유 서식: 본문 5000자까지 저장(칸 길이)", cleanValues("custom", { title: "t", body: "가".repeat(6000) }).body.length === 5000);
 ok("docTitle: 자유 서식은 직접 쓴 제목", docTitle({ type: "custom", data: { title: "교육 이수 확인서" } }) === "교육 이수 확인서" && docTitle({ type: "labor" }) === "근로계약서" && docTitle({ type: "custom", data: {} }) === "서명 문서(자유 서식)");
-// 정보보안 수칙 확인서
+// 서약서(정보보안 수칙)
 const SE = defaultsFor("security", { emp, today: "2026-11-17" });
 const seh = buildDocHtml("security", { ...SE, dept: "평촌원" }, { autoPrint: false });
-ok("보안 수칙: 기본값(이름·회사·9개 수칙)", SE.name === "김효진" && SE.company === "(주)제이드에듀" && SECURITY_DEFAULT.rules.split("\n").length === 9 && SECURITY_DEFAULT.rules.startsWith("1. "));
-ok("보안 수칙: 제목·인적 사항·수칙·확인 문구·서명란", seh.includes("정보보안 수칙 확인서") && seh.includes("평촌원") && seh.includes("9. 위 사항을 위반") && seh.includes("□ 위 정보보안 수칙을") && seh.includes("sigbox") && seh.includes("(주)제이드에듀 대표이사 귀하"));
+ok("서약서(보안 수칙): 기본값(이름·회사·9개 수칙)", SE.name === "김효진" && SE.company === "(주)제이드에듀" && SECURITY_DEFAULT.rules.split("\n").length === 9 && SECURITY_DEFAULT.rules.startsWith("1. "));
+ok("서약서(보안 수칙): 제목·인적 사항·수칙·확인 문구·서명란", seh.includes("서 약 서") && !seh.includes("확인서") && DOC_TYPES.security.title === "서약서" && seh.includes("평촌원") && seh.includes("9. 위 사항을 위반") && seh.includes("□ 위 정보보안 수칙을") && seh.includes("sigbox") && seh.includes("(주)제이드에듀 대표이사 귀하"));
 ok("보안 수칙: 직원이 서약하면 ☑ + 서명 항목", buildDocHtml("security", { ...SE, confirm: true }, { autoPrint: false }).includes("☑ 위 정보보안 수칙을") && signAnswerFields("security")[0].key === "confirm" && signAnswerFields("security")[0].type === "check");
 ok("보안 수칙: 주황 옵션(수칙·회사), 노랑(이름·부서·작성일)", FIELDS.security.filter((x) => x.grp === "o").map((x) => x.key).join() === "company,rules" && FIELDS.security.filter((x) => x.grp === "y").map((x) => x.key).join() === "name,dept,signDate" && DOC_TYPES.security.coll === "contracts" && !DOC_TYPES.security.needs);
 ok("보안 수칙: 수칙 문구는 이스케이프", !buildDocHtml("security", { ...SE, rules: "<img src=x onerror=1>" }, { autoPrint: false }).includes("<img src=x"));
+ok("이전 양식 서약서는 legacy 표시(새로 만들기 대상 아님)이고 서약서는 보안 수칙 문서", DOC_TYPES.pledge.legacy === true && DOC_TYPES.pledge.title.includes("이전 양식") && !DOC_TYPES.security.legacy);
+ok("이전 양식 서약서 문서도 여전히 열린다", buildDocHtml("pledge", defaultsFor("pledge", { emp, today: "2026-11-17" }), { autoPrint: false }).includes("서 약 서"));
+// 원본 해시 · 전화번호 도우미
+ok("SHA-256 표준 값", (await sha256Hex("abc")) === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+ok("canonicalJson: 키 순서와 상관없이 같은 문자열", canonicalJson({ b: 1, a: [2, { d: 1, c: 2 }] }) === canonicalJson({ a: [2, { c: 2, d: 1 }], b: 1 }));
+const hc = { type: "labor", title: "근로계약서 · 홍", data: { name: "홍", monthlyPay: 2400000 } };
+const h1 = await docHashOf(hc);
+ok("문서 해시: 64자 16진수, 같은 내용이면 같고 한 글자만 달라도 다름", /^[0-9a-f]{64}$/.test(h1) && h1 === (await docHashOf({ ...hc, data: { monthlyPay: 2400000, name: "홍" } })) && h1 !== (await docHashOf({ ...hc, data: { name: "홍", monthlyPay: 2400001 } })) && h1 !== (await docHashOf({ ...hc, title: "근로계약서 · 홍 " })));
+ok("문서 해시에는 문서 버전이 들어감", h1 !== (await docHashOf(hc, "2099.01")) && CONTRACT_VERSION.length > 0);
+ok("서명 해시: 직원이 고른 답이 바뀌면 달라짐", (await signedHashOf({ ...hc, docHash: h1 }, { mealChoice: "meal" })) !== (await signedHashOf({ ...hc, docHash: h1 }, { mealChoice: "lunch" })));
+ok("전화번호: 국제 형식·가리기", toE164("010-1234-5678") === "+821012345678" && toE164("+82 10 1234 5678") === "+821012345678" && toE164("821012345678") === "+821012345678" && toE164("") === "" && maskPhone("+821012345678") === "010-****-5678" && maskPhone("") === "");
+const sigh = buildDocHtml("consent", defaultsFor("consent", { emp, today: "2026-11-17" }), { autoPrint: false, sign: { img: "data:image/png;base64,AA", at: 0, name: "김효진", hash: h1, version: "2026.11", phone: "+821012345678" } });
+ok("서명본 하단: 해시 일부·문서 버전·문자 인증 번호(가림)", sigh.includes(h1.slice(0, 16)) && sigh.includes("문서 버전 2026.11") && sigh.includes("문자 인증 010-****-5678") && !sigh.includes("1012345678"));
 console.log(f ? `\n${f} FAILURES` : "\nALL PASS"); process.exit(f ? 1 : 0);

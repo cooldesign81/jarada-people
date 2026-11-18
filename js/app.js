@@ -8,7 +8,7 @@ import {
   query, where, limit, runTransaction, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import {
-  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, canManage, canApprove, can, esc, toast, errMsg,
+  $, LEVELS, ORG_LEVELS, STATUS, ORG_TYPES, state, isSuper, isHR, isAdmin, isMgr, isBranchScoped, assignableLevels, canEmpList, canEmpEdit, canManage, canApprove, can, esc, toast, errMsg,
   orgName, orgNames, badge, statusBadge, levelBadge, orgTypeBadge, branchTags, fmtDate, todayStr,
   tsMillis, toEmp, renderOrgChecks, readOrgChecks, syncRoles, audit
 } from "./core.js";
@@ -233,7 +233,7 @@ async function loadEmployees() {
 }
 
 // ---------- 내비게이션 ----------
-function allowedNav() { return NAV.filter((n) => n.levels.includes(state.role.level)); }
+function allowedNav() { return NAV.filter((n) => n.levels.includes(state.role.level) || (n.id === "employees" && canEmpList())); }   // 실장·팀장은 직원 등록·수정 또는 인사 평가 파일 권한을 받았을 때만 직원 목록을 본다
 
 function buildNav() {
   const nav = $("nav");
@@ -285,8 +285,8 @@ function route() {
   let navId = "";
   if (hash.startsWith("emp/")) {
     const id = decodeURIComponent(hash.slice(4));
-    if (canManage() || id === state.role.employeeId) {
-      navId = canManage() ? "employees" : "me";
+    if (canEmpList() || id === state.role.employeeId) {
+      navId = canManage() ? "employees" : (id === state.role.employeeId ? "me" : "employees");
       lockDocs();
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === navId));
       showView("Detail"); renderDetail(id);
@@ -414,7 +414,7 @@ function renderEmployees(keepPage) {
     : `<tbody><tr><td class="empty"><strong>직원이 없습니다</strong>${
         state.employees.length ? "검색 조건을 바꿔보세요." : "오른쪽 위 ‘직원 등록’으로 첫 직원을 등록하세요."
       }</td></tr></tbody>`;
-  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = (ev) => { if (ev.target.closest("input")) return; location.hash = "#emp/" + tr.dataset.id; }));
+  $("tblEmp").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = (ev) => { if (ev.target.closest("input")) return; if (!canManage() && !can("evalFiles")) return openEmp(tr.dataset.id); location.hash = "#emp/" + tr.dataset.id; }));   // 실장·팀장은 인사 평가 파일 권한이 없으면 바로 기본 정보 수정 창
   $("tblEmp").querySelectorAll("[data-sort]").forEach((th) => (th.onclick = () => {
     lv.sort = lv.sort.k === th.dataset.sort ? { k: th.dataset.sort, dir: -lv.sort.dir } : { k: th.dataset.sort, dir: 1 }; renderEmployees();
   }));
@@ -481,20 +481,20 @@ $("formEmp").addEventListener("input", () => { $("empErr").textContent = ""; });
 function openEmp(id) {
   const emp = id ? state.employees.find((e) => e.id === id) : null;
   if (id && !emp) return;
-  if (!canManage()) return;
+  if (!canEmpEdit()) return;
   if (!can("empWrite")) return toast("직원 정보를 수정할 권한이 없습니다. (관리 → 권한 설정에서 최고관리자가 정합니다)", true);
   state.editing = emp;
   const self   = !!emp && emp.id === state.role.employeeId;
-  const locked = !!emp && !isSuper() && (isAdmin() ? !ORG_LEVELS.includes(emp.level) : emp.level === "super"); // 본사 등급은 지점 관리자가, 최고관리자는 본사 인사가 수정할 수 없음
+  const locked = !!emp && !isSuper() && (isBranchScoped() ? !assignableLevels().includes(emp.level) : emp.level === "super"); // 본사 등급은 지점 관리자가, 최고관리자는 본사 인사가 수정할 수 없음
 
   $("dlgEmpTitle").textContent = emp ? (locked ? "직원 정보 (읽기 전용)" : "직원 정보 수정") : "직원 등록";
   $("dlgEmpId").textContent = emp ? emp.id : "사번은 자동으로 부여됩니다";
 
   const defOrgs = emp ? emp.orgIds
     : [state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (state.orgs.find((o) => o.active !== false)?.id || "")].filter(Boolean);
-  renderOrgChecks($("fOrgs"), { selected: defOrgs, disabled: isAdmin() || locked, onlyActive: !emp });
+  renderOrgChecks($("fOrgs"), { selected: defOrgs, disabled: isBranchScoped() || locked, onlyActive: !emp });
 
-  const levels = Object.entries(LEVELS).filter(([k]) => (k !== "edu" || emp?.level === "edu") && (isSuper() || (isHR() ? k !== "super" : ORG_LEVELS.includes(k))));
+  const levels = Object.entries(LEVELS).filter(([k]) => (k !== "edu" || emp?.level === "edu") && (isSuper() || (isHR() ? k !== "super" : assignableLevels().includes(k))));
   $("fLevel").innerHTML = levels.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
   // 본인 문서는 직원 문서에 등급이 비어 있어도 실제 권한(roles)을 보여주고 그대로 저장한다 (안 그러면 저장하다 내 권한이 낮아질 수 있음)
   $("fLevel").value = self && levels.some(([k]) => k === state.role.level) ? state.role.level : emp && levels.some(([k]) => k === emp.level) ? emp.level : "staff";
@@ -529,8 +529,8 @@ function validateEmp(d, emp) {
   if (!d.orgIds.length || !d.orgIds.every((id) => state.orgs.some((o) => o.id === id))) return "소속 지점을 하나 이상 선택하세요.";
   if (!LEVELS[d.level]) return "권한을 선택하세요.";
   if (!STATUS[d.status]) return "상태를 선택하세요.";
-  if (isAdmin() && (!d.orgIds.includes(state.role.orgId) || !ORG_LEVELS.includes(d.level)))
-    return "지점 관리자는 소속 지점 직원만, 사원·팀장·실장·부원장·원장 등급으로 등록할 수 있습니다.";
+  if (isBranchScoped() && (!d.orgIds.includes(state.role.orgId) || !assignableLevels().includes(d.level)))
+    return `${isAdmin() ? "지점 관리자" : LEVELS[state.role.level]}는 소속 지점 직원만, ${assignableLevels().map((k) => LEVELS[k]).join("·")} 등급으로 등록할 수 있습니다.`;
   if (!isSuper() && d.level === "super") return "최고관리자 권한은 최고관리자만 부여할 수 있습니다.";
   const dup = [...state.employees, ...state.trash].find((e) => e.email === d.email && e.id !== emp?.id);
   if (dup) return `이미 등록된 이메일입니다 (${dup.id} ${dup.name}).`;
@@ -557,7 +557,7 @@ $("formEmp").addEventListener("submit", async (ev) => {
   };
   // 소속 지점: 대표(첫 번째) 지점은 기존 값을 유지. 관리자는 지점을 바꿀 수 없음
   let ids = readOrgChecks($("fOrgs"));
-  if (isAdmin()) ids = emp ? emp.orgIds : [state.role.orgId];
+  if (isBranchScoped()) ids = emp ? emp.orgIds : [state.role.orgId];
   const primary = emp && ids.includes(emp.orgId) ? emp.orgId : ids[0];
   data.orgIds = primary ? [primary, ...ids.filter((x) => x !== primary)] : [];
   data.orgId = primary || "";
@@ -832,8 +832,8 @@ function parseBulk(text) {
     if (!pi.workStartDate && d.joinedAt && isSuper()) pi.workStartDate = d.joinedAt;
 
     if (d.level === "super" && !isSuper()) errors.push("최고관리자 권한은 최고관리자만 부여");
-    if (isAdmin() && d.level && !ORG_LEVELS.includes(d.level)) errors.push("지점 관리자는 사원·팀장·실장·부원장·원장 등급만 부여");
-    if (isAdmin() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
+    if (isBranchScoped() && d.level && !assignableLevels().includes(d.level)) errors.push(`${assignableLevels().map((k) => LEVELS[k]).join("·")} 등급만 부여할 수 있습니다`);
+    if (isBranchScoped() && d.orgIds.length && (d.orgIds.length !== 1 || d.orgIds[0] !== state.role.orgId))
       errors.push("관리자는 소속 조직 직원만 등록 가능");
     // 급여 열 (숫자 칸은 1,000,000 / 100만원처럼 쉼표·‘원’이 있어도 숫자만 뽑음)
     const comp = {};
@@ -909,11 +909,11 @@ function renderBulk() {
 }
 
 function openBulk() {
-  if (!canManage() || !can("empWrite")) return;
+  if (!canEmpEdit() || !can("empWrite")) return;
   const sel = $("bulkOrg");
   fillOrgSelect(sel, { onlyActive: true });
   sel.value = state.orgs.some((o) => o.id === state.role.orgId) ? state.role.orgId : (sel.options[0]?.value || "");
-  sel.disabled = isAdmin();
+  sel.disabled = isBranchScoped();
   $("bulkText").value = ""; $("bulkFile").value = "";
   $("bulkUpdate").checked = false; $("bulkUpdateWrap").classList.toggle("hidden", !isHR());
   bulk.rows = []; bulk.busy = false;

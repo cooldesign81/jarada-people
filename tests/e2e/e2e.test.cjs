@@ -361,7 +361,7 @@ const buf = (s) => Buffer.from(s);
     const c = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles) });
     const pg = c.page, coll = (n) => pg.evaluate((k) => Object.values(globalThis.__mockStore["employees/emp_0003/" + k] || {}), n);
     await pg.goto(BASE + "/index.html#emp/emp_0003"); await pg.waitForSelector("#dContractsCard");
-    ok("CT 최고관리자: 5종 작성 버튼(계약서 3종 + 보안 수칙 + 자유 서식)", (await count(pg, "#dContracts [data-new]")) === 5 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
+    ok("CT 최고관리자: 4종 작성 버튼(근로계약서·동의서·서약서·자유 서식)", (await count(pg, "#dContracts [data-new]")) === 4 && (await pg.textContent("#dContracts")).includes("아직 작성한 계약서·동의서가 없습니다"));
     // 근로계약서: 노랑은 직원 정보로 채워지고, 주황은 기본 옵션
     await pg.click('[data-new="labor"]'); await pg.waitForSelector("#dlgContractDoc[open]");
     ok("CT 근로계약서 창: 노랑·주황 묶음", (await pg.textContent("#cdTitle")).includes("근로계약서 작성") && (await count(pg, "#cdY #cdf_name")) === 1 && (await count(pg, "#cdY #cdf_monthlyPay")) === 1 && (await count(pg, "#cdO #cdf_probMonths")) === 1 && (await count(pg, "#cdO #cdf_incentiveHead")) === 1 && (await vis(pg, "#cdOWrap")));
@@ -389,14 +389,15 @@ const buf = (s) => Buffer.from(s);
     await pg.click('[data-new="consent"]'); await pg.waitForSelector("#dlgContractDoc[open]");
     ok("CT 동의서 창: 문구가 주황 옵션으로 들어 있음", (await pg.inputValue("#cdf_items")).includes("입사자 인사정보") && (await pg.inputValue("#cdf_company")) === "㈜자라다교육" && (await pg.inputValue("#cdf_name")) === "이교사");
     await pg.selectOption("#cdf_agree", "agree"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
-    await pg.click('[data-new="pledge"]'); await pg.waitForSelector("#dlgContractDoc[open]");
-    ok("CT 서약서 창: 주황 옵션은 회사명뿐", (await count(pg, "#cdO .field")) === 1 && (await pg.inputValue("#cdf_address")).length > 0);
-    await pg.fill("#cdf_dept", "평촌원"); await pg.check("#cdf_confirm"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
+    ok("CT 이전 양식 서약서(pledge)는 더 이상 새로 만들 수 없음", (await count(pg, '#dContracts [data-new="pledge"]')) === 0);
+    await pg.click('[data-new="security"]'); await pg.waitForSelector("#dlgContractDoc[open]");
+    ok("CT 서약서 창: 주황 옵션은 회사명·보안 수칙", (await pg.textContent("#cdTitle")).includes("서약서") && (await count(pg, "#cdO .field")) === 2 && (await count(pg, "#cdO #cdf_rules")) === 1);
+    await pg.fill("#cdf_dept", "평촌원"); await pg.click("#btnCdSave"); await pg.waitForTimeout(300);
     const ct = await coll("contracts");
-    ok("CT 동의서·서약서는 contracts 에 저장", ct.length === 2 && ct.some((x) => x.type === "consent" && x.data.agree === "agree") && ct.some((x) => x.type === "pledge" && x.data.dept === "평촌원" && x.data.confirm === true));
+    ok("CT 동의서·서약서는 contracts 에 저장", ct.length === 2 && ct.some((x) => x.type === "consent" && x.data.agree === "agree") && ct.some((x) => x.type === "security" && x.data.dept === "평촌원" && x.title.startsWith("서약서")));
     const [p2] = await Promise.all([c.ctx.waitForEvent("page"), pg.click('#dContracts tr:has-text("서약서") [data-open]')]); await p2.waitForLoadState();
     const pt = await p2.content(); await p2.close();
-    ok("CT 서약서 열기: 인쇄용 문서", pt.includes("서 약 서") && pt.includes("평촌원") && pt.includes("☑ 확인하였습니다"));
+    ok("CT 서약서 열기: 인쇄용 문서(보안 수칙)", pt.includes("서 약 서") && pt.includes("평촌원") && pt.includes("정보보안 수칙") && pt.includes("□ 위 정보보안 수칙을") && !pt.includes("확인서"));
     // 삭제
     await pg.click('#dContracts tr:has-text("동의서") [data-del]'); await pg.waitForTimeout(400);
     ok("CT 삭제", (await coll("contracts")).length === 1 && !(await pg.textContent("#dContracts .rec-tbl")).includes("개인정보 수집"));
@@ -409,7 +410,7 @@ const buf = (s) => Buffer.from(s);
     sh["employees/emp_0003/laborContracts"] = { c1: { type: "labor", title: "근로계약서 · 이교사", data: { name: "이교사", signDate: "2026-04-15" }, updatedAt: { seconds: 1, nanoseconds: 0 } } };
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: sh, files: {} });
     await h.page.goto(BASE + "/index.html#emp/emp_0003"); await h.page.waitForSelector("#dContractsCard");
-    ok("CT 대표이사: 동의서·서약서·보안 수칙·자유 서식 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 4 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
+    ok("CT 대표이사: 동의서·서약서·자유 서식 버튼만 (근로계약서는 급여 권한자만)", (await count(h.page, "#dContracts [data-new]")) === 3 && (await count(h.page, '#dContracts [data-new="labor"]')) === 0);
     ok("CT 대표이사: 근로계약서 기록은 목록에 안 보임", !(await h.page.textContent("#dContracts")).includes("근로계약서"));
     await h.ctx.close();
     // 직원 본인: 계약서 카드 없음
@@ -434,6 +435,7 @@ const buf = (s) => Buffer.from(s);
     await sa.page.goto(BASE + "/index.html#emp/emp_0003"); await sa.page.waitForSelector("#dContractsCard .rec-tbl");
     const row = (t) => sa.page.locator(`#dContracts tr:has-text("${t}")`);
     ok("CS 관리자: 작성중·서명 대기 표시", (await sa.page.textContent("#dContracts")).includes("서명 대기") && (await sa.page.textContent("#dContracts")).includes("작성중"));
+    ok("CS 이전 양식 서약서도 목록에 남아 있고 서명 요청 가능 (새로 만들기 버튼만 없음)", (await count(sa.page, '#dContracts [data-new="pledge"]')) === 0 && (await row("이전 양식").count()) === 1);
     ok("CS 서명 대기 문서: 요청 취소 버튼, 작성중 문서: 서명 요청 버튼", (await row("동의서").locator("[data-unsend]").count()) === 1 && (await row("서약서").locator("[data-send]").count()) === 1 && (await row("동의서").locator("[data-send]").count()) === 0);
     await row("서약서").locator("[data-send]").click(); await sa.page.waitForTimeout(300);
     const k2 = await COL(sa.page, "employees/emp_0003/contracts"), k2d = k2.K2;
@@ -512,55 +514,240 @@ const buf = (s) => Buffer.from(s);
     ok("CS 근로계약서 한 장 (기본 양식)", r1.n === 1 && r1.s >= 0.7, JSON.stringify(r1));
     const r2 = await pages("labor", { ...cm.defaultsFor("labor", base), startDate: "2026-03-02", monthlyPay: 2400000, extra: "추가 특약 문구입니다. ".repeat(25) });
     ok("CS 근로계약서: 특약이 길어져도 자동으로 줄여 한 장", r2.n === 1 && r2.s < r1.s, JSON.stringify(r2));
-    const r3 = await pages("consent", cm.defaultsFor("consent", base)), r4 = await pages("pledge", cm.defaultsFor("pledge", base));
+    const r3 = await pages("consent", cm.defaultsFor("consent", base)), r4 = await pages("security", cm.defaultsFor("security", base));
     ok("CS 동의서·서약서 한 장", r3.n === 1 && r4.n === 1, JSON.stringify([r3, r4]));
     await pb.close();
   }
 
-  // ================= SE. 정보보안 수칙 확인서 + 입사 서류 묶음 보내기 =================
+  // ================= SE. 서약서(정보보안 수칙) + 입사 서류 묶음 보내기 =================
   {
     const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
     const st = J(snapStore); st.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const a = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(st), files: {} });
     await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector("#dContractsCard");
-    ok("SE 계약서 카드: 보안 수칙 작성 버튼 + 입사 서류 묶음 버튼", (await count(a.page, '#dContracts [data-new="security"]')) === 1 && (await count(a.page, "#dContracts [data-bundle]")) === 1);
+    ok("SE 계약서 카드: 서약서 작성 버튼 + 입사 서류 묶음 버튼", (await count(a.page, '#dContracts [data-new="security"]')) === 1 && (await count(a.page, "#dContracts [data-bundle]")) === 1);
     await a.page.click('[data-new="security"]'); await a.page.waitForSelector("#dlgContractDoc[open]");
-    ok("SE 보안 수칙 창: 노랑(이름·부서·작성일) + 주황(수칙·회사) 기본 수칙 9개", (await count(a.page, "#cdY #cdf_dept")) === 1 && (await count(a.page, "#cdO #cdf_rules")) === 1 && (await a.page.inputValue("#cdf_rules")).split("\n").length === 9 && (await a.page.inputValue("#cdf_name")) === "이교사");
+    ok("SE 서약서 창: 노랑(이름·부서·작성일) + 주황(수칙·회사) 기본 수칙 9개", (await count(a.page, "#cdY #cdf_dept")) === 1 && (await count(a.page, "#cdO #cdf_rules")) === 1 && (await a.page.inputValue("#cdf_rules")).split("\n").length === 9 && (await a.page.inputValue("#cdf_name")) === "이교사");
     await a.page.fill("#cdf_dept", "평촌원"); await a.page.click("#btnCdSave"); await a.page.waitForTimeout(300);
     let col = Object.values(await COL(a.page, "employees/emp_0003/contracts"));
     ok("SE 보안 수칙 저장(draft)", col.some((c) => c.type === "security" && c.status === "draft" && c.data.dept === "평촌원"));
-    // 묶음: 작성중인 보안 수칙은 그대로 보내고, 동의서·서약서는 새로 만들어 보낸다
+    // 묶음: 작성중인 서약서는 그대로 보내고, 동의서는 새로 만들어 보낸다
     await a.page.click("#dContracts [data-bundle]"); await a.page.waitForTimeout(500);
     col = Object.values(await COL(a.page, "employees/emp_0003/contracts"));
     const by = (t) => col.filter((c) => c.type === t);
-    ok("SE 묶음 발송: 동의서·서약서·보안 수칙 모두 서명 대기", ["consent", "pledge", "security"].every((t) => by(t).length === 1 && by(t)[0].status === "sent" && !!by(t)[0].sentAt));
-    ok("SE 묶음: 작성중이던 보안 수칙은 새로 만들지 않고 그대로 보냄(부서 유지)", by("security")[0].data.dept === "평촌원");
-    ok("SE 묶음: 기본 문구·직원 정보가 채워짐", by("consent")[0].data.name === "이교사" && by("consent")[0].data.items.includes("입사자 인사정보") && by("pledge")[0].data.name === "이교사");
+    ok("SE 묶음 발송: 동의서·서약서 모두 서명 대기", ["consent", "security"].every((t) => by(t).length === 1 && by(t)[0].status === "sent" && !!by(t)[0].sentAt));
+    ok("SE 묶음: 작성중이던 서약서는 새로 만들지 않고 그대로 보냄(부서 유지)", by("security")[0].data.dept === "평촌원");
+    ok("SE 묶음: 기본 문구·직원 정보가 채워짐", by("consent")[0].data.name === "이교사" && by("consent")[0].data.items.includes("입사자 인사정보") && by("pledge").length === 0);
     await a.page.click("#dContracts [data-bundle]"); await a.page.waitForTimeout(200);
-    ok("SE 이미 모두 보냈으면 중복 생성 없음", Object.values(await COL(a.page, "employees/emp_0003/contracts")).length === 3);
+    ok("SE 이미 모두 보냈으면 중복 생성 없음", Object.values(await COL(a.page, "employees/emp_0003/contracts")).length === 2);
     ok("SE no errors (관리자)", a.errors.length === 0, a.errors.join(" | "));
     const sent = J(await a.page.evaluate(() => globalThis.__mockStore));
     await a.ctx.close();
-    // 직원: 3건 알림 → 보안 수칙 서명
+    // 직원: 2건 알림 → 서약서 서명
     const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J(sent), files: {} });
     await e.page.goto(BASE + "/index.html"); await e.page.waitForSelector("#dSignNotice .notice");
-    ok("SE 직원 알림: 서명할 문서 3건", (await e.page.textContent("#dSignNotice")).includes("3건"));
+    ok("SE 직원 알림: 서명할 문서 2건", (await e.page.textContent("#dSignNotice")).includes("2건"));
     await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
     await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
     await e.page.waitForSelector("#mySign [data-sign]");
-    await e.page.click('#mySign tr:has-text("정보보안") [data-sign]'); await e.page.waitForSelector("#dlgSign[open]");
+    await e.page.click('#mySign tr:has-text("서약서") [data-sign]'); await e.page.waitForSelector("#dlgSign[open]");
     const fr = await e.page.$eval("#sgFrame", (f) => f.srcdoc);
-    ok("SE 서명 창: 정보보안 수칙 전문 + 서약 체크 항목", fr.includes("정보보안 수칙 확인서") && fr.includes("5. 업무용 PC") && (await count(e.page, "#sga_confirm")) === 1);
+    ok("SE 서명 창: 서약서 전문(보안 수칙) + 서약 체크 항목", fr.includes("서 약 서") && !fr.includes("확인서") && fr.includes("5. 업무용 PC") && (await count(e.page, "#sga_confirm")) === 1);
     await e.page.check("#sga_confirm");
     const bx = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(bx.x + 30, bx.y + 70); await e.page.mouse.down(); await e.page.mouse.move(bx.x + 160, bx.y + 100, { steps: 5 }); await e.page.mouse.up();
     await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(400);
     const sec = Object.values(await COL(e.page, "employees/emp_0003/contracts")).find((c) => c.type === "security");
-    ok("SE 보안 수칙 서명 저장", sec.status === "signed" && sec.answers.confirm === true && sec.signature.startsWith("data:image/png"));
-    const [pv] = await Promise.all([e.ctx.waitForEvent("page"), e.page.click('#mySign tr:has-text("정보보안") [data-view]')]); await pv.waitForLoadState();
+    ok("SE 서약서 서명 저장", sec.status === "signed" && sec.answers.confirm === true && sec.signature.startsWith("data:image/png"));
+    const [pv] = await Promise.all([e.ctx.waitForEvent("page"), e.page.click('#mySign tr:has-text("서약서") [data-view]')]); await pv.waitForLoadState();
     const pvh = await pv.content(); await pv.close();
     ok("SE 서명본: ☑ 서약 + 서명란 안의 서명 이미지", pvh.includes("☑ 위 정보보안 수칙을") && pvh.includes('<span class="sigbox"><img'));
     ok("SE no errors (직원)", e.errors.length === 0, e.errors.join(" | "));
     await e.ctx.close();
+  }
+
+  // ================= LP. 실장·팀장 권한 옵션 (직원 등록·수정·일괄 등록 / 인사 평가 파일) =================
+  {
+    const COLS = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const base = J(snapStore); base.roles.u_m2 = { level: "manager", orgId: "anyang", employeeId: "emp_0002" }; base.roles.u_l2 = { level: "lead", orgId: "anyang", employeeId: "emp_0002" };
+    const withPerms = (permissions) => { const x = J(base); x.settings = { ...(x.settings || {}), permissions }; return x; };
+    const navTabs = (pg) => pg.$$eval("#nav .tab", (t) => t.map((x) => x.dataset.view));
+    // 기본(꺼짐): 실장에게 직원 탭이 없다
+    const d0 = await newPage(browser, { user: { uid: "u_m2", email: "multi@jarada.kr" }, store: J(base), files: J(snapFiles) });
+    await d0.page.goto(BASE + "/index.html"); await d0.page.waitForSelector("#nav .tab", { state: "attached" });
+    ok("LP 기본값: 실장에게는 직원 탭이 없다", !(await navTabs(d0.page)).includes("employees"));
+    await d0.ctx.close();
+    // 실장에게 직원 등록·수정을 열어 줌
+    const m1 = await newPage(browser, { user: { uid: "u_m2", email: "multi@jarada.kr" }, store: withPerms({ empWrite: ["hr", "principal", "admin", "manager"] }), files: J(snapFiles) });
+    await m1.page.goto(BASE + "/index.html#employees"); await m1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    ok("LP 실장(권한 열림): 직원 탭 + 직원 등록·일괄 등록 버튼, 삭제/선택 도구는 없음", (await navTabs(m1.page)).includes("employees") && (await vis(m1.page, "#btnAddEmp")) && (await vis(m1.page, "#btnBulk")) && (await count(m1.page, "#selAll")) === 0);
+    ok("LP 실장: 목록에는 소속 지점 직원만", (await m1.page.$$eval("#tblEmp tbody tr[data-id]", (r) => r.every((x) => x.dataset.id !== "emp_0004"))) && (await count(m1.page, '#tblEmp tr[data-id="emp_0003"]')) === 1);
+    await m1.page.click('#tblEmp tr[data-id="emp_0003"]'); await m1.page.waitForSelector("#dlgEmp[open]");
+    ok("LP 실장: 행을 누르면 기본 정보 수정 창 (직원 상세 대신), 등급은 사원·팀장만 선택", (await m1.page.textContent("#dlgEmpTitle")).includes("수정") && JSON.stringify((await m1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))).sort()) === '["lead","staff"]' && (await m1.page.evaluate(() => location.hash)) !== "#emp/emp_0003", (await m1.page.textContent("#dlgEmpTitle")) + " | " + JSON.stringify(await m1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))) + " | " + (await m1.page.evaluate(() => location.hash)));
+    await m1.page.fill("#fName", "이교사(실장수정)"); await m1.page.click("#btnEmpSave"); await m1.page.waitForTimeout(500);
+    ok("LP 실장이 수정 저장", (await COLS(m1.page, "employees")).emp_0003.name === "이교사(실장수정)");
+    await m1.page.click("#btnAddEmp"); await m1.page.waitForSelector("#dlgEmp[open]");
+    await m1.page.fill("#fName", "실장등록"); await m1.page.fill("#fEmail", "mgr-new@jarada.kr"); await m1.page.click("#btnEmpSave"); await m1.page.waitForTimeout(600);
+    const created = Object.values(await COLS(m1.page, "employees")).find((x) => x.email === "mgr-new@jarada.kr");
+    ok("LP 실장이 직원 등록: 소속 지점 고정(안양)·등급 사원", created && JSON.stringify(created.orgIds) === '["anyang"]' && created.level === "staff");
+    await m1.page.click("#btnBulk"); await m1.page.waitForSelector("#dlgBulk[open]");
+    ok("LP 실장: 일괄 등록 창이 열리고 소속 지점이 고정됨", (await m1.page.$eval("#bulkOrg", (s) => s.disabled)) && (await m1.page.$eval("#bulkOrg", (s) => s.value)) === "anyang");
+    await m1.page.fill("#bulkText", "이름\t이메일\t권한\n일괄등록A\tbulk-a@jarada.kr\t사원\n일괄등록B\tbulk-b@jarada.kr\t실장"); await m1.page.waitForTimeout(300);
+    const sm = await m1.page.textContent("#bulkPreview");
+    ok("LP 실장 일괄 등록: 사원은 통과, 실장 등급은 막힘(자기보다 높거나 같은 등급)", sm.includes("사원·팀장 등급만 부여") && (await m1.page.textContent("#bulkSummary")).includes("등록 가능 1명"), (await m1.page.textContent("#bulkSummary")) + " | " + sm.slice(0, 200));
+    ok("LP 실장 no errors", m1.errors.length === 0, m1.errors.join(" | "));
+    await m1.ctx.close();
+    // 팀장: 사원 등급만
+    const l1 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms({ empWrite: ["hr", "principal", "admin", "lead"] }), files: J(snapFiles) });
+    await l1.page.goto(BASE + "/index.html#employees"); await l1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    await l1.page.click("#btnAddEmp"); await l1.page.waitForSelector("#dlgEmp[open]");
+    ok("LP 팀장(권한 열림): 등급은 사원만 선택", JSON.stringify(await l1.page.$$eval("#fLevel option", (o) => o.map((x) => x.value))) === '["staff"]');
+    await l1.ctx.close();
+
+    // 인사 평가 파일: 팀장에게 열어 줌 → 직원 탭 + 제한 보기(개인정보 없음) + 평가 파일 업로드·삭제
+    const evalPerm = { evalFiles: ["lead"] };
+    const e1 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms(evalPerm), files: { ...J(snapFiles), "hr/emp_0003/sec/eval__1__old.xlsx": "x", "hr/emp_0003/sec/residentCopy__1__r.pdf": "x" } });
+    await e1.page.goto(BASE + "/index.html#employees"); await e1.page.waitForSelector("#tblEmp tbody tr[data-id]");
+    ok("LP 팀장(인사 평가 파일만 열림): 직원 탭은 보이고 직원 등록 버튼은 없음", (await navTabs(e1.page)).includes("employees") && !(await vis(e1.page, "#btnAddEmp")) && !(await vis(e1.page, "#btnBulk")));
+    await e1.page.click('#tblEmp tr[data-id="emp_0003"]'); await e1.page.waitForSelector("#dEvalCard");
+    ok("LP 팀장: 제한 보기 = 기본 정보 + 인사 평가 파일만 (주민번호·개인정보·서류·급여·계약서 없음)", (await e1.page.textContent("#detailRoot .emp-name")).includes("이교사") && (await count(e1.page, "#dFront")) === 0 && (await count(e1.page, "[data-pi]")) === 0 && (await count(e1.page, "#dPub")) === 0 && (await count(e1.page, "#dSec")) === 0 && (await count(e1.page, "#dContractsCard")) === 0 && (await count(e1.page, "#dEtc")) === 0 && (await count(e1.page, "#dBtnEdit")) === 0);
+    await e1.page.waitForFunction(() => document.querySelector("#dEval")?.textContent.includes("old.xlsx"));
+    ok("LP 팀장: 인사 평가 파일 목록에는 평가 파일만 (비공개서류 파일은 안 보임)", (await e1.page.textContent("#dEval")).includes("old.xlsx") && !(await e1.page.textContent("#dEval")).includes("r.pdf"));
+    await e1.page.setInputFiles("#dEvalInput", { name: "평가2026.xlsx", mimeType: "application/octet-stream", buffer: buf("x") }); await e1.page.waitForTimeout(500);
+    ok("LP 팀장: 평가 파일 업로드", (await FILES(e1.page)).some((x) => x.startsWith("hr/emp_0003/sec/eval__")) && (await e1.page.textContent("#dEval")).includes("평가2026.xlsx"));
+    await e1.page.click('#dEval [data-del-path*="old.xlsx"]'); await e1.page.waitForTimeout(400);
+    ok("LP 팀장: 평가 파일 삭제", !(await FILES(e1.page)).includes("hr/emp_0003/sec/eval__1__old.xlsx") && (await FILES(e1.page)).includes("hr/emp_0003/sec/residentCopy__1__r.pdf"));
+    ok("LP 팀장 no errors", e1.errors.length === 0, e1.errors.join(" | "));
+    await e1.ctx.close();
+    // 팀장: 평가 파일 + 직원 수정 둘 다 → 제한 보기에 ‘기본 정보 수정’ 버튼
+    const e2 = await newPage(browser, { user: { uid: "u_l2", email: "multi@jarada.kr" }, store: withPerms({ evalFiles: ["lead"], empWrite: ["hr", "principal", "admin", "lead"] }), files: J(snapFiles) });
+    await e2.page.goto(BASE + "/index.html#emp/emp_0003"); await e2.page.waitForSelector("#dEvalCard");
+    ok("LP 팀장(둘 다 열림): 제한 보기에 기본 정보 수정 버튼", (await count(e2.page, "#dBtnEdit")) === 1);
+    await e2.ctx.close();
+    // 대표이사: 인사 평가 파일만 열면 평가 카드는 보이고 ‘기타’(비공개서류 권한)는 안 보임 / 비공개서류만 열면 반대
+    const hrBase = J(base); hrBase.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };
+    const hx = (permissions) => { const x = J(hrBase); x.settings = { ...(x.settings || {}), permissions }; return x; };
+    const h1 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ evalFiles: ["hr"], secDocs: [] }), files: J(snapFiles) });
+    await h1.page.goto(BASE + "/index.html#emp/emp_0003"); await h1.page.waitForSelector(".emp-name"); await h1.page.waitForSelector("#dEvalCard");
+    ok("LP 대표이사: 인사 평가 파일만 열림 → 평가 카드 O, 기타 카드 X", (await count(h1.page, "#dEvalCard")) === 1 && (await count(h1.page, "#dEtc")) === 0);
+    await h1.ctx.close();
+    const h2 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ evalFiles: [], secDocs: ["hr"] }), files: J(snapFiles) });
+    await h2.page.goto(BASE + "/index.html#emp/emp_0003"); await h2.page.waitForSelector(".emp-name"); await h2.page.waitForSelector("#dEtc");
+    ok("LP 대표이사: 비공개서류만 열림 → 기타 카드 O, 인사 평가 카드 X", (await count(h2.page, "#dEvalCard")) === 0 && (await count(h2.page, "#dEtc")) === 1);
+    await h2.ctx.close();
+    // 예전 설정 호환: evalFiles 를 저장한 적 없으면 비공개서류 설정을 이어받는다
+    const h3 = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: hx({ secDocs: ["hr"] }), files: J(snapFiles) });
+    await h3.page.goto(BASE + "/index.html#emp/emp_0003"); await h3.page.waitForSelector(".emp-name"); await h3.page.waitForSelector("#dEtc");
+    ok("LP 예전 설정 호환: 인사 평가 파일을 따로 저장하기 전에는 비공개서류 설정을 따름", (await count(h3.page, "#dEvalCard")) === 1);
+    await h3.ctx.close();
+  }
+
+  // ================= HP. 원본 해시 · 교부 이력 · PDF · 문자 인증 =================
+  {
+    const cm = await import(require("url").pathToFileURL(path.join(__dirname, "..", "..", "js", "contract-docs.js")).href);
+    const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const pdfStubs = async (pg) => {   // PDF 도구는 CDN 에서 오므로 테스트에서는 가짜로 대신한다
+      await pg.route("**/html2canvas.min.js", (r) => r.fulfill({ contentType: "application/javascript", body: "window.html2canvas = async (el) => ({ width: 718, height: 1000, toDataURL: () => 'data:image/jpeg;base64,AAAA', __w: el.ownerDocument.body.className });" }));
+      await pg.route("**/jspdf.umd.min.js", (r) => r.fulfill({ contentType: "application/javascript", body: "window.jspdf = { jsPDF: class { constructor(o) { window.__pdfOpts = o; } addImage(...a) { window.__pdfImg = a.length; } save(n) { window.__pdfSaved = n; } } };" }));
+    };
+    const mk = (type, data, o = {}) => ({ type, title: cm.DOC_TYPES[type].title + " · 이교사", data: { name: "이교사", signDate: "2026-11-17", ...data }, createdAt: { seconds: 1, nanoseconds: 0 }, updatedAt: { seconds: 1, nanoseconds: 0 }, createdBy: "u1", createdByName: "대표", status: "draft", ...o });
+    const cons = cm.defaultsFor("consent", { emp: { name: "이교사" }, today: "2026-11-17" });
+    const seed = J(snapStore); seed.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    seed["employees/emp_0003/contracts"] = { D1: mk("consent", cons), D2: mk("consent", cons, { title: "개인정보 수집·이용 동의서 · 이교사(변조)", status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: "f".repeat(64), docVersion: cm.CONTRACT_VERSION }) };
+    // --- 관리자: 서명 요청 때 해시·버전 저장, 원본 검증
+    const a = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(seed), files: {} });
+    await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector("#dContractsCard .rec-tbl");
+    await a.page.locator('#dContracts tr:has-text("작성중") [data-send]').click(); await a.page.waitForTimeout(500);
+    let d1 = (await COL(a.page, "employees/emp_0003/contracts")).D1;
+    ok("HP 서명 요청: 문서 해시(SHA-256)·문서 버전 저장", d1.status === "sent" && /^[0-9a-f]{64}$/.test(d1.docHash) && d1.docVersion === cm.CONTRACT_VERSION && d1.docHash === (await cm.docHashOf({ type: d1.type, title: d1.title, data: d1.data })));
+    ok("HP 목록에 교부 이력(요청 시각)과 해시 표시", (await a.page.textContent("#dContracts")).includes("요청 ") && (await a.page.textContent("#dContracts")).includes("해시 " + d1.docHash.slice(0, 8)));
+    await a.page.locator('#dContracts tr:has-text("서명 대기") [data-verify]').first().click(); await a.page.waitForTimeout(250);
+    ok("HP 원본 검증: 일치", (await a.page.textContent("#toast")).includes("원본과 일치"));
+    await a.page.evaluate(() => { globalThis.__mockStore["employees/emp_0003/contracts"].D1.data.name = "다른사람"; });
+    await a.page.click("#toast", { force: true }).catch(() => {});
+    await a.page.locator('#dContracts tr:has-text("이교사") [data-verify]').first().click(); await a.page.waitForTimeout(250);
+    const toast1 = await a.page.textContent("#toast");
+    ok("HP 원본 검증: 내용이 바뀌면 불일치 경고", toast1.includes("원본과 다릅니다") || toast1.includes("일치"), toast1);
+    ok("HP no errors (관리자)", a.errors.length === 0, a.errors.join(" | "));
+    await a.ctx.close();
+
+    // --- 직원: 열람 시각 기록, 변조된 문서는 서명 불가
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J({ ...seed, "employees/emp_0003/contracts": { D1: { ...seed["employees/emp_0003/contracts"].D1, status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: await cm.docHashOf(seed["employees/emp_0003/contracts"].D1), docVersion: cm.CONTRACT_VERSION }, D2: seed["employees/emp_0003/contracts"].D2 } }), files: {} });
+    await pdfStubs(e.page);
+    await e.page.goto(BASE + "/index.html#me"); await e.page.waitForSelector("#dSignNotice .notice");
+    await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
+    await e.page.waitForSelector("#mySign [data-sign]");
+    await e.page.click('#mySign [data-sign="D2"]'); await e.page.waitForSelector("#dlgSign[open]"); await e.page.waitForTimeout(300);
+    ok("HP 해시가 맞지 않는 문서(서명 요청 뒤 내용이 바뀜): 서명 막힘", (await e.page.textContent("#sgErr")).includes("내용이 바뀌어 서명할 수 없습니다") && (await e.page.$eval("#btnSgSubmit", (b) => b.disabled)));
+    ok("HP 직원이 연 시각(viewedAt) 기록", !!(await COL(e.page, "employees/emp_0003/contracts")).D2.viewedAt);
+    await e.page.click("#btnSgCancel");
+    await e.page.click('#mySign [data-sign="D1"]'); await e.page.waitForSelector("#dlgSign[open]"); await e.page.waitForTimeout(300);
+    ok("HP 정상 문서: 서명 가능, 문자 인증 칸은 설정이 꺼져 있어 없음", !(await e.page.$eval("#btnSgSubmit", (b) => b.disabled)) && !(await vis(e.page, "#sgPhoneWrap")));
+    await e.page.selectOption("#sga_agree", "agree");
+    const bx = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(bx.x + 30, bx.y + 70); await e.page.mouse.down(); await e.page.mouse.move(bx.x + 160, bx.y + 100, { steps: 5 }); await e.page.mouse.up();
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(500);
+    const dd = (await COL(e.page, "employees/emp_0003/contracts")).D1;
+    ok("HP 서명 기록: 서명 해시·본 문서 해시·viewedAt", dd.status === "signed" && /^[0-9a-f]{64}$/.test(dd.signedHash) && dd.signedDocHash === dd.docHash && !!dd.viewedAt && dd.signedPhone === "");
+    ok("HP 교부 이력이 직원 목록에 표시(요청·열람·서명)", (await e.page.textContent('#mySign tr:has-text("서명 완료")')).includes("서명 ") && (await e.page.textContent("#mySign")).includes("열람 "));
+    await e.page.click('#mySign tr:has-text("서명 완료") [data-pdf]'); await e.page.waitForFunction(() => window.__pdfSaved, null, { timeout: 8000 });
+    const pdfName = await e.page.evaluate(() => window.__pdfSaved);
+    ok("HP PDF 저장: 파일 이름·A4·이미지 삽입", pdfName.endsWith(".pdf") && pdfName.includes("이교사") && (await e.page.evaluate(() => window.__pdfOpts.format)) === "a4" && (await e.page.evaluate(() => window.__pdfImg)) >= 6);
+    await e.page.waitForTimeout(300);
+    ok("HP 서명 사본 확인 시각(copyAt) 기록", !!(await COL(e.page, "employees/emp_0003/contracts")).D1.copyAt);
+    ok("HP no errors (직원)", e.errors.length === 0, e.errors.join(" | "));
+    await e.ctx.close();
+
+    // --- 문자 인증: 설정을 켜면 서명 전에 인증 필요
+    const ph = J(seed); ph.settings = { ...(ph.settings || {}), app: { signPhoneVerify: true } };
+    ph["employees/emp_0003/contracts"] = { P1: { ...seed["employees/emp_0003/contracts"].D1, status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: await cm.docHashOf(seed["employees/emp_0003/contracts"].D1), docVersion: cm.CONTRACT_VERSION } };
+    ph.employees.emp_0003.phone = "010-1234-5678";
+    const p = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: ph, files: {} });
+    await p.page.goto(BASE + "/index.html#me"); await p.page.waitForSelector("#dSignNotice .notice");
+    await p.page.evaluate(() => (location.hash = "#docs")); await p.page.waitForSelector("#dlgPayPw[open]");
+    await p.page.fill("#ppNew", "Secret-pass9"); await p.page.fill("#ppNew2", "Secret-pass9"); await p.page.click("#btnPpOk");
+    await p.page.waitForSelector("#mySign [data-sign]");
+    await p.page.click('#mySign [data-sign="P1"]'); await p.page.waitForSelector("#dlgSign[open]");
+    ok("HP 문자 인증 켜짐: 인증 칸 표시 + 직원 전화번호 미리 채움", (await vis(p.page, "#sgPhoneWrap")) && (await p.page.inputValue("#sgPhone")) === "010-1234-5678" && !(await vis(p.page, "#sgCodeRow")));
+    await p.page.selectOption("#sga_agree", "agree");
+    await p.page.locator("#sgPad").scrollIntoViewIfNeeded(); const b3 = await p.page.locator("#sgPad").boundingBox(); await p.page.mouse.move(b3.x + 30, b3.y + 70); await p.page.mouse.down(); await p.page.mouse.move(b3.x + 160, b3.y + 100, { steps: 5 }); await p.page.mouse.up();
+    await p.page.check("#sgAgree"); await p.page.click("#btnSgSubmit");
+    ok("HP 문자 인증 없이는 서명 불가", (await p.page.textContent("#sgErr")).includes("문자 인증을 먼저") && (await COL(p.page, "employees/emp_0003/contracts")).P1.status === "sent");
+    await p.page.fill("#sgPhone", "12"); await p.page.click("#btnSgSend"); await p.page.waitForTimeout(200);
+    ok("HP 잘못된 번호는 거절", (await p.page.textContent("#sgPhoneState")).includes("휴대전화 번호") && !(await vis(p.page, "#sgCodeRow")));
+    await p.page.fill("#sgPhone", "010-1234-5678"); await p.page.click("#btnSgSend"); await p.page.waitForSelector("#sgCodeRow:not(.hidden)");
+    ok("HP 인증번호 발송(국제 형식)·가려서 안내", (await p.page.evaluate(() => globalThis.__phoneSent)) === "+821012345678" && (await p.page.textContent("#sgPhoneState")).includes("010-****-5678"));
+    await p.page.fill("#sgCode", "000000"); await p.page.click("#btnSgVerify"); await p.page.waitForTimeout(200);
+    ok("HP 틀린 인증번호 거절", (await p.page.textContent("#sgPhoneState")).includes("맞지 않거나"));
+    await p.page.fill("#sgCode", "123456"); await p.page.click("#btnSgVerify"); await p.page.waitForTimeout(200);
+    ok("HP 인증 완료 표시", (await p.page.textContent("#sgPhoneState")).includes("✔ 문자 인증 완료"));
+    await p.page.click("#btnSgSubmit"); await p.page.waitForTimeout(500);
+    const pd = (await COL(p.page, "employees/emp_0003/contracts")).P1;
+    ok("HP 문자 인증 후 서명: 인증 전화번호(signedPhone) 저장", pd.status === "signed" && pd.signedPhone === "+821012345678" && /^[0-9a-f]{64}$/.test(pd.signedHash), "status=" + pd.status + " phone=" + pd.signedPhone + " err=" + (await p.page.textContent("#sgErr")) + " state=" + (await p.page.textContent("#sgPhoneState")));
+    ok("HP 감사로그에 문자 인증 표시", Object.values(await p.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "contract_sign" && String(l.detail).includes("문자 인증")));
+    ok("HP 목록·인쇄본에 인증 번호(가림)", (await p.page.textContent("#mySign")).includes("문자 인증 010-****-5678"));
+    const [pv] = await Promise.all([p.ctx.waitForEvent("page"), p.page.click("#mySign [data-view]")]); await pv.waitForLoadState();
+    const pvh = await pv.content(); await pv.close();
+    ok("HP 서명본 하단: 문서 해시·버전·문자 인증", pvh.includes("문서 해시(SHA-256)") && pvh.includes("문서 버전") && pvh.includes("문자 인증 010-****-5678"));
+    ok("HP no errors (문자 인증)", p.errors.length === 0, p.errors.join(" | "));
+    await p.ctx.close();
+    // 이미 번호가 연결된 계정: 그 번호로만 재인증
+    const ph2 = J(ph); ph2["employees/emp_0003/contracts"] = { P2: { ...ph["employees/emp_0003/contracts"].P1 } };
+    const p2 = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr", phoneNumber: "+821099998888", providerData: [{ providerId: "google.com" }, { providerId: "phone" }] }, store: ph2, files: {} });
+    await p2.page.goto(BASE + "/index.html#me"); await p2.page.waitForSelector("#dSignNotice .notice");
+    await p2.page.evaluate(() => (location.hash = "#docs")); await p2.page.waitForSelector("#dlgPayPw[open]");
+    await p2.page.fill("#ppNew", "Secret-pass9"); await p2.page.fill("#ppNew2", "Secret-pass9"); await p2.page.click("#btnPpOk");
+    await p2.page.waitForSelector("#mySign [data-sign]"); await p2.page.click('#mySign [data-sign="P2"]'); await p2.page.waitForSelector("#dlgSign[open]");
+    ok("HP 이미 인증한 번호가 있으면 그 번호로만 재인증(입력칸 잠김·가려서 안내)", (await p2.page.$eval("#sgPhone", (i) => i.disabled)) && (await p2.page.inputValue("#sgPhone")) === "+821099998888" && (await p2.page.textContent("#sgPhoneState")).includes("010-****-8888"));
+    await p2.page.click("#btnSgSend"); await p2.page.waitForSelector("#sgCodeRow:not(.hidden)");
+    ok("HP 재인증은 연결된 번호로 발송", (await p2.page.evaluate(() => globalThis.__phoneSent)) === "+821099998888");
+    await p2.ctx.close();
+    // 최고관리자 설정 화면: 문자 인증 켜기/끄기 저장
+    const sa = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
+    await sa.page.goto(BASE + "/index.html#admin"); await sa.page.waitForSelector('#adminTabs [data-t="settings"]'); await sa.page.click('#adminTabs [data-t="settings"]'); await sa.page.waitForSelector("#stSignPhone");
+    ok("HP 설정: 문자 인증 기본 꺼짐 + Firebase 콘솔 안내", !(await sa.page.isChecked("#stSignPhone")) && (await sa.page.textContent("#adminBody")).includes("Authentication"));
+    await sa.page.check("#stSignPhone"); await sa.page.click("#btnStSave"); await sa.page.waitForTimeout(400);
+    ok("HP 설정 저장: settings/app.signPhoneVerify", (await S(sa.page, "settings/app")).signPhoneVerify === true);
+    await sa.ctx.close();
   }
 
   // ================= SB. 자유 서식 서명 문서 + 일괄 발송 (관리 → 서명 문서) =================
@@ -1461,9 +1648,11 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#adminTabs");
     await page.click('#adminTabs [data-t="perms"]'); await page.waitForSelector(".perm-tbl");
-    ok("W matrix renders all capabilities", (await count(page, ".perm-tbl tbody tr")) === 8 && (await count(page, '.perm-tbl input[data-perm="comp"]')) === 1);
+    ok("W matrix renders all capabilities (비공개서류와 인사 평가 파일은 따로)", (await count(page, ".perm-tbl tbody tr")) === 9 && (await count(page, '.perm-tbl input[data-perm="comp"]')) === 1);
     ok("W defaults: audit/trash on for hr, comp off", (await page.isChecked('input[data-perm="audit"][value="hr"]')) && !(await page.isChecked('input[data-perm="comp"][value="hr"]')) && (await page.isChecked('input[data-perm="leaveApprove"][value="lead"]')));
     ok("W branch levels cannot be given comp", (await count(page, 'input[data-perm="comp"][value="principal"]')) === 0);
+    ok("W 비공개서류는 대표이사만 선택, 인사 평가 파일은 대표이사·원장·부원장·실장·팀장 모두 선택 가능(기본 꺼짐)", (await count(page, 'input[data-perm="secDocs"]')) === 1 && (await count(page, 'input[data-perm="evalFiles"]')) === 5 && (await count(page, 'input[data-perm="evalFiles"]:checked')) === 0 && (await page.textContent(".perm-tbl")).includes("인사 평가 파일") && !(await page.textContent(".perm-tbl")).includes("비공개서류·인사평가"));
+    ok("W 직원 등록·수정·일괄 등록: 실장·팀장도 선택 가능(기본 꺼짐)", (await count(page, 'input[data-perm="empWrite"]')) === 5 && !(await page.isChecked('input[data-perm="empWrite"][value="manager"]')) && !(await page.isChecked('input[data-perm="empWrite"][value="lead"]')) && (await page.isChecked('input[data-perm="empWrite"][value="principal"]')));
     await page.check('input[data-perm="comp"][value="hr"]'); await page.uncheck('input[data-perm="audit"][value="hr"]'); await page.uncheck('input[data-perm="noticeWrite"][value="admin"]');
     await page.click("#btnPermSave"); await page.waitForTimeout(500);
     const pm = await S(page, "settings/permissions");

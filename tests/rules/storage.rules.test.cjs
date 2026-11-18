@@ -88,6 +88,34 @@ const S = (uid) => env.authenticatedContext(uid, CL[uid]).storage();
   await t("secDocs on: hr deletes sec file", true, () => hrSec.ref("hr/emp_0003/sec/eval__9__e.xlsx").delete());
   await t("secDocs on: branch admin still denied", false, () => adm.ref("hr/emp_0003/sec").listAll());
 
+  // 인사 평가 파일(eval): ‘비공개서류’와 따로 열어 준다. 대표이사(evalHr) · 원장/부원장/실장/팀장(evalLv, 소속 지점 직원만)
+  await env.withSecurityRulesDisabled(async (c) => { for (const p of ["hr/emp_0003/sec/eval__20__x.xlsx", "hr/emp_0003/sec/eval__21__y.xlsx", "hr/emp_0003/sec/residentCopy__20__r.pdf"]) await c.storage().ref(p).put(new Uint8Array([1, 2, 3])); });
+  const EV = "hr/emp_0003/sec/eval__20__x.xlsx", SEC = "hr/emp_0003/sec/residentCopy__20__r.pdf";
+  const as = (lvl, org, extra) => env.authenticatedContext("u_" + lvl + org, { lvl, org, eid: "emp_z", emp_emp_0003: ["anyang", "banpo"], emp_emp_0005: ["anyang"], ...extra }).storage();
+  const mgrOn = as("manager", "anyang", { evalLv: true }), leadOn = as("lead", "banpo", { evalLv: true }), admOn = as("admin", "banpo", { evalLv: true }), prOn = as("principal", "anyang", { evalLv: true });
+  const mgrOff = as("manager", "anyang", {}), mgrOtherOrg = as("manager", "daechi", { evalLv: true }), hrEval = env.authenticatedContext("u_hr", { lvl: "hr", org: "hq", eid: "emp_h", evalHr: true }).storage();
+  await t("eval off: manager cannot list/read eval", false, () => mgrOff.ref(EV).getDownloadURL());
+  await t("eval off: manager cannot list sec", false, () => mgrOff.ref("hr/emp_0003/sec").listAll());
+  await t("eval on: manager (same org) lists sec folder", true, () => mgrOn.ref("hr/emp_0003/sec").listAll());
+  await t("eval on: manager reads eval file", true, () => mgrOn.ref(EV).getDownloadURL());
+  await t("eval on: manager CANNOT read 비공개서류", false, () => mgrOn.ref(SEC).getDownloadURL());
+  await t("eval on: manager uploads eval", true, () => put(mgrOn, "hr/emp_0003/sec/eval__22__n.xlsx"));
+  await t("eval on: manager CANNOT upload 비공개서류 or etc", false, () => put(mgrOn, "hr/emp_0003/sec/residentCopy__22__n.pdf"));
+  await t("eval on: manager CANNOT upload etc", false, () => put(mgrOn, "hr/emp_0003/sec/etc__22__n.png"));
+  await t("eval on: manager CANNOT delete 비공개서류", false, () => mgrOn.ref(SEC).delete());
+  await t("eval on: manager deletes eval", true, () => mgrOn.ref("hr/emp_0003/sec/eval__22__n.xlsx").delete());
+  await t("eval on: team lead (own org) reads eval", true, () => leadOn.ref(EV).getDownloadURL());
+  await t("eval on: branch admin reads eval", true, () => admOn.ref(EV).getDownloadURL());
+  await t("eval on: principal reads eval", true, () => prOn.ref(EV).getDownloadURL());
+  await t("eval on: manager of another org denied", false, () => mgrOtherOrg.ref(EV).getDownloadURL());
+  await t("eval on: manager of another org cannot upload", false, () => put(mgrOtherOrg, "hr/emp_0003/sec/eval__23__n.xlsx"));
+  await t("eval on: manager cannot read eval of employee outside own org", false, () => as("manager", "banpo", { evalLv: true }).ref("hr/emp_0005/sec/eval__1__z.xlsx").getDownloadURL());
+  await t("eval on: staff never", false, () => as("staff", "anyang", { evalLv: true }).ref(EV).getDownloadURL());
+  await t("eval hr: reads/lists/uploads eval without 비공개서류", true, async () => { await hrEval.ref(EV).getDownloadURL(); await hrEval.ref("hr/emp_0003/sec").listAll(); await put(hrEval, "hr/emp_0003/sec/eval__24__n.xlsx"); });
+  await t("eval hr: CANNOT read 비공개서류", false, () => hrEval.ref(SEC).getDownloadURL());
+  await t("eval hr: CANNOT upload 비공개서류", false, () => put(hrEval, "hr/emp_0003/sec/bankbookCopy__24__n.pdf"));
+  await t("비공개서류만 켠 대표이사도 평가 파일을 이어받음(예전 설정 호환 — 규칙은 secAllowed 로 허용)", true, () => hrSec.ref(EV).getDownloadURL());
+
   // 급여·인센티브 명세서 (hr/{사번}/pay/)
   const PAY = "hr/emp_0003/pay/salary__2026-10__5__a.pdf";
   const putAs = (st, p, type = "application/pdf", size = 3) => st.ref(p).put(new Uint8Array(size), { contentType: type });
