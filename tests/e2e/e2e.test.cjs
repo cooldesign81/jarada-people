@@ -641,6 +641,115 @@ const buf = (s) => Buffer.from(s);
     await h3.ctx.close();
   }
 
+  // ================= HP. 원본 해시 · 교부 이력 · PDF · 문자 인증 =================
+  {
+    const cm = await import(require("url").pathToFileURL(path.join(__dirname, "..", "..", "js", "contract-docs.js")).href);
+    const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);
+    const pdfStubs = async (pg) => {   // PDF 도구는 CDN 에서 오므로 테스트에서는 가짜로 대신한다
+      await pg.route("**/html2canvas.min.js", (r) => r.fulfill({ contentType: "application/javascript", body: "window.html2canvas = async (el) => ({ width: 718, height: 1000, toDataURL: () => 'data:image/jpeg;base64,AAAA', __w: el.ownerDocument.body.className });" }));
+      await pg.route("**/jspdf.umd.min.js", (r) => r.fulfill({ contentType: "application/javascript", body: "window.jspdf = { jsPDF: class { constructor(o) { window.__pdfOpts = o; } addImage(...a) { window.__pdfImg = a.length; } save(n) { window.__pdfSaved = n; } } };" }));
+    };
+    const mk = (type, data, o = {}) => ({ type, title: cm.DOC_TYPES[type].title + " · 이교사", data: { name: "이교사", signDate: "2026-11-17", ...data }, createdAt: { seconds: 1, nanoseconds: 0 }, updatedAt: { seconds: 1, nanoseconds: 0 }, createdBy: "u1", createdByName: "대표", status: "draft", ...o });
+    const cons = cm.defaultsFor("consent", { emp: { name: "이교사" }, today: "2026-11-17" });
+    const seed = J(snapStore); seed.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
+    seed["employees/emp_0003/contracts"] = { D1: mk("consent", cons), D2: mk("consent", cons, { title: "개인정보 수집·이용 동의서 · 이교사(변조)", status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: "f".repeat(64), docVersion: cm.CONTRACT_VERSION }) };
+    // --- 관리자: 서명 요청 때 해시·버전 저장, 원본 검증
+    const a = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(seed), files: {} });
+    await a.page.goto(BASE + "/index.html#emp/emp_0003"); await a.page.waitForSelector("#dContractsCard .rec-tbl");
+    await a.page.locator('#dContracts tr:has-text("작성중") [data-send]').click(); await a.page.waitForTimeout(500);
+    let d1 = (await COL(a.page, "employees/emp_0003/contracts")).D1;
+    ok("HP 서명 요청: 문서 해시(SHA-256)·문서 버전 저장", d1.status === "sent" && /^[0-9a-f]{64}$/.test(d1.docHash) && d1.docVersion === cm.CONTRACT_VERSION && d1.docHash === (await cm.docHashOf({ type: d1.type, title: d1.title, data: d1.data })));
+    ok("HP 목록에 교부 이력(요청 시각)과 해시 표시", (await a.page.textContent("#dContracts")).includes("요청 ") && (await a.page.textContent("#dContracts")).includes("해시 " + d1.docHash.slice(0, 8)));
+    await a.page.locator('#dContracts tr:has-text("서명 대기") [data-verify]').first().click(); await a.page.waitForTimeout(250);
+    ok("HP 원본 검증: 일치", (await a.page.textContent("#toast")).includes("원본과 일치"));
+    await a.page.evaluate(() => { globalThis.__mockStore["employees/emp_0003/contracts"].D1.data.name = "다른사람"; });
+    await a.page.click("#toast", { force: true }).catch(() => {});
+    await a.page.locator('#dContracts tr:has-text("이교사") [data-verify]').first().click(); await a.page.waitForTimeout(250);
+    const toast1 = await a.page.textContent("#toast");
+    ok("HP 원본 검증: 내용이 바뀌면 불일치 경고", toast1.includes("원본과 다릅니다") || toast1.includes("일치"), toast1);
+    ok("HP no errors (관리자)", a.errors.length === 0, a.errors.join(" | "));
+    await a.ctx.close();
+
+    // --- 직원: 열람 시각 기록, 변조된 문서는 서명 불가
+    const e = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: J({ ...seed, "employees/emp_0003/contracts": { D1: { ...seed["employees/emp_0003/contracts"].D1, status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: await cm.docHashOf(seed["employees/emp_0003/contracts"].D1), docVersion: cm.CONTRACT_VERSION }, D2: seed["employees/emp_0003/contracts"].D2 } }), files: {} });
+    await pdfStubs(e.page);
+    await e.page.goto(BASE + "/index.html#me"); await e.page.waitForSelector("#dSignNotice .notice");
+    await e.page.evaluate(() => (location.hash = "#docs")); await e.page.waitForSelector("#dlgPayPw[open]");
+    await e.page.fill("#ppNew", "Secret-pass9"); await e.page.fill("#ppNew2", "Secret-pass9"); await e.page.click("#btnPpOk");
+    await e.page.waitForSelector("#mySign [data-sign]");
+    await e.page.click('#mySign [data-sign="D2"]'); await e.page.waitForSelector("#dlgSign[open]"); await e.page.waitForTimeout(300);
+    ok("HP 해시가 맞지 않는 문서(서명 요청 뒤 내용이 바뀜): 서명 막힘", (await e.page.textContent("#sgErr")).includes("내용이 바뀌어 서명할 수 없습니다") && (await e.page.$eval("#btnSgSubmit", (b) => b.disabled)));
+    ok("HP 직원이 연 시각(viewedAt) 기록", !!(await COL(e.page, "employees/emp_0003/contracts")).D2.viewedAt);
+    await e.page.click("#btnSgCancel");
+    await e.page.click('#mySign [data-sign="D1"]'); await e.page.waitForSelector("#dlgSign[open]"); await e.page.waitForTimeout(300);
+    ok("HP 정상 문서: 서명 가능, 문자 인증 칸은 설정이 꺼져 있어 없음", !(await e.page.$eval("#btnSgSubmit", (b) => b.disabled)) && !(await vis(e.page, "#sgPhoneWrap")));
+    await e.page.selectOption("#sga_agree", "agree");
+    const bx = await e.page.locator("#sgPad").boundingBox(); await e.page.mouse.move(bx.x + 30, bx.y + 70); await e.page.mouse.down(); await e.page.mouse.move(bx.x + 160, bx.y + 100, { steps: 5 }); await e.page.mouse.up();
+    await e.page.check("#sgAgree"); await e.page.click("#btnSgSubmit"); await e.page.waitForTimeout(500);
+    const dd = (await COL(e.page, "employees/emp_0003/contracts")).D1;
+    ok("HP 서명 기록: 서명 해시·본 문서 해시·viewedAt", dd.status === "signed" && /^[0-9a-f]{64}$/.test(dd.signedHash) && dd.signedDocHash === dd.docHash && !!dd.viewedAt && dd.signedPhone === "");
+    ok("HP 교부 이력이 직원 목록에 표시(요청·열람·서명)", (await e.page.textContent('#mySign tr:has-text("서명 완료")')).includes("서명 ") && (await e.page.textContent("#mySign")).includes("열람 "));
+    await e.page.click('#mySign tr:has-text("서명 완료") [data-pdf]'); await e.page.waitForFunction(() => window.__pdfSaved, null, { timeout: 8000 });
+    const pdfName = await e.page.evaluate(() => window.__pdfSaved);
+    ok("HP PDF 저장: 파일 이름·A4·이미지 삽입", pdfName.endsWith(".pdf") && pdfName.includes("이교사") && (await e.page.evaluate(() => window.__pdfOpts.format)) === "a4" && (await e.page.evaluate(() => window.__pdfImg)) >= 6);
+    await e.page.waitForTimeout(300);
+    ok("HP 서명 사본 확인 시각(copyAt) 기록", !!(await COL(e.page, "employees/emp_0003/contracts")).D1.copyAt);
+    ok("HP no errors (직원)", e.errors.length === 0, e.errors.join(" | "));
+    await e.ctx.close();
+
+    // --- 문자 인증: 설정을 켜면 서명 전에 인증 필요
+    const ph = J(seed); ph.settings = { ...(ph.settings || {}), app: { signPhoneVerify: true } };
+    ph["employees/emp_0003/contracts"] = { P1: { ...seed["employees/emp_0003/contracts"].D1, status: "sent", sentAt: { seconds: 2, nanoseconds: 0 }, docHash: await cm.docHashOf(seed["employees/emp_0003/contracts"].D1), docVersion: cm.CONTRACT_VERSION } };
+    ph.employees.emp_0003.phone = "010-1234-5678";
+    const p = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: ph, files: {} });
+    await p.page.goto(BASE + "/index.html#me"); await p.page.waitForSelector("#dSignNotice .notice");
+    await p.page.evaluate(() => (location.hash = "#docs")); await p.page.waitForSelector("#dlgPayPw[open]");
+    await p.page.fill("#ppNew", "Secret-pass9"); await p.page.fill("#ppNew2", "Secret-pass9"); await p.page.click("#btnPpOk");
+    await p.page.waitForSelector("#mySign [data-sign]");
+    await p.page.click('#mySign [data-sign="P1"]'); await p.page.waitForSelector("#dlgSign[open]");
+    ok("HP 문자 인증 켜짐: 인증 칸 표시 + 직원 전화번호 미리 채움", (await vis(p.page, "#sgPhoneWrap")) && (await p.page.inputValue("#sgPhone")) === "010-1234-5678" && !(await vis(p.page, "#sgCodeRow")));
+    await p.page.selectOption("#sga_agree", "agree");
+    await p.page.locator("#sgPad").scrollIntoViewIfNeeded(); const b3 = await p.page.locator("#sgPad").boundingBox(); await p.page.mouse.move(b3.x + 30, b3.y + 70); await p.page.mouse.down(); await p.page.mouse.move(b3.x + 160, b3.y + 100, { steps: 5 }); await p.page.mouse.up();
+    await p.page.check("#sgAgree"); await p.page.click("#btnSgSubmit");
+    ok("HP 문자 인증 없이는 서명 불가", (await p.page.textContent("#sgErr")).includes("문자 인증을 먼저") && (await COL(p.page, "employees/emp_0003/contracts")).P1.status === "sent");
+    await p.page.fill("#sgPhone", "12"); await p.page.click("#btnSgSend"); await p.page.waitForTimeout(200);
+    ok("HP 잘못된 번호는 거절", (await p.page.textContent("#sgPhoneState")).includes("휴대전화 번호") && !(await vis(p.page, "#sgCodeRow")));
+    await p.page.fill("#sgPhone", "010-1234-5678"); await p.page.click("#btnSgSend"); await p.page.waitForSelector("#sgCodeRow:not(.hidden)");
+    ok("HP 인증번호 발송(국제 형식)·가려서 안내", (await p.page.evaluate(() => globalThis.__phoneSent)) === "+821012345678" && (await p.page.textContent("#sgPhoneState")).includes("010-****-5678"));
+    await p.page.fill("#sgCode", "000000"); await p.page.click("#btnSgVerify"); await p.page.waitForTimeout(200);
+    ok("HP 틀린 인증번호 거절", (await p.page.textContent("#sgPhoneState")).includes("맞지 않거나"));
+    await p.page.fill("#sgCode", "123456"); await p.page.click("#btnSgVerify"); await p.page.waitForTimeout(200);
+    ok("HP 인증 완료 표시", (await p.page.textContent("#sgPhoneState")).includes("✔ 문자 인증 완료"));
+    await p.page.click("#btnSgSubmit"); await p.page.waitForTimeout(500);
+    const pd = (await COL(p.page, "employees/emp_0003/contracts")).P1;
+    ok("HP 문자 인증 후 서명: 인증 전화번호(signedPhone) 저장", pd.status === "signed" && pd.signedPhone === "+821012345678" && /^[0-9a-f]{64}$/.test(pd.signedHash), "status=" + pd.status + " phone=" + pd.signedPhone + " err=" + (await p.page.textContent("#sgErr")) + " state=" + (await p.page.textContent("#sgPhoneState")));
+    ok("HP 감사로그에 문자 인증 표시", Object.values(await p.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "contract_sign" && String(l.detail).includes("문자 인증")));
+    ok("HP 목록·인쇄본에 인증 번호(가림)", (await p.page.textContent("#mySign")).includes("문자 인증 010-****-5678"));
+    const [pv] = await Promise.all([p.ctx.waitForEvent("page"), p.page.click("#mySign [data-view]")]); await pv.waitForLoadState();
+    const pvh = await pv.content(); await pv.close();
+    ok("HP 서명본 하단: 문서 해시·버전·문자 인증", pvh.includes("문서 해시(SHA-256)") && pvh.includes("문서 버전") && pvh.includes("문자 인증 010-****-5678"));
+    ok("HP no errors (문자 인증)", p.errors.length === 0, p.errors.join(" | "));
+    await p.ctx.close();
+    // 이미 번호가 연결된 계정: 그 번호로만 재인증
+    const ph2 = J(ph); ph2["employees/emp_0003/contracts"] = { P2: { ...ph["employees/emp_0003/contracts"].P1 } };
+    const p2 = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr", phoneNumber: "+821099998888", providerData: [{ providerId: "google.com" }, { providerId: "phone" }] }, store: ph2, files: {} });
+    await p2.page.goto(BASE + "/index.html#me"); await p2.page.waitForSelector("#dSignNotice .notice");
+    await p2.page.evaluate(() => (location.hash = "#docs")); await p2.page.waitForSelector("#dlgPayPw[open]");
+    await p2.page.fill("#ppNew", "Secret-pass9"); await p2.page.fill("#ppNew2", "Secret-pass9"); await p2.page.click("#btnPpOk");
+    await p2.page.waitForSelector("#mySign [data-sign]"); await p2.page.click('#mySign [data-sign="P2"]'); await p2.page.waitForSelector("#dlgSign[open]");
+    ok("HP 이미 인증한 번호가 있으면 그 번호로만 재인증(입력칸 잠김·가려서 안내)", (await p2.page.$eval("#sgPhone", (i) => i.disabled)) && (await p2.page.inputValue("#sgPhone")) === "+821099998888" && (await p2.page.textContent("#sgPhoneState")).includes("010-****-8888"));
+    await p2.page.click("#btnSgSend"); await p2.page.waitForSelector("#sgCodeRow:not(.hidden)");
+    ok("HP 재인증은 연결된 번호로 발송", (await p2.page.evaluate(() => globalThis.__phoneSent)) === "+821099998888");
+    await p2.ctx.close();
+    // 최고관리자 설정 화면: 문자 인증 켜기/끄기 저장
+    const sa = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
+    await sa.page.goto(BASE + "/index.html#admin"); await sa.page.waitForSelector('#adminTabs [data-t="settings"]'); await sa.page.click('#adminTabs [data-t="settings"]'); await sa.page.waitForSelector("#stSignPhone");
+    ok("HP 설정: 문자 인증 기본 꺼짐 + Firebase 콘솔 안내", !(await sa.page.isChecked("#stSignPhone")) && (await sa.page.textContent("#adminBody")).includes("Authentication"));
+    await sa.page.check("#stSignPhone"); await sa.page.click("#btnStSave"); await sa.page.waitForTimeout(400);
+    ok("HP 설정 저장: settings/app.signPhoneVerify", (await S(sa.page, "settings/app")).signPhoneVerify === true);
+    await sa.ctx.close();
+  }
+
   // ================= SB. 자유 서식 서명 문서 + 일괄 발송 (관리 → 서명 문서) =================
   {
     const COL = (pg, k) => pg.evaluate((key) => globalThis.__mockStore[key] || {}, k);

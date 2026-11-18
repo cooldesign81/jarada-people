@@ -309,13 +309,17 @@ function renderSettings(body) {
       <p>주민등록번호는 암호화해서 보관하는 것이 원칙입니다. 이 앱은 암호화 없이 저장하므로, 뒷자리를 더 이상 받지 않으려면 아래를 끄세요. 끄면 직원 화면에서 뒷자리 입력칸이 사라지고, 보안 규칙도 새 저장을 막습니다.</p>
       <label class="chk"><input type="checkbox" id="stRrnBack" ${s.rrnBackEnabled === false ? "" : "checked"}> 주민등록번호 뒷자리를 저장한다</label>
       <div style="margin-top:12px"><button class="btn btn-danger" id="btnRrnPurge">저장된 뒷자리 모두 삭제</button> <span class="sub">되돌릴 수 없습니다. 먼저 백업이 필요하면 직원별로 확인하세요.</span></div></div>
+    <div class="card"><h2>계약서 전자서명 — 문자 인증</h2>
+      <p>켜면 직원이 계약서·동의서에 서명하기 전에 <b>본인 휴대전화로 문자 인증</b>을 해야 합니다. 인증한 전화번호와 시각이 서명 기록에 남고, 보안 규칙도 인증된 번호가 있는 계정만 서명을 허용합니다. 처음 한 번 인증한 번호는 계정에 연결되어, 로그인할 때마다 문자를 받지 않고 서명할 때만 다시 인증합니다.</p>
+      <label class="chk"><input type="checkbox" id="stSignPhone" ${s.signPhoneVerify === true ? "checked" : ""}> 서명 전에 문자 인증을 요구한다</label>
+      <div class="notice" style="margin-top:10px">켜기 전에 <b>Firebase 콘솔 → Authentication → 로그인 방법 → 전화</b>를 사용 설정하고, 문자 발송 요금(Blaze 요금제 등)과 한국 발송 지역·승인된 도메인을 확인하세요. 문자 인증은 휴대전화 보유 확인이며 법적 실명확인이 아닙니다.</div></div>
     <div class="card"><h2>필수 서류</h2><p>‘현황 점검’에서 제출 여부를 확인할 서류입니다.</p>
       <div class="chk-group">${[...PUBLIC_DOCS, ...SECRET_DOCS].map((d) => `<label class="chk"><input type="checkbox" name="stReq" value="${d.key}" ${(s.requiredDocs || DEFAULT_REQUIRED_DOCS).includes(d.key) ? "checked" : ""}> ${esc(d.label)}</label>`).join("")}</div></div>
     <button class="btn btn-primary" id="btnStSave">설정 저장</button>`;
   $("btnStSave").onclick = async () => {
     const days = Number($("stLinkDays").value);
     if (!(days >= 1 && days <= 365)) return toast("유효 기간은 1~365일입니다.", true);
-    const data = { linkDays: Math.round(days), rrnBackEnabled: $("stRrnBack").checked, requiredDocs: [...body.querySelectorAll("input[name=stReq]:checked")].map((x) => x.value), updatedAt: serverTimestamp() };
+    const data = { linkDays: Math.round(days), rrnBackEnabled: $("stRrnBack").checked, signPhoneVerify: $("stSignPhone").checked, requiredDocs: [...body.querySelectorAll("input[name=stReq]:checked")].map((x) => x.value), updatedAt: serverTimestamp() };
     try { await setDoc(doc(db, "settings", "app"), data, { merge: true }); Object.assign(state.settings, data); audit("settings_change", { detail: `링크 ${data.linkDays}일 · 뒷자리 ${data.rrnBackEnabled ? "수집" : "수집 안 함"}` }); toast("저장했습니다"); }
     catch (e) { console.error(e); toast(errMsg(e), true); }
   };

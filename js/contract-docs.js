@@ -13,6 +13,35 @@ export const DOC_TYPES = {
   security:{ title: "서약서",                      coll: "contracts" },   // 보안 규칙(개인정보·계정·기기·촬영물·반출 금지 …)을 읽고 준수를 서약
   custom:  { title: "서명 문서(자유 서식)",        coll: "contracts" },   // 제목·본문을 직접 쓰는 확인서·동의서 (취업규칙 확인, 교육 이수 확인 …). 여러 직원에게 일괄 발송 가능
 };
+// ---------- 문서 원본 해시 · 버전 ----------
+// 서명 요청을 보낼 때 문서(종류·제목·내용)의 SHA-256 해시를 함께 저장한다. 서명 뒤에 내용이 바뀌었는지 언제든 다시 계산해 맞춰 볼 수 있다.
+export const CONTRACT_VERSION = "2026.11";   // 문구·양식이 바뀌면 올린다 (기록에 함께 남는다)
+export function canonicalJson(v) {
+  if (Array.isArray(v)) return "[" + v.map(canonicalJson).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonicalJson(v[k])).join(",") + "}";
+  return JSON.stringify(v ?? null);
+}
+export async function sha256Hex(text) {
+  const buf = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+export const docHashOf = (c, version = CONTRACT_VERSION) => sha256Hex(canonicalJson({ v: version, type: c.type, title: c.title || "", data: c.data || {} }));
+// 서명한 사람이 본 내용 + 직접 고른 답의 해시
+export const signedHashOf = (c, answers) => sha256Hex(canonicalJson({ docHash: c.docHash || "", type: c.type, data: c.data || {}, answers: answers || {} }));
+// 전화번호 가리기 (+821012345678 → 010-****-5678)
+export function maskPhone(p) {
+  const d = String(p || "").replace(/\D/g, "").replace(/^82/, "0");
+  return d.length >= 10 ? `${d.slice(0, 3)}-****-${d.slice(-4)}` : "";
+}
+// 입력한 전화번호 → 국제 형식 (010-1234-5678 → +821012345678)
+export function toE164(s) {
+  const raw = String(s || "").trim(), d = raw.replace(/\D/g, "");
+  if (raw.startsWith("+")) return "+" + d;
+  if (d.startsWith("82")) return "+" + d;
+  if (d.startsWith("0")) return "+82" + d.slice(1);
+  return d ? "+82" + d : "";
+}
+
 // 문서의 이름 (자유 서식은 직접 쓴 제목)
 export const docTitle = (c) => (c?.type === "custom" ? (c.data?.title || DOC_TYPES.custom.title) : DOC_TYPES[c?.type]?.title || c?.type || "문서");
 
@@ -152,7 +181,7 @@ const wrap = (title, body, { autoPrint = true, fit = false, scale = 1 } = {}) =>
 // 전자서명 이미지(직원이 온라인에서 서명한 경우) — 없으면 (인) 표시
 const sigSpan = (sg) => `<span class="sigbox">${sg?.img ? `<img src="${esc(sg.img)}" alt="서명">` : "(서명 또는 인)"}</span>`;
 const fmtAt = (ms) => { if (!ms) return ""; const d = new Date(ms), z = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}.${z(d.getMonth() + 1)}.${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
-const esig = (sg) => (sg?.img ? `<div class="esig">전자서명 완료 · ${esc(fmtAt(sg.at))} · ${esc(sg.name || "")} (본인 계정으로 로그인하여 서명)</div>` : "");
+const esig = (sg) => (sg?.img ? `<div class="esig">전자서명 완료 · ${esc(fmtAt(sg.at))} · ${esc(sg.name || "")} (본인 계정으로 로그인하여 서명)${sg.phone ? ` · 문자 인증 ${esc(maskPhone(sg.phone))}` : ""}${sg.hash ? `<br>문서 해시(SHA-256) ${esc(sg.hash.slice(0, 16))}…${esc(sg.hash.slice(-8))}${sg.version ? ` · 문서 버전 ${esc(sg.version)}` : ""}` : ""}</div>` : "");
 
 function laborBody(v, sg) {
   const info = COMPANY_INFO[v.company], stamp = info ? STAMP_IMAGES[info.stampKey] : "";
@@ -300,7 +329,7 @@ export function signAnswerFields(type, v = {}) {
 }
 // 저장된 문서 + 직원이 서명할 때 답한 값 → 인쇄용 값
 export const signedValues = (c) => ({ ...(c?.data || {}), ...(c?.answers || {}) });
-export const signMeta = (c, ms) => (c?.signature ? { img: c.signature, at: ms, name: c.data?.name || "" } : null);
+export const signMeta = (c, ms) => (c?.signature ? { img: c.signature, at: ms, name: c.data?.name || "", hash: c.docHash || "", version: c.docVersion || "", phone: c.signedPhone || "" } : null);
 
 // 필수(노랑) 칸이 비어 있으면 알려 준다
 export function missingRequired(type, v) {

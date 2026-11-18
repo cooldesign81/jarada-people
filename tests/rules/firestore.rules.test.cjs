@@ -593,13 +593,14 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("contract: hr cannot delete 근로계약서", false, () => hr.doc("employees/emp_0003/laborContracts/c1").delete());
   await t("contract: super deletes 근로계약서", true, () => sup.doc("employees/emp_0003/laborContracts/c1").delete());
   // ---- 전자서명: 서명 요청(sent) → 직원 본인(구글 계정)이 서명(signed)
+  const H = "a".repeat(64), H2 = "b".repeat(64);
   const PNG = "data:image/png;base64," + "iVBORw0KGgo".repeat(40);
-  const SG = (o = {}) => ({ status: "signed", signature: PNG, signedAt: TS(), signedBy: "u_staff", answers: { mealChoice: "meal" }, ...o });
+  const SG = (o = {}) => ({ status: "signed", signature: PNG, signedAt: TS(), signedBy: "u_staff", answers: { mealChoice: "meal" }, signedHash: H2, signedDocHash: H, ...o });
   await sup.doc("employees/emp_0003/laborContracts/L1").set(CT("labor", { status: "draft" }));
-  await t("sign: manager creates with status sent", true, () => sup.doc("employees/emp_0003/laborContracts/L2").set(CT("labor", { status: "sent", sentAt: TS() })));
+  await t("sign: manager creates with status sent", true, () => sup.doc("employees/emp_0003/laborContracts/L2").set(CT("labor", { status: "sent", sentAt: TS(), docHash: H })));
   await t("sign: manager cannot create already-signed", false, () => sup.doc("employees/emp_0003/laborContracts/L3").set(CT("labor", { status: "signed" })));
   await t("sign: manager cannot write a signature", false, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ signature: PNG, status: "sent", updatedAt: TS() }));
-  await t("sign: manager sends draft (status → sent)", true, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ status: "sent", sentAt: TS(), updatedAt: TS() }));
+  await t("sign: manager sends draft (status → sent)", true, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ status: "sent", sentAt: TS(), docHash: H, updatedAt: TS() }));
   await t("sign: manager can cancel request (sent → draft)", true, () => sup.doc("employees/emp_0003/laborContracts/L1").update({ status: "draft", updatedAt: TS() }));
   await t("sign: employee cannot read a draft", false, () => stf.doc("employees/emp_0003/laborContracts/L1").get());
   await t("sign: employee lists only sent docs (query status==sent)", true, () => stf.collection("employees/emp_0003/laborContracts").where("status", "==", "sent").get());
@@ -621,14 +622,14 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("sign: hr (no comp) cannot delete signed", false, () => hr.doc("employees/emp_0003/laborContracts/L2").delete());
   await t("sign: super can delete signed", true, () => sup.doc("employees/emp_0003/laborContracts/L2").delete());
   // 동의서·서약서도 같은 방식 (관리자 = 대표이사·소속 지점 원장)
-  await hr.doc("employees/emp_0003/contracts/K1").set(CT("consent", { title: "동의서 · 이교사", status: "sent", sentAt: TS() }));
+  await hr.doc("employees/emp_0003/contracts/K1").set(CT("consent", { title: "동의서 · 이교사", status: "sent", sentAt: TS(), docHash: H }));
   await env.withSecurityRulesDisabled((c) => c.firestore().doc("roles/u_staff2").set({ level: "staff", orgId: "anyang", employeeId: "emp_0005" }));
   await t("sign: other employee's account cannot read my sent doc", false, () => as("u_staff2").doc("employees/emp_0003/contracts/K1").get());
   await t("sign: employee signs consent with agree", true, () => stf.doc("employees/emp_0003/contracts/K1").update(SG({ answers: { agree: "agree" } })));
   await t("sign: signed consent: hr cannot delete", false, () => hr.doc("employees/emp_0003/contracts/K1").delete());
   await t("sign: signed consent: branch admin cannot edit", false, () => adm.doc("employees/emp_0003/contracts/K1").update({ title: "x", updatedAt: TS() }));
   // ---- 자유 서식 서명 문서(custom) + 일괄 발송 기록(signBatches)
-  const CU = (o = {}, d = {}) => CT("custom", { title: "취업규칙 확인 · 이교사", data: { name: "이교사", title: "취업규칙 확인 및 동의서", body: "본문", mode: "confirm" , ...d }, status: "sent", sentAt: TS(), batchId: "B1", ...o });
+  const CU = (o = {}, d = {}) => CT("custom", { title: "취업규칙 확인 · 이교사", data: { name: "이교사", title: "취업규칙 확인 및 동의서", body: "본문", mode: "confirm" , ...d }, status: "sent", sentAt: TS(), docHash: H, batchId: "B1", ...o });
   await t("custom: hr sends a custom doc (status sent, batchId)", true, () => hr.doc("employees/emp_0003/contracts/C1").set(CU()));
   await t("custom: branch admin (same org) sends a custom doc", true, () => adm.doc("employees/emp_0003/contracts/C2").set(CU()));
   await t("custom: branch admin of another org cannot", false, () => adm2.doc("employees/emp_0003/contracts/C3").set(CU()));
@@ -641,17 +642,49 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("custom: employee signs a custom doc (confirm)", true, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
   await t("custom: employee cannot sign it twice", false, () => stf.doc("employees/emp_0003/contracts/C1").update(SG({ answers: { confirm: true } })));
   await t("custom: employee cannot move it to another batch", false, () => stf.doc("employees/emp_0003/contracts/C2").update(SG({ answers: { confirm: true }, batchId: "B9" })));
-  const SEC = (o = {}, d = {}) => CT("security", { title: "정보보안 수칙 확인서 · 이교사", data: { name: "이교사", rules: "1. 보안", ...d }, status: "sent", sentAt: TS(), ...o });
+  const SEC = (o = {}, d = {}) => CT("security", { title: "정보보안 수칙 확인서 · 이교사", data: { name: "이교사", rules: "1. 보안", ...d }, status: "sent", sentAt: TS(), docHash: H, ...o });
   await t("security: hr sends 보안 수칙 확인서", true, () => hr.doc("employees/emp_0003/contracts/S1").set(SEC()));
   await t("security: rules text over 5000 rejected", false, () => hr.doc("employees/emp_0003/contracts/S2").set(SEC({}, { rules: "가".repeat(5001) })));
   await t("security: not allowed in laborContracts", false, () => sup.doc("employees/emp_0003/laborContracts/S2").set(SEC()));
   await t("security: employee signs with confirm", true, () => stf.doc("employees/emp_0003/contracts/S1").update(SG({ answers: { confirm: true } })));
   await t("security: signed one cannot be edited by hr", false, () => hr.doc("employees/emp_0003/contracts/S1").update({ title: "x", updatedAt: TS() }));
   await t("pledge(이전 양식): hr can no longer create", false, () => hr.doc("employees/emp_0003/contracts/P9").set(CT("pledge")));
-  await env.withSecurityRulesDisabled((c) => c.firestore().doc("employees/emp_0003/contracts/P8").set(CT("pledge", { status: "sent", sentAt: TS() })));
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("employees/emp_0003/contracts/P8").set(CT("pledge", { status: "sent", sentAt: TS(), docHash: H })));
   await t("pledge(이전 양식): existing doc can still be signed by the employee", true, () => stf.doc("employees/emp_0003/contracts/P8").update(SG({ answers: { confirm: true } })));
   await t("pledge(이전 양식): signed one is read-only for hr", false, () => hr.doc("employees/emp_0003/contracts/P8").update({ title: "x", updatedAt: TS() }));
   await t("pledge(이전 양식): super can still delete", true, () => sup.doc("employees/emp_0003/contracts/P8").delete());
+  // ---- 원본 해시 · 교부 이력 · 문자 인증
+  await t("hash: sent doc without docHash rejected", false, () => hr.doc("employees/emp_0003/contracts/H1").set(CT("consent", { status: "sent", sentAt: TS() })));
+  await t("hash: docHash must be 64 hex chars", false, () => hr.doc("employees/emp_0003/contracts/H1").set(CT("consent", { status: "sent", sentAt: TS(), docHash: "zz" })));
+  await t("hash: draft may have no docHash", true, () => hr.doc("employees/emp_0003/contracts/H2").set(CT("consent", { status: "draft" })));
+  await t("hash: manager sends draft with docHash + docVersion", true, () => hr.doc("employees/emp_0003/contracts/H2").update({ status: "sent", sentAt: TS(), docHash: H, docVersion: "2026.11", updatedAt: TS() }));
+  await t("hash: manager cannot send without docHash", false, () => hr.doc("employees/emp_0003/contracts/H3").set(CT("consent", { status: "draft" })).then(() => hr.doc("employees/emp_0003/contracts/H3").update({ status: "sent", sentAt: TS(), updatedAt: TS() })));
+  await t("view: employee records first-open time (viewedAt)", true, () => stf.doc("employees/emp_0003/contracts/H2").update({ viewedAt: TS() }));
+  await t("view: cannot overwrite viewedAt", false, () => stf.doc("employees/emp_0003/contracts/H2").update({ viewedAt: TS() }));
+  await t("view: employee cannot backdate viewedAt", false, async () => { await hr.doc("employees/emp_0003/contracts/H4").set(CT("consent", { status: "sent", sentAt: TS(), docHash: H })); return stf.doc("employees/emp_0003/contracts/H4").update({ viewedAt: firebase.firestore.Timestamp.fromDate(new Date("2020-01-01")) }); });
+  await t("view: viewedAt update cannot carry other fields", false, () => stf.doc("employees/emp_0003/contracts/H4").update({ viewedAt: TS(), title: "x" }));
+  await t("view: manager cannot forge viewedAt", false, () => hr.doc("employees/emp_0003/contracts/H4").update({ viewedAt: TS(), updatedAt: TS() }));
+  await t("view: manager edit keeps employee's viewedAt", true, () => hr.doc("employees/emp_0003/contracts/H2").update({ title: "동의서 · 이교사 (수정)", status: "draft", updatedAt: TS() }));
+  await t("view: manager may clear viewedAt when resending a revised doc", true, () => hr.doc("employees/emp_0003/contracts/H2").update({ viewedAt: firebase.firestore.FieldValue.delete(), status: "sent", sentAt: TS(), docHash: H2, updatedAt: TS() }));
+  await t("sign: signedDocHash must equal the doc's docHash", false, () => stf.doc("employees/emp_0003/contracts/H2").update(SG({ answers: { agree: "agree" }, signedDocHash: H })));
+  await t("sign: signedHash required (64 hex)", false, () => stf.doc("employees/emp_0003/contracts/H2").update(SG({ answers: { agree: "agree" }, signedDocHash: H2, signedHash: "short" })));
+  await t("sign: employee signs with matching hashes", true, () => stf.doc("employees/emp_0003/contracts/H2").update(SG({ answers: { agree: "agree" }, signedDocHash: H2 })));
+  await t("copy: employee records first copy-view time (copyAt) after signing", true, () => stf.doc("employees/emp_0003/contracts/H2").update({ copyAt: TS() }));
+  await t("copy: only once", false, () => stf.doc("employees/emp_0003/contracts/H2").update({ copyAt: TS() }));
+  await t("copy: not on an unsigned doc", false, () => stf.doc("employees/emp_0003/contracts/H4").update({ copyAt: TS() }));
+  // 문자 인증 요구 설정(settings/app.signPhoneVerify)
+  const PH = "+821012345678";
+  const stfPhone = env.authenticatedContext("u_staff", { email: "lee@jarada.kr", phone_number: PH }).firestore();
+  await hr.doc("employees/emp_0003/contracts/H5").set(CT("consent", { status: "sent", sentAt: TS(), docHash: H }));
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("settings/app").set({ signPhoneVerify: true }));
+  await t("phone required: sign without verified phone denied", false, () => stf.doc("employees/emp_0003/contracts/H5").update(SG({ answers: { agree: "agree" } })));
+  await t("phone required: signedPhone alone (no verified claim) denied", false, () => stf.doc("employees/emp_0003/contracts/H5").update(SG({ answers: { agree: "agree" }, signedPhone: PH })));
+  await t("phone required: signedPhone must equal verified number", false, () => stfPhone.doc("employees/emp_0003/contracts/H5").update(SG({ answers: { agree: "agree" }, signedPhone: "+821099999999" })));
+  await t("phone required: verified account signs with its number", true, () => stfPhone.doc("employees/emp_0003/contracts/H5").update(SG({ answers: { agree: "agree" }, signedPhone: PH })));
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("settings/app").set({ signPhoneVerify: false }));
+  await hr.doc("employees/emp_0003/contracts/H6").set(CT("consent", { status: "sent", sentAt: TS(), docHash: H }));
+  await t("phone not required: sign without phone works", true, () => stf.doc("employees/emp_0003/contracts/H6").update(SG({ answers: { agree: "agree" } })));
+  await env.withSecurityRulesDisabled((c) => c.firestore().doc("settings/app").delete());
   const BA = (o = {}) => ({ title: "취업규칙 확인", recipients: ["emp_0003"], count: 1, createdAt: TS(), createdBy: "u_hr", createdByName: "인사", ...o });
   await t("batch: hr creates a batch record", true, () => hr.doc("signBatches/B1").set(BA()));
   await t("batch: createdBy must be me", false, () => hr.doc("signBatches/B2").set(BA({ createdBy: "someone" })));
@@ -668,7 +701,7 @@ const emp = (o) => ({ name: "직원", email: "x@jarada.kr", orgId: "banpo", orgI
   await t("batch: hr cannot delete, super can", false, () => hr.doc("signBatches/B1").delete());
   await t("batch: super deletes", true, () => sup.doc("signBatches/B1").delete());
   // 등록 링크(익명)로 들어온 사람은 서명할 수 없다
-  await hr.doc("employees/emp_0003/contracts/K2").set(CT("security", { status: "sent", sentAt: TS() }));
+  await hr.doc("employees/emp_0003/contracts/K2").set(CT("security", { status: "sent", sentAt: TS(), docHash: H }));
   await t("sign: token (anonymous) visitor cannot read sent docs", false, async () => { await anonCtx("a1").doc("roles/a1").set({ level: "staff", employeeId: "emp_0003", selfToken: "tok123" }).catch(() => {}); return anonCtx("a1").doc("employees/emp_0003/contracts/K2").get(); });
   await t("slip: bad type", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ type: "bonus" })));
   await t("slip: bad month", false, () => sup.doc("employees/emp_0003/payslips/s4").set(slip({ month: "10월" })));

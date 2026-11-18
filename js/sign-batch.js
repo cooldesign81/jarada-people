@@ -5,7 +5,7 @@ import { db, auth } from "./firebase.js";
 import { collection, getDocs, addDoc, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { $, state, isHR, esc, toast, errMsg, orgNames, audit, tsMillis } from "./core.js";
 import { today } from "./dates.js";
-import { CUSTOM_TEMPLATES, defaultsFor, cleanValues, missingRequired, FIELDS } from "./contract-docs.js";
+import { CUSTOM_TEMPLATES, defaultsFor, cleanValues, missingRequired, FIELDS, CONTRACT_VERSION, docHashOf } from "./contract-docs.js";
 
 const fmt = (t) => { const ms = tsMillis(t); if (!ms) return ""; const d = new Date(ms); return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`; };
 const STATUS = { draft: ["작성중", "s-leave"], sent: ["서명 대기", "o-hq"], signed: ["서명 완료", "s-active"] };
@@ -73,7 +73,8 @@ async function send(all, picked, body) {
       try {
         const base = defaultsFor("custom", { emp: e, today: today() });
         const data = { ...vals, name: e.name, company: vals.company || base.company, signDate: today() };
-        await addDoc(collection(db, "employees", e.id, "contracts"), { type: "custom", title: `${vals.title} · ${e.name}`, data, status: "sent", sentAt: serverTimestamp(), batchId: batch.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...me });
+        const title = `${vals.title} · ${e.name}`;
+        await addDoc(collection(db, "employees", e.id, "contracts"), { type: "custom", title, data, docHash: await docHashOf({ type: "custom", title, data }), docVersion: CONTRACT_VERSION, status: "sent", sentAt: serverTimestamp(), batchId: batch.id, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...me });
         ok++;
       } catch (x) { console.error(x); fail.push(e.name); }
     }

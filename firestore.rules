@@ -495,8 +495,12 @@ service cloud.firestore {
       // 상태: draft(작성중) → sent(서명 요청) → signed(직원 서명 완료).
       //  · 직원 본인(구글 계정)은 ‘서명 요청’(sent)·서명 완료(signed) 문서만 읽고, sent 문서에 서명만 할 수 있다 (내용·상태 외 필드는 못 바꾼다).
       //  · 관리자는 서명 필드를 쓸 수 없고, 서명이 끝난 문서는 고치거나 지울 수 없다 (삭제는 최고관리자만).
+      //  · 서명 요청(sent)에는 문서 원본 해시(docHash, SHA-256)가 있어야 하고, 서명한 문서에는 직원이 본 해시(signedDocHash)가 그와 같아야 한다.
+      //  · 교부 이력: sentAt(요청) · viewedAt(직원 첫 열람) · signedAt(서명) · copyAt(서명본 사본 첫 열람) — 직원은 열람 시각만 한 번씩 남길 수 있다.
+      //  · 설정(settings/app)의 signPhoneVerify 가 켜져 있으면, 문자 인증으로 전화번호가 연결된 계정만 서명할 수 있고 서명한 전화번호가 인증 전화번호와 같아야 한다.
       function contractKeys() {
-        return ['type', 'title', 'data', 'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'status', 'sentAt', 'signature', 'signedAt', 'signedBy', 'answers', 'batchId'];
+        return ['type', 'title', 'data', 'createdAt', 'createdBy', 'createdByName', 'updatedAt', 'status', 'sentAt', 'signature', 'signedAt', 'signedBy', 'answers', 'batchId',
+                'docHash', 'docVersion', 'signedHash', 'signedDocHash', 'signedPhone', 'viewedAt', 'copyAt'];
       }
       function validContractDoc(types) {
         let d = request.resource.data;
@@ -505,17 +509,35 @@ service cloud.firestore {
           && d.data is map && d.data.keys().size() <= 60
           && d.get('status', 'draft') in ['draft', 'sent', 'signed']
           && d.get('batchId', '') is string && d.get('batchId', '').size() <= 40
+          && d.get('docHash', '') is string && d.get('docHash', '').size() <= 64
+          && d.get('docVersion', '') is string && d.get('docVersion', '').size() <= 20
           && (d.type != 'security' || (d.data.get('rules', '') is string && d.data.get('rules', '').size() <= 5000))
           && (d.type != 'custom' || (d.data.get('title', '') is string && d.data.get('title', '').size() <= 100
                                       && d.data.get('body', '') is string && d.data.get('body', '').size() <= 5000));
       }
-      // 관리자가 쓰는 문서: 상태는 draft/sent, 서명 관련 필드는 넣을 수 없다
+      function hashOk(h) { return h is string && h.matches('[0-9a-f]{64}'); }
+      // 관리자가 쓰는 문서: 상태는 draft/sent, 서명·열람 관련 필드는 넣을 수 없고, 서명 요청(sent)에는 원본 해시가 있어야 한다
       function mgrContractDoc(types) {
         let d = request.resource.data;
         return validContractDoc(types) && d.get('status', 'draft') in ['draft', 'sent']
-          && !('signature' in d) && !('signedAt' in d) && !('signedBy' in d) && !('answers' in d);
+          && !('signature' in d) && !('signedAt' in d) && !('signedBy' in d) && !('answers' in d)
+          && !('signedHash' in d) && !('signedDocHash' in d) && !('signedPhone' in d) && !('viewedAt' in d) && !('copyAt' in d)
+          && (d.get('status', 'draft') != 'sent' || hashOk(d.get('docHash', '')));
       }
-      // 직원 본인의 서명: sent → signed, 서명 이미지(PNG)·서명 시각(서버 시각)·서명자(본인 uid)·직원이 고른 답만 추가
+      // 관리자의 수정: 직원이 남긴 열람 시각은 건드리지 못하고(지우는 것만 가능), 서명 필드는 쓸 수 없다
+      function mgrContractEdit(types) {
+        let d = request.resource.data;
+        return validContractDoc(types) && d.get('status', 'draft') in ['draft', 'sent']
+          && !('signature' in d) && !('signedAt' in d) && !('signedBy' in d) && !('answers' in d)
+          && !('signedHash' in d) && !('signedDocHash' in d) && !('signedPhone' in d) && !('copyAt' in d)
+          && (!('viewedAt' in d) || d.viewedAt == resource.data.get('viewedAt', null))
+          && (d.get('status', 'draft') != 'sent' || hashOk(d.get('docHash', '')));
+      }
+      function phoneRequired() {
+        return exists(/databases/$(database)/documents/settings/app)
+          && get(/databases/$(database)/documents/settings/app).data.get('signPhoneVerify', false) == true;
+      }
+      // 직원 본인의 서명: sent → signed, 서명 이미지(PNG)·서명 시각(서버 시각)·서명자(본인 uid)·직원이 고른 답·본 문서의 해시(·인증 전화번호)만 추가
       function empSignDoc(types) {
         let d = request.resource.data;
         return validContractDoc(types) && resource.data.status == 'sent'
@@ -523,7 +545,20 @@ service cloud.firestore {
           && d.signature is string && d.signature.size() <= 120000 && d.signature.matches('data:image/png;base64,.*')
           && d.signedAt == request.time && d.signedBy == request.auth.uid
           && d.answers is map && d.answers.keys().hasOnly(['mealChoice', 'agree', 'confirm'])
-          && d.diff(resource.data).affectedKeys().hasOnly(['status', 'signature', 'signedAt', 'signedBy', 'answers']);
+          && hashOk(d.get('signedHash', ''))
+          && d.get('signedDocHash', '') == resource.data.get('docHash', '')
+          && d.get('signedPhone', '') is string && d.get('signedPhone', '').size() <= 20
+          && (!phoneRequired() || (request.auth.token.get('phone_number', '') != '' && d.get('signedPhone', '') == request.auth.token.phone_number))
+          && d.diff(resource.data).affectedKeys().hasOnly(['status', 'signature', 'signedAt', 'signedBy', 'answers', 'signedHash', 'signedDocHash', 'signedPhone']);
+      }
+      // 직원이 문서를 처음 열어 본 시각(요청 상태) / 서명본 사본을 처음 열어 본 시각 — 한 번만, 서버 시각으로
+      function empViewDoc(types) {
+        let d = request.resource.data;
+        return validContractDoc(types) && (
+          (resource.data.status == 'sent' && !('viewedAt' in resource.data) && d.viewedAt == request.time
+            && d.diff(resource.data).affectedKeys().hasOnly(['viewedAt']))
+          || (resource.data.status == 'signed' && !('copyAt' in resource.data) && d.copyAt == request.time
+            && d.diff(resource.data).affectedKeys().hasOnly(['copyAt'])));
       }
       function contractNotSigned() { return resource.data.get('status', 'draft') != 'signed'; }
       match /contracts/{contractId} {
@@ -531,16 +566,16 @@ service cloud.firestore {
                     || (isSelfAccount(empId) && resource.data.status in ['sent', 'signed']);
         // pledge(이전 양식 서약서)는 새로 만들 수 없고, 이미 있는 문서의 열람·서명·삭제만 가능하다
         allow create: if (isHR() || orgAdminOfEmp(empId)) && mgrContractDoc(['consent', 'custom', 'security']);
-        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractDoc(['consent', 'pledge', 'custom', 'security']) && request.resource.data.type == resource.data.type)
-                      || (isSelfAccount(empId) && empSignDoc(['consent', 'pledge', 'custom', 'security']));
+        allow update: if ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned() && mgrContractEdit(['consent', 'pledge', 'custom', 'security']) && request.resource.data.type == resource.data.type)
+                      || (isSelfAccount(empId) && (empSignDoc(['consent', 'pledge', 'custom', 'security']) || empViewDoc(['consent', 'pledge', 'custom', 'security'])));
         allow delete: if isSuper() || ((isHR() || orgAdminOfEmp(empId)) && contractNotSigned());
       }
       match /laborContracts/{contractId} {
         allow read: if capAll('comp', [])
                     || (isSelfAccount(empId) && resource.data.status in ['sent', 'signed']);
         allow create: if capAll('comp', []) && mgrContractDoc(['labor']);
-        allow update: if (capAll('comp', []) && contractNotSigned() && mgrContractDoc(['labor']) && request.resource.data.type == resource.data.type)
-                      || (isSelfAccount(empId) && empSignDoc(['labor']));
+        allow update: if (capAll('comp', []) && contractNotSigned() && mgrContractEdit(['labor']) && request.resource.data.type == resource.data.type)
+                      || (isSelfAccount(empId) && (empSignDoc(['labor']) || empViewDoc(['labor'])));
         allow delete: if isSuper() || (capAll('comp', []) && contractNotSigned());
       }
 
