@@ -102,10 +102,9 @@ service cloud.firestore {
 
     // 등록 링크로 만든 권한(selfToken 이 있는 roles)은 직원 문서의 링크가 아직 유효할 때만 본인으로 인정한다.
     // 링크를 폐기(selfToken 삭제)하거나 만료일이 지나면 이미 접속한 사람도 바로 막힌다.
+    // 등록 링크는 폐지(2026-11): 링크로 만들어진 권한(selfToken)은 더 이상 인정하지 않음
     function selfTokenValid(empId) {
-      return !('selfToken' in me())
-        || (get(empPath(empId)).data.get('selfToken', '') == me().selfToken
-            && get(empPath(empId)).data.get('selfTokenExpires', request.time) >= request.time);
+      return !('selfToken' in me());
     }
     function isSelf(empId) {
       return hasRole() && me().get('employeeId', '') == empId && selfTokenValid(empId);
@@ -202,16 +201,7 @@ service cloud.firestore {
         && request.resource.data.level == get(empPath(request.resource.data.employeeId)).data.level
         && request.resource.data.orgId == get(empPath(request.resource.data.employeeId)).data.orgId;
 
-      // 셀프 등록 ②: 등록 링크(?self=사번&t=토큰). 직원 문서의 selfToken 과 일치해야 하고 항상 ‘직원’ 등급
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['level', 'employeeId', 'selfToken'])
-        && request.resource.data.level == 'staff'
-        && request.resource.data.employeeId is string
-        && exists(empPath(request.resource.data.employeeId))
-        && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') != ''
-        && get(empPath(request.resource.data.employeeId)).data.get('selfToken', '') == request.resource.data.selfToken
-        && get(empPath(request.resource.data.employeeId)).data.get('selfTokenExpires', request.time) >= request.time
-        && get(empPath(request.resource.data.employeeId)).data.status != 'resigned';
+      // 셀프 등록 ②(등록 링크)는 2026-11 폐지: 신규 직원은 본인 구글 계정으로 들어와 ‘내 정보’에서 입력
 
       allow create, update, delete: if isSuper();
 
@@ -584,7 +574,7 @@ service cloud.firestore {
         function validIssue() {
           let d = request.resource.data;
           return d.no is string && d.no.matches('^JP-[0-9]{4}-[0-9]+$')
-            && d.type in ['current', 'career']
+            && d.type in ['current', 'career', 'retire']
             && d.issuedDate is string && d.issuedDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
         }
         allow read: if isHR() || orgAdminOfEmp(empId);

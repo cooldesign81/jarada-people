@@ -305,9 +305,6 @@ function renderPerms(body) {
 function renderSettings(body) {
   const s = state.settings || {};
   body.innerHTML = `
-    <div class="card"><h2>등록 링크</h2>
-      <p>직원에게 보내는 ‘등록 링크’의 기본 유효 기간입니다. 새로 발급할 때부터 적용되며, 직원 상세에서 언제든 재발급·폐기할 수 있습니다.</p>
-      <div class="field" style="max-width:220px"><label for="stLinkDays">유효 기간 (일)</label><input class="input" id="stLinkDays" type="number" min="1" max="365" value="${Number(s.linkDays) || 14}"></div></div>
     <div class="card"><h2>주민등록번호 뒷자리</h2>
       <p>주민등록번호는 암호화해서 보관하는 것이 원칙입니다. 이 앱은 암호화 없이 저장하므로, 뒷자리를 더 이상 받지 않으려면 아래를 끄세요. 끄면 직원 화면에서 뒷자리 입력칸이 사라지고, 보안 규칙도 새 저장을 막습니다.</p>
       <label class="chk"><input type="checkbox" id="stRrnBack" ${s.rrnBackEnabled === false ? "" : "checked"}> 주민등록번호 뒷자리를 저장한다</label>
@@ -326,10 +323,8 @@ function renderSettings(body) {
   `);
   renderMaterialManagers();
   $("btnStSave").onclick = async () => {
-    const days = Number($("stLinkDays").value);
-    if (!(days >= 1 && days <= 365)) return toast("유효 기간은 1~365일입니다.", true);
-    const data = { linkDays: Math.round(days), rrnBackEnabled: $("stRrnBack").checked, signPhoneVerify: $("stSignPhone").checked, requiredDocs: [...body.querySelectorAll("input[name=stReq]:checked")].map((x) => x.value), updatedAt: serverTimestamp() };
-    try { await setDoc(doc(db, "settings", "app"), data, { merge: true }); Object.assign(state.settings, data); audit("settings_change", { detail: `링크 ${data.linkDays}일 · 뒷자리 ${data.rrnBackEnabled ? "수집" : "수집 안 함"}` }); toast("저장했습니다"); }
+    const data = { rrnBackEnabled: $("stRrnBack").checked, signPhoneVerify: $("stSignPhone").checked, requiredDocs: [...body.querySelectorAll("input[name=stReq]:checked")].map((x) => x.value), updatedAt: serverTimestamp() };
+    try { await setDoc(doc(db, "settings", "app"), data, { merge: true }); Object.assign(state.settings, data); audit("settings_change", { detail: `뒷자리 ${data.rrnBackEnabled ? "수집" : "수집 안 함"}` }); toast("저장했습니다"); }
     catch (e) { console.error(e); toast(errMsg(e), true); }
   };
   $("btnRrnPurge").onclick = async () => {
@@ -434,7 +429,7 @@ async function renderMaterialManagers() {
   catch (e) {
     console.error(e);
     const denied = String(e?.code || "").includes("permission-denied");
-    box.innerHTML = `<p class="sub" style="color:#b3261e">${denied ? `재료 앱 규칙이 <b>${esc(user.email || "")}</b> 계정을 최고관리자로 인정하지 않습니다. 재료 앱 보안 규칙(FIRESTORE_RULES.md)의 최고관리자 이메일 목록과 게시 여부를 확인하세요.` : esc(errMsg(e))}</p><button class="btn" id="matRetry">다시 시도</button>`;
+    box.innerHTML = `<p class="sub" style="color:#b3261e">${denied ? `재료 앱 규칙이 <b>${esc(user.email || "")}</b> 계정을 최고관리자로 인정하지 않습니다. 재료 앱(jarada-materials) 보안 규칙을 게시했는지 확인하세요.` : esc(errMsg(e))}</p><button class="btn" id="matRetry">다시 시도</button>`;
     $("matRetry").onclick = () => renderMaterialManagers();
     return;
   }

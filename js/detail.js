@@ -187,17 +187,15 @@ function draw() {
         ${mgr ? `<div class="row-actions">
           ${can("empWrite") ? `<button class="btn btn-secondary" id="dBtnEdit">기본 정보 수정</button>` : ""}
           ${can("trash") && can("empWrite") && isHR() && !isOwnPage() && !(cur.emp.level === "super" && !isSuper()) ? `<button class="btn btn-danger" id="dBtnTrash">삭제</button>` : ""}
-          <button class="btn btn-secondary" id="dBtnLink">등록 링크 복사</button>
           <button class="btn btn-secondary" id="dBtnCert" data-type="current">재직증명서 발급</button>
           <button class="btn btn-secondary" id="dBtnCareer" data-type="career">경력증명서 발급</button>
+          ${cur.emp.status === "resigned" ? `<button class="btn btn-secondary" id="dBtnRetire" data-type="retire">퇴직증명서 발급</button>` : ""}
         </div>` : ""}
       </div>
       <div class="label">전번</div>
       <div class="big-phone">${esc(e.phone || "—")}</div>
       <div class="sub" style="margin:6px 0 2px">입사일 <b>${esc(e.joinedAt || "—")}</b> · 생년월일 <b>${esc(e.birthDate || "—")}</b></div>
       <div class="tags-row">${statusBadge(e.status)} ${levelBadge(e.level)} ${e.corp ? `<span class="badge o-hq">${esc(corpName(e.corp))}</span>` : ""} <span class="mono sub">${esc(e.id)}</span></div>
-      ${mgr ? `<div class="link-line"><span class="sub">등록 링크:</span> <span id="dLinkState"></span>
-        <button class="btn btn-secondary btn-sm" id="dBtnLinkNew">재발급</button> <button class="btn btn-secondary btn-sm" id="dBtnLinkOff">폐기</button></div>` : ""}
       <div class="label" style="margin-top:14px">소속 지점 (중복 선택 가능)</div>
       <div class="chk-group" id="dBranches"></div>
       ${isHR() && !state.selfMode ? `<button class="btn btn-secondary" id="dBtnBranches" style="margin-top:12px">지점 저장</button>` : ""}
@@ -399,6 +397,7 @@ function bindHead() {
   drawLinkState();
   $("dBtnCert")?.addEventListener("click", () => openCert("current"));
   $("dBtnCareer")?.addEventListener("click", () => openCert("career"));
+  $("dBtnRetire")?.addEventListener("click", () => openCert("retire"));
   $("dBtnBranches")?.addEventListener("click", async () => {
     const ids = readOrgChecks($("dBranches"));
     if (!ids.length) return toast("지점을 하나 이상 선택하세요.", true);
@@ -768,7 +767,10 @@ let certType = "current";
 function openCert(type) {
   certType = type;
   const e = cur.emp;
-  $("certTitle").textContent = type === "career" ? "경력증명서 발급" : "재직증명서 발급";
+  $("certTitle").textContent = `${CERT_TITLE[type] || "재직증명서"} 발급`;
+  // 퇴직증명서: 퇴직일(개인정보의 퇴사일)과 퇴직 사유(선택)
+  $("certResignRow").hidden = $("certReasonRow").hidden = type !== "retire";
+  $("certResignDate").value = cur.pi.resignDate || ""; $("certReason").value = "";
   $("certPosition").value = e.position || "";
   $("certDuties").value = "";
   $("certBranch").value = orgNames(e.orgIds);
@@ -792,9 +794,10 @@ export function bindCertModal() {
   $("btnCertGo").addEventListener("click", generateCert);
 }
 // 증명서 HTML (snap: 발급 시점 내용. 발급 이력에 저장돼 다시 인쇄할 수 있다)
+export const CERT_TITLE = { current: "재직증명서", career: "경력증명서", retire: "퇴직증명서" };
 function buildCertHtml(snap) {
-  const isCareer = snap.type === "career", docTitle = isCareer ? "경력증명서" : "재직증명서";
-  const period = snap.resigned && snap.resignDate ? `${snap.applyDate || "-"} ~ ${snap.resignDate} (퇴직)` : `${snap.applyDate || "-"} ~ 현재 (재직중)`;
+  const isCareer = snap.type === "career", isRetire = snap.type === "retire", docTitle = CERT_TITLE[snap.type] || "재직증명서";
+  const period = (snap.resigned || isRetire) && snap.resignDate ? `${snap.applyDate || "-"} ~ ${snap.resignDate}${isRetire ? "" : " (퇴직)"}` : `${snap.applyDate || "-"} ~ 현재 (재직중)`;
   const stamp = COMPANY_INFO[snap.company] ? STAMP_IMAGES[COMPANY_INFO[snap.company].stampKey] : "";
   const row = (l, val) => val ? `<tr><td class="label">${l}</td><td>${esc(val)}</td></tr>` : "";
   return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${docTitle} - ${esc(snap.name)}</title>
@@ -817,9 +820,9 @@ function buildCertHtml(snap) {
   <h1>${docTitle}</h1>
   <table>
     ${row("성명", snap.name)}${row("주민등록번호", snap.rrn)}${row("직위/직책", snap.position)}${row("담당업무", snap.duties)}${row("소속", snap.branch)}
-    ${row(isCareer ? "근무기간" : "재직기간", period)}${row("용도", snap.purpose || "기관제출용")}
+    ${row(isCareer || isRetire ? "근무기간" : "재직기간", period)}${isRetire ? row("퇴직일", snap.resignDate) + row("퇴직 사유", snap.reason) : ""}${row("용도", snap.purpose || "기관제출용")}
   </table>
-  <div class="stmt">${isCareer ? "위 사람은 위와 같이 본 기관에서 근무하였음을 증명합니다." : "위 사람은 위와 같이 재직하고 있음을 증명합니다."}</div>
+  <div class="stmt">${isRetire ? "위 사람은 위와 같이 본 회사에서 근무하다 퇴직하였음을 증명합니다." : isCareer ? "위 사람은 위와 같이 본 기관에서 근무하였음을 증명합니다." : "위 사람은 위와 같이 재직하고 있음을 증명합니다."}</div>
   <div class="foot"><div class="date">${esc(snap.issueDate || todayStr())}</div>
     ${snap.company ? `<div>회사명: ${esc(snap.company)}</div>` : ""}${snap.addr ? `<div>주소: ${esc(snap.addr)}</div>` : ""}
     ${snap.ceo ? `<div class="ceo-line">대표자: ${esc(snap.ceo)}<span class="stamp-slot">(인)${stamp ? `<img src="${stamp}">` : ""}</span></div>` : ""}
@@ -842,9 +845,11 @@ async function generateCert() {
   const snap = {
     type: certType, name: e.name, rrn: cur.front ? `${cur.front} - ●●●●●●●` : "(미등록)",
     position: v("certPosition"), duties: v("certDuties"), branch: v("certBranch"), purpose: v("certPurpose") || "기관제출용",
-    applyDate: $("certApplyDate").value || cur.pi.workStartDate || "", resignDate: cur.pi.resignDate || "", resigned: e.status === "resigned",
+    applyDate: $("certApplyDate").value || cur.pi.workStartDate || "", resignDate: (certType === "retire" ? $("certResignDate").value : "") || cur.pi.resignDate || "", resigned: e.status === "resigned",
+    reason: certType === "retire" ? v("certReason") : "",
     issueDate: $("certIssueDate").value || todayStr(), company: v("certCompany"), ceo: v("certCeo"), addr: v("certAddr"),
   };
+  if (certType === "retire" && !snap.resignDate) return toast("퇴직일을 넣어 주세요.", true);
   const w = window.open("", "_blank");   // 팝업 차단을 피하려고 클릭 직후에 먼저 연다
   if (!w) return toast("팝업이 차단됐습니다. 팝업을 허용한 뒤 다시 시도하세요.", true);
   try {
@@ -853,7 +858,7 @@ async function generateCert() {
       no: snap.no, type: snap.type, issuedDate: snap.issueDate, purpose: snap.purpose, companyName: snap.company, employeeName: e.name, snapshot: snap,
       issuedBy: auth.currentUser?.uid || "", issuedByName: state.me?.name || auth.currentUser?.email || "", createdAt: serverTimestamp(),
     });
-    audit("cert_issue", { targetEmployeeId: cur.id, detail: `${snap.no} ${snap.type === "career" ? "경력" : "재직"}증명서` });
+    audit("cert_issue", { targetEmployeeId: cur.id, detail: `${snap.no} ${CERT_TITLE[snap.type] || "재직증명서"}` });
     w.document.write(buildCertHtml(snap)); w.document.close();
     $("dlgCert").close();
     mountRecords($("dRecords"), cur.emp);

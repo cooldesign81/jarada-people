@@ -123,7 +123,7 @@ const buf = (s) => Buffer.from(s);
     await page.click('#tblEmp tr[data-id="emp_0003"]'); await page.waitForSelector("#detailRoot .emp-name");
     ok("B detail name", (await page.textContent(".emp-name")) === "이교사");
     ok("B detail branches checked", (await count(page, "#dBranches input:checked")) === 2);
-    ok("B detail mgr buttons", (await vis(page, "#dBtnLink")) && (await vis(page, "#dBtnCert")) && (await vis(page, "#dBtnCareer")) && (await vis(page, "#dBtnEdit")));
+    ok("B detail mgr buttons (등록 링크 없음)", !(await vis(page, "#dBtnLink")) && (await vis(page, "#dBtnCert")) && (await vis(page, "#dBtnCareer")) && (await vis(page, "#dBtnEdit")));
     ok("B detail sections", (await vis(page, "#cBase")) && (await vis(page, "#dEvalZone")) && (await vis(page, "#dBtnEtc")) && (await vis(page, "#dBtnShow")));
     ok("B personal prefilled", (await page.inputValue('[data-pi="address"]')) === "서울 서초" && (await page.inputValue('[data-pi="workStartDate"]')) === "2024-03-02");
 
@@ -174,13 +174,8 @@ const buf = (s) => Buffer.from(s);
     await page.click('[data-slot="resume"] [data-del-key]'); await page.waitForTimeout(250);
     ok("B resume deleted & flag false", !(await FILES(page)).some((p) => p.includes("/resume__")) && (await S(page, "employees/emp_0003/private/flags")).uploaded.resume === false);
 
-    // 등록 링크
-    await page.click("#dBtnLink"); await page.waitForTimeout(200);
-    const copied = await page.evaluate(() => window.__copied); const emp3 = await S(page, "employees/emp_0003");
-    token = emp3.selfToken;
-    ok("B link token", /^[0-9a-f]{32}$/.test(token || "") && copied && copied.includes("?self=emp_0003&t=" + token), copied);
-    await page.click("#dBtnLink"); await page.waitForTimeout(100);
-    ok("B link stable token", (await S(page, "employees/emp_0003")).selfToken === token);
+    // 등록 링크는 폐지: 링크 칸·버튼 없음
+    ok("B no link line", (await count(page, "#dLinkState")) === 0 && !(await vis(page, "#dBtnLinkNew")));
 
     // 증명서
     await page.click("#dBtnCert"); await page.waitForTimeout(100);
@@ -238,7 +233,7 @@ const buf = (s) => Buffer.from(s);
     await page.waitForTimeout(300);
     ok("C no comp/eval/etc", !(await vis(page, "#cBase")) && !(await vis(page, "#dEvalZone")) && !(await vis(page, "#dBtnEtc")));
     ok("C branches locked", (await count(page, "#dBranches input:disabled")) === 3 && (await count(page, "#dBtnBranches")) === 0);
-    ok("C mgr buttons", (await vis(page, "#dBtnLink")) && (await vis(page, "#dBtnCert")) && (await vis(page, "#dBtnEdit")));
+    ok("C mgr buttons", (await vis(page, "#dBtnCert")) && (await vis(page, "#dBtnEdit")));
     ok("C no back reveal", (await count(page, "#dBtnShow")) === 0 && (await page.inputValue("#dBack")) === "");
     ok("C front visible", (await page.inputValue("#dFront")) === "810825");
     ok("C status line", (await page.textContent("#dRrnStatus")).includes("뒷자리: 이미 등록됨 (조회 불가)"));
@@ -283,7 +278,7 @@ const buf = (s) => Buffer.from(s);
     await page.waitForSelector('#viewDocs:not(.hidden) [data-slot="resume"]');
     ok("D 비밀번호를 정하면 내 급여와 같은 payLock 문서에 저장되고 서류가 열림", !!(await S(page, "employees/emp_0003/private/payLock"))?.hash && (await count(page, "#docsLocked")) === 0);
     ok("D 내 서류 화면: 이름·안내", (await page.textContent("#viewDocs")).includes("내 서류") && (await page.textContent("#viewDocs")).includes("담당 관리자") && (await count(page, "#detailRoot .emp-name")) === 0);
-    ok("D no mgr buttons/back", !(await vis(page, "#dBtnLink")) && !(await vis(page, "#dBtnEdit")) && (await count(page, ".back-link")) === 0);
+    ok("D no mgr buttons/back", !(await vis(page, "#dBtnCert")) && !(await vis(page, "#dBtnEdit")) && (await count(page, ".back-link")) === 0);
     ok("D no comp/eval", !(await vis(page, "#cBase")) && !(await vis(page, "#dEvalZone")));
     ok("D all 8 upload zones", (await count(page, "input[data-up]")) === 8);
     ok("D no storage list", !(await page.evaluate(() => globalThis.__lists)));
@@ -757,7 +752,7 @@ const buf = (s) => Buffer.from(s);
     const a1 = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: {} });
     await a1.page.goto(BASE + "/index.html#emp/emp_0003"); await a1.page.waitForSelector("#dContractsCard");
     await a1.page.click('[data-new="custom"]'); await a1.page.waitForSelector("#dlgContractDoc[open]");
-    ok("SB 자유 서식 창: 양식 불러오기 + 제목·본문 칸", (await vis(a1.page, "#cdTplWrap")) && (await count(a1.page, "#cdTpl option")) === 5 && (await count(a1.page, "#cdY #cdf_title")) === 1 && (await count(a1.page, "#cdY #cdf_body")) === 1);
+    ok("SB 자유 서식 창: 양식 불러오기 + 제목·본문 칸", (await vis(a1.page, "#cdTplWrap")) && (await count(a1.page, "#cdTpl option")) === 6 && (await count(a1.page, "#cdY #cdf_title")) === 1 && (await count(a1.page, "#cdY #cdf_body")) === 1);
     await a1.page.click("#btnCdSave"); await a1.page.waitForTimeout(150);
     ok("SB 제목·본문 없으면 저장 막힘", (await a1.page.textContent("#cdErr")).includes("문서 제목") && (await a1.page.textContent("#cdErr")).includes("본문"));
     await a1.page.selectOption("#cdTpl", "training");
@@ -835,30 +830,13 @@ const buf = (s) => Buffer.from(s);
     await ad.ctx.close();
   }
 
-  // ================= E. 등록 링크 (익명) =================
+  // ================= E. 등록 링크(폐지) — 예전 링크로 들어와도 익명 접속·권한 생성 없이 로그인 화면 =================
   {
-    const se = J(snapStore); delete se["employees/emp_0003/private"].personalInfo; delete se["employees/emp_0003/private"].residentFront; delete se["employees/emp_0003/private"].residentBack; delete se["employees/emp_0003/private"].flags;   // 처음 입력하는 직원
-    const { page, ctx, errors } = await newPage(browser, { user: null, store: se, files: J(snapFiles) });
-    await page.goto(BASE + `/index.html?self=emp_0003&t=${token}`); await page.waitForSelector("#viewDetail:not(.hidden) .emp-name", { timeout: 5000 });
-    const role = await S(page, "roles/anon1");
-    ok("E anon role created", role && role.level === "staff" && role.employeeId === "emp_0003" && role.selfToken === token, JSON.stringify(role));
-    ok("E self-mode ui", (await page.evaluate(() => document.body.classList.contains("self-mode"))) && !(await vis(page, "#nav")) && !(await vis(page, "#btnLogout")) && (await page.textContent("#detailRoot")).includes("직접 입력"));
-    ok("E topbar", (await page.textContent("#topWho")).includes("등록 링크"));
-    await page.fill('[data-pi="guardianName"]', "링크입력"); await page.click("#dBtnPi"); await page.waitForTimeout(150);
-    ok("E saves", (await S(page, "employees/emp_0003/private/personalInfo")).guardianName === "링크입력");
-    ok("E 링크로도 주소·보호자는 자유롭게, 날짜 칸은 처음부터 잠김", !(await page.$eval('[data-pi="guardianName"]', (e) => e.disabled)) && (await page.$eval('[data-pi="workStartDate"]', (e) => e.disabled)) && (await page.textContent("#dPiNote")).includes("최고관리자만 입력"));
-    await page.fill("#dFront", "900101"); await page.fill("#dBack", "1234567"); await page.click("#dBtnRrn"); await page.waitForTimeout(200);
-    ok("E 처음 입력하는 주민번호는 저장되고 곧바로 잠김", (await S(page, "employees/emp_0003/private/residentFront")).value === "900101" && (await page.$eval("#dFront", (e) => e.disabled)) && (await page.$eval("#dBtnRrn", (e) => e.disabled)));
-    await shot(page, "G5-self");
-    ok("E no errors", errors.length === 0, errors.join(" | "));
+    const { page, ctx } = await newPage(browser, { user: null, store: J(snapStore), files: J(snapFiles) });
+    await page.goto(BASE + `/index.html?self=emp_0003&t=deadbeefdeadbeefdeadbeefdeadbeef`); await page.waitForTimeout(800);
+    ok("E old link: no anonymous role", !(await S(page, "roles/anon1")));
+    ok("E old link: not self-mode, no detail", !(await page.evaluate(() => document.body.classList.contains("self-mode"))) && !(await vis(page, "#viewDetail")));
     await ctx.close();
-
-    const bad = await newPage(browser, { user: null, store: J(snapStore), files: J(snapFiles) });
-    await bad.page.goto(BASE + `/index.html?self=emp_0003&t=wrong`); await bad.page.waitForSelector("#viewNoRole:not(.hidden)", { timeout: 5000 });
-    ok("E bad token", (await bad.page.textContent("#noRoleTitle")).includes("링크가 올바르지"));
-    ok("E bad token hides admin hint", !(await vis(bad.page, "#noRoleNotice")));
-    ok("E bad no role", !(await S(bad.page, "roles/anon1")));
-    await bad.ctx.close();
   }
 
   // ================= H. 본사 인사(hr) / 원장(principal) / 등급 보존 =================
@@ -1133,7 +1111,7 @@ const buf = (s) => Buffer.from(s);
     const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: st, files: J(snapFiles), now: NOW });
     await page.goto(BASE + "/index.html#admin"); await page.waitForSelector("#viewAdmin:not(.hidden) .subtab");
     const tabs = await page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
-    ok("M super sees 9 admin tabs", tabs.length === 9 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
+    ok("M super sees 10 admin tabs", tabs.length === 10 && tabs[0].includes("내보내기") && tabs.some((x) => x.includes("감사")) && tabs.some((x) => x.includes("설정")) && tabs.some((x) => x.includes("휴지통")), JSON.stringify(tabs));
     // CSV 내보내기
     await page.check("#xpPersonal"); await page.check("#xpComp");
     const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#btnXp")]);
@@ -1164,25 +1142,12 @@ const buf = (s) => Buffer.from(s);
     logs = Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs));
     const vs = logs.find((l) => l.action === "view_sensitive");
     ok("M sensitive view is logged", vs && vs.targetEmployeeId === "emp_0003" && vs.detail.includes("주민번호 뒷자리") && vs.detail.includes("급여"), JSON.stringify(vs));
-    // 링크 관리
-    ok("M link status shown", (await page.textContent("#dLinkState")).includes("사용 가능"), await page.textContent("#dLinkState") + " / " + JSON.stringify((await S(page, "employees/emp_0003")).selfToken));
-    const oldTok = (await S(page, "employees/emp_0003")).selfToken;
-    await page.click("#dBtnLinkNew"); await page.waitForTimeout(400);
-    const e3 = await S(page, "employees/emp_0003");
-    const copied = await page.evaluate(() => window.__copied);
-    ok("M reissue: new token + 14d expiry", e3.selfToken !== oldTok && e3.selfTokenExpires && Math.abs(e3.selfTokenExpires.seconds - (Date.parse(NOW) / 1000 + 14 * 86400)) < 5 && copied.includes(e3.selfToken), JSON.stringify(e3.selfTokenExpires));
-    ok("M reissue clears old link roles", !(await S(page, "roles/anon9")));
-    ok("M status shows expiry", (await page.textContent("#dLinkState")).includes("까지"));
-    await page.click("#dBtnLinkOff"); await page.waitForTimeout(300);
-    const e3b = await S(page, "employees/emp_0003");
-    ok("M revoke removes token", !e3b.selfToken && !e3b.selfTokenExpires && (await page.textContent("#dLinkState")).includes("발급된 링크 없음"));
-    await page.click("#dBtnLink"); await page.waitForTimeout(400);
-    ok("M copy issues a new link when none", !!(await S(page, "employees/emp_0003")).selfToken && (await page.evaluate(() => window.__copied)).includes("self=emp_0003"));
     // 설정
     await page.evaluate(() => (location.hash = "#admin")); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="settings"]');
-    await page.fill("#stLinkDays", "7"); await page.uncheck("#stRrnBack"); await page.click("#btnStSave"); await page.waitForTimeout(250);
+    ok("M settings: 등록 링크 칸 없음", (await count(page, "#stLinkDays")) === 0);
+    await page.uncheck("#stRrnBack"); await page.click("#btnStSave"); await page.waitForTimeout(250);
     const set = await S(page, "settings/app");
-    ok("M settings saved", set && set.linkDays === 7 && set.rrnBackEnabled === false, JSON.stringify(set));
+    ok("M settings saved", set && set.rrnBackEnabled === false, JSON.stringify(set));
     // 재료 관리자 지정 (재료 앱 프로젝트)
     await page.evaluate(() => (location.hash = "#admin")); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="settings"]');
     await page.waitForSelector("#matNew");
@@ -1931,11 +1896,11 @@ const buf = (s) => Buffer.from(s);
     await r.page.click("[data-lockreset]"); await r.page.waitForTimeout(500);
     ok("X admin reset removes lock + audit", !(await S(r.page, "employees/emp_0003/private/payLock")) && Object.values(await r.page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "paylock_reset"));
     await r.ctx.close();
-    // 등록 링크로 들어온 화면에는 급여가 없다
+    // 예전 등록 링크 권한(익명 + selfToken)이 남아 있어도 들어오지 못함(익명 세션은 바로 로그아웃)
     const sl = J(se); sl.roles.anon9 = { level: "staff", employeeId: "emp_0003", selfToken: "tok" }; sl.employees.emp_0003.selfToken = "tok";
     const l = await newPage(browser, { user: { uid: "anon9", email: "", isAnonymous: true }, store: sl, files: sf, now: NOW });
-    await l.page.goto(BASE + "/index.html?self=emp_0003&t=tok"); await l.page.waitForSelector(".emp-name"); await l.page.waitForTimeout(400);
-    ok("X link-mode page shows no payslips", !(await l.page.textContent("#detailRoot")).includes("급여 명세서") && (await count(l.page, ".tab[data-view=payslips]")) === 0);
+    await l.page.goto(BASE + "/index.html?self=emp_0003&t=tok"); await l.page.waitForTimeout(800);
+    ok("X old link session gets no detail page", !(await vis(l.page, "#viewDetail")));
     await l.ctx.close();
     // 급여 권한이 없는 대표이사는 배포 탭이 없다
     const sh = J(st); sh.roles.u_hr2 = { level: "hr", orgId: "hq", employeeId: "emp_0001" };

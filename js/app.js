@@ -48,7 +48,8 @@ const SELF = (() => {
   const p = new URLSearchParams(location.search);
   return { id: p.get("self") || "", token: p.get("t") || "" };
 })();
-const hasSelfLink = !!(SELF.id && SELF.token);
+// 등록 링크는 폐지(2026-11): 예전 링크로 들어오면 구글 로그인 안내만 보여 줌
+const hasSelfLink = false, oldSelfLink = !!(SELF.id && SELF.token);
 
 // ---------- 인증 ----------
 $("btnLogin").onclick = async () => {
@@ -101,7 +102,7 @@ function resetApp() {
   // 로그인 화면: JP ONE 공통 부품(shared/jp-login.js, 좌우 나눔). 못 불러오면 예전 화면(#viewLogin)
   if (window.JPLogin) {
     showView("Loading"); $("loadingMsg").textContent = "";
-    JPLogin.show({ app: "people", lead: "등록된 직원만 이용할 수 있어요. 본인 구글 계정으로 로그인해 주세요.",
+    JPLogin.show({ app: "people", lead: oldSelfLink ? "등록 링크는 더 이상 쓰지 않아요. 본인 구글 계정으로 로그인해서 ‘내 정보’에 입력해 주세요." : "등록된 직원만 이용할 수 있어요. 본인 구글 계정으로 로그인해 주세요.",
       google: () => signInWithPopup(auth, new GoogleAuthProvider()) });
     return;
   }

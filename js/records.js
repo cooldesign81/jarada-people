@@ -104,7 +104,7 @@ function draw() {
       <td class="sub nowrap">${esc(label(REV_KINDS, r.kind))}${r.score !== undefined && r.score !== "" && r.score !== null ? ` · ${r.score}점` : ""}</td><td><span class="badge off">${esc(label(REV_VIS, r.visibility))}</span></td>
       <td class="sub">${esc(r.createdByName || "")}</td><td class="nowrap">${can.editRev(r) ? `<button class="btn btn-secondary btn-sm" data-edit="reviews:${r.id}">수정</button>` : ""}${can.delRev(r) ? ` <button class="btn btn-danger btn-sm" data-del="reviews:${r.id}">삭제</button>` : ""}</td></tr>`).join("")}</tbody></table>` : none("기록이 없습니다.")}</div>`);
   if (isHR() || isAdmin()) parts.push(`<div class="card">${head("증명서 발급 이력")}${D.certIssues.length ? `<table class="tbl rec-tbl"><tbody>${D.certIssues.map((r) => `<tr>
-      <td class="mono">${esc(r.no)}</td><td class="strong">${r.type === "career" ? "경력증명서" : "재직증명서"}</td><td class="sub">${esc(r.issuedDate)}</td><td class="sub">${esc(r.purpose || "")}</td><td class="sub">${esc(r.companyName || "")}</td>
+      <td class="mono">${esc(r.no)}</td><td class="strong">${({ career: "경력증명서", retire: "퇴직증명서" })[r.type] || "재직증명서"}</td><td class="sub">${esc(r.issuedDate)}</td><td class="sub">${esc(r.purpose || "")}</td><td class="sub">${esc(r.companyName || "")}</td>
       <td class="sub">${esc(r.issuedByName || "")}</td><td><button class="btn btn-secondary btn-sm" data-reprint="${r.id}">다시 인쇄</button></td></tr>`).join("")}</tbody></table>` : none("발급한 증명서가 없습니다.")}</div>`);
   root.innerHTML = parts.join("");
   root.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => openRec(b.dataset.add, null)));
