@@ -105,7 +105,7 @@ function resetApp() {
     showView("Loading"); $("loadingMsg").textContent = "";
     JPLogin.show({ app: "people", lead: oldSelfLink ? "등록 링크는 더 이상 쓰지 않아요. 본인 구글 계정으로 로그인해서 ‘내 정보’에 입력해 주세요." : "등록된 직원만 이용할 수 있어요. 본인 구글 계정으로 로그인해 주세요.",
       google: () => signInWithPopup(auth, new GoogleAuthProvider()),
-      sso: (t) => signInWithCredential(auth, GoogleAuthProvider.credential(null, t)) });   // JP ONE 구글 로그인 이어받기
+      sso: (t, i) => signInWithCredential(auth, GoogleAuthProvider.credential(i || null, t)) });   // JP ONE 구글 로그인 이어받기
     return;
   }
   showView("Login");
