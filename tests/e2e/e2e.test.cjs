@@ -185,7 +185,7 @@ const buf = (s) => Buffer.from(s);
     const [popup] = await Promise.all([ctx.waitForEvent("page"), page.click("#btnCertGo")]);
     await popup.waitForLoadState();
     const ph = await popup.content();
-    ok("B cert content", ph.includes("재직증명서") && ph.includes("이교사") && ph.includes("810825 - ●●●●●●●") && ph.includes("2024-03-02 ~ 현재") && ph.includes("data:image/png;base64"), ph.slice(0, 200));
+    ok("B cert content", ph.includes("재직증명서") && ph.includes("이교사") && ph.includes("생년월일") && /\d{4}\. \d{2}\. \d{2}/.test(ph) && !ph.includes("●●●") && !ph.includes("주민등록번호") && ph.includes("2024-03-02 ~ 현재") && ph.includes("data:image/png;base64"), ph.slice(ph.indexOf("<table"), ph.indexOf("<table") + 300));
     await popup.close();
     await page.click("#dBtnCareer"); const [p2] = await Promise.all([ctx.waitForEvent("page"), page.click("#btnCertGo")]); await p2.waitForLoadState();
     ok("B career cert", (await p2.content()).includes("경력증명서")); await p2.close();

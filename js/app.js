@@ -1,7 +1,7 @@
 // 자라다 People — 메인 앱 (로그인 → 권한 확인 → 대시보드/직원/조직/내 정보/직원 상세)
 import { auth, db } from "./firebase.js";
 import {
-  GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut, onAuthStateChanged
+  GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut, onAuthStateChanged, signInWithCredential
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
@@ -75,6 +75,7 @@ $("btnReload").onclick  = () => state.user && enter(state.user);
 
 onAuthStateChanged(auth, (user) => {
   if (user?.isAnonymous && !hasSelfLink) { signOut(auth); return; }     // 등록 링크 없이 남은 익명 세션 정리
+  if (user && !user.isAnonymous && window.JPLogin?.guard && !window.JPLogin.guard(user, () => signOut(auth))) return;   // JP ONE에서 로그아웃했으면 같이 나감
   if (!user && hasSelfLink) {
     state.selfMode = true;
     showView("Loading"); $("loadingMsg").textContent = "접속 중…";
@@ -103,7 +104,8 @@ function resetApp() {
   if (window.JPLogin) {
     showView("Loading"); $("loadingMsg").textContent = "";
     JPLogin.show({ app: "people", lead: oldSelfLink ? "등록 링크는 더 이상 쓰지 않아요. 본인 구글 계정으로 로그인해서 ‘내 정보’에 입력해 주세요." : "등록된 직원만 이용할 수 있어요. 본인 구글 계정으로 로그인해 주세요.",
-      google: () => signInWithPopup(auth, new GoogleAuthProvider()) });
+      google: () => signInWithPopup(auth, new GoogleAuthProvider()),
+      sso: (t) => signInWithCredential(auth, GoogleAuthProvider.credential(null, t)) });   // JP ONE 구글 로그인 이어받기
     return;
   }
   showView("Login");

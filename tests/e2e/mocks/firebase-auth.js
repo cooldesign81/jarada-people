@@ -3,7 +3,8 @@ const listeners = [];
 const emit = () => listeners.forEach((cb) => cb(currentUser));
 globalThis.__auth = { get current() { return currentUser; } };
 export function getAuth() { return { get currentUser() { return currentUser; } }; }
-export class GoogleAuthProvider {}
+export class GoogleAuthProvider { static credential() { return {}; } }
+export async function signInWithCredential() { const e = new Error("mock"); e.code = "auth/invalid-credential"; throw e; }
 export async function signInWithPopup() { currentUser = globalThis.__mockLoginUser || null; emit(); }
 export async function signInAnonymously() { currentUser = { uid: "anon1", isAnonymous: true, email: null }; setTimeout(emit, 0); }
 export async function signOut() { currentUser = null; emit(); }

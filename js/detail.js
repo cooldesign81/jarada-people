@@ -819,7 +819,7 @@ function buildCertHtml(snap) {
   ${snap.no ? `<div class="no">발급번호 ${esc(snap.no)}</div>` : ""}
   <h1>${docTitle}</h1>
   <table>
-    ${row("성명", snap.name)}${row("주민등록번호", snap.rrn)}${row("직위/직책", snap.position)}${row("담당업무", snap.duties)}${row("소속", snap.branch)}
+    ${row("성명", snap.name)}${row("생년월일", certBirth(snap))}${row("직위/직책", snap.position)}${row("담당업무", snap.duties)}${row("소속", snap.branch)}
     ${row(isCareer || isRetire ? "근무기간" : "재직기간", period)}${isRetire ? row("퇴직일", snap.resignDate) + row("퇴직 사유", snap.reason) : ""}${row("용도", snap.purpose || "기관제출용")}
   </table>
   <div class="stmt">${isRetire ? "위 사람은 위와 같이 본 회사에서 근무하다 퇴직하였음을 증명합니다." : isCareer ? "위 사람은 위와 같이 본 기관에서 근무하였음을 증명합니다." : "위 사람은 위와 같이 재직하고 있음을 증명합니다."}</div>
@@ -840,10 +840,18 @@ async function nextCertNo() {
   });
   return `JP-${year}-${String(n).padStart(4, "0")}`;
 }
+// 증명서에는 주민등록번호 대신 생년월일만 (예: 1970. 01. 06)
+const dotDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || "")) ? String(d).replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1. $2. $3") : "";
+// 예전에 발급한 증명서(주민번호 앞자리를 담은 것)를 다시 인쇄할 때도 생년월일로 보여 줌
+function certBirth(snap) {
+  if (snap.birth) return snap.birth;
+  const m = String(snap.rrn || "").match(/^(\d{6})/);
+  return m ? dotDate(birthFromRrn(m[1], "")) || "(미등록)" : "(미등록)";
+}
 async function generateCert() {
   const e = cur.emp, v = (id) => $(id).value.trim();
   const snap = {
-    type: certType, name: e.name, rrn: cur.front ? `${cur.front} - ●●●●●●●` : "(미등록)",
+    type: certType, name: e.name, birth: dotDate(e.birthDate || birthFromRrn(cur.front, (cur.back || "")[0] || "") || ""),
     position: v("certPosition"), duties: v("certDuties"), branch: v("certBranch"), purpose: v("certPurpose") || "기관제출용",
     applyDate: $("certApplyDate").value || cur.pi.workStartDate || "", resignDate: (certType === "retire" ? $("certResignDate").value : "") || cur.pi.resignDate || "", resigned: e.status === "resigned",
     reason: certType === "retire" ? v("certReason") : "",
