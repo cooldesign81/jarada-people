@@ -418,3 +418,14 @@ ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
 /* 전자서명 */
 .sg-frame{width:100%;height:min(52vh,520px);border:1px solid var(--line,#d9dee5);border-radius:10px;background:#fff}
 .sg-pad{width:100%;max-width:520px;height:auto;aspect-ratio:520/170;border:2px dashed var(--line,#b9c0ca);border-radius:10px;background:#fff;touch-action:none;cursor:crosshair;display:block;margin-bottom:6px}
+
+/* 관리 → 서류함 */
+.db-bar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:10px; }
+.db-bar select, .db-bar input[type=search]{ min-height:34px; }
+.db-bar .seg-lbl{ color:var(--text-sub); font-size:13px; margin-left:6px; }
+.db-tbl th{ white-space:nowrap; vertical-align:top; }
+.db-tbl td{ vertical-align:top; min-width:120px; }
+.db-file{ display:flex; align-items:flex-start; gap:6px; font-size:13px; line-height:1.35; margin:2px 0; max-width:220px; }
+.db-file a{ word-break:break-all; }
+.db-file input{ margin-top:2px; flex:none; }
+.badge.db-miss{ background:var(--danger-bg); color:#B3261E; }

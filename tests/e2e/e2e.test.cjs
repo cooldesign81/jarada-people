@@ -1208,7 +1208,7 @@ const buf = (s) => Buffer.from(s);
     const h = await newPage(browser, { user: { uid: "u_hr2", email: "boss@jarada.kr" }, store: st2, files: {}, now: NOW });
     await h.page.goto(BASE + "/index.html#admin"); await h.page.waitForSelector("#adminTabs .subtab");
     const ht = await h.page.$$eval("#adminTabs .subtab", (b) => b.map((x) => x.textContent.trim()));
-    ok("M hr sees export/status/서명 문서/audit/trash but not settings", ht.length === 5 && !ht.some((x) => x.includes("설정")) && (await count(h.page, "#xpPersonal")) === 1 && (await count(h.page, "#xpComp")) === 0 && (await count(h.page, "#btnBackup")) === 0, JSON.stringify(ht));
+    ok("M hr sees export/status/서명 문서/audit/trash but not settings", ht.length === 5 && ht.includes("서류함·점검") && !ht.some((x) => x.includes("설정")) && (await count(h.page, "#xpPersonal")) === 1 && (await count(h.page, "#xpComp")) === 0 && (await count(h.page, "#btnBackup")) === 0, JSON.stringify(ht));
     await h.ctx.close();
     const sf = J(snapStore); sf.roles.u3 = { level: "staff", orgId: "anyang", employeeId: "emp_0003" };
     const s = await newPage(browser, { user: { uid: "u3", email: "lee@jarada.kr" }, store: sf, files: {}, now: NOW });
@@ -1284,7 +1284,7 @@ const buf = (s) => Buffer.from(s);
     await page.evaluate(() => (location.hash = "#admin")); await page.waitForSelector("#adminTabs"); await page.click('#adminTabs [data-t="status"]'); await page.click("#btnScan");
     await page.waitForSelector("#scanOut .card", { timeout: 8000 }).catch((e) => { console.log("SCANDBG", errors.join(" | "), "| prog=", ""); throw e; });
     const sc = await page.textContent("#scanOut");
-    ok("N status: missing docs + cert expiry", sc.includes("서류 미비") && sc.includes("이력서") && sc.includes("보육교사 1급") && sc.includes("27일") === false ? sc.includes("보육교사 1급") : true, sc.slice(0, 300));
+    ok("N status: cert expiry", sc.includes("보육교사 1급") && !sc.includes("서류 미비"), sc.slice(0, 300));
     ok("N status: cert expiring listed", sc.includes("2026-12-01"));
     // 필수 서류 설정
     await page.click('#adminTabs [data-t="settings"]'); await page.uncheck('input[name="stReq"][value="resume"]'); await page.click("#btnStSave"); await page.waitForTimeout(300);
@@ -2231,6 +2231,38 @@ const buf = (s) => Buffer.from(s);
     ok("AB delete-all audited", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "payslip_delete" && l.detail.includes("전체")));
     ok("AB no errors", errors.length === 0, errors.join(" | "));
     await ctx.close();
+  }
+
+  // ================= DB. 서류함 (최고관리자) =================
+  {
+    const { page, ctx, errors } = await newPage(browser, { user: { uid: "u1", email: "boss@jarada.kr" }, store: J(snapStore), files: J(snapFiles) });
+    await page.addInitScript(() => { globalThis.JSZip = class { constructor() { this.f = {}; globalThis.__zip = this.f; } file(p, b) { this.f[p] = b; } async generateAsync() { return new Blob(["zip"]); } }; });
+    await page.goto(BASE + "/index.html#admin"); await page.waitForSelector('#adminTabs [data-t="status"]');
+    await page.evaluate(() => { const F = globalThis.__mockFiles; F["hr/emp_0003/pub/resume__1700000000000__이력서.pdf"] = { size: 1, fname: "a", meta: {} }; F["hr/emp_0003/sec/bankbookCopy__1700000000000__통장.jpg"] = { size: 1, fname: "b", meta: {} }; F["hr/emp_0003/pub/photo__0__profile.jpg"] = { size: 1, fname: "p", meta: {} }; });
+    await page.click('#adminTabs [data-t="status"]'); await page.click("#dbScan"); await page.waitForSelector(".db-tbl"); await page.waitForTimeout(300);
+    const t = await page.textContent(".db-tbl");
+    ok("DB table lists uploaded docs", t.includes("이력서.pdf") && t.includes("통장.jpg") && !t.includes("profile.jpg"), t.slice(0, 300));
+    ok("DB shows required-missing badge", (await page.$$(".db-tbl .db-miss")).length > 0);
+    await page.check('[data-db-col="resume"]'); await page.waitForTimeout(150);
+    ok("DB column select", (await page.textContent("#dbCnt")).match(/^[1-9]/));
+    const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#dbZip")]);
+    const z = await page.evaluate(() => Object.keys(globalThis.__zip || {}));
+    ok("DB zip by employee folder", z.length >= 1 && z.every((p) => p.includes("/이력서_")), JSON.stringify(z));
+    ok("DB zip audited", Object.values(await page.evaluate(() => globalThis.__mockStore.auditLogs || {})).some((l) => l.action === "file_download" && l.detail.includes("서류함 ZIP")));
+    await page.evaluate(() => (globalThis.__blobFail = true)); await page.check('input[name=dbGroup][value="doc"]');
+    await page.click("#dbZip"); await page.waitForSelector("#dbOut [data-db-dl]");
+    ok("DB failure shows per-file links", (await page.textContent("#dbOut")).includes("CORS"));
+    await page.click('#dbStatus'); await page.selectOption("#dbStatus", "resigned"); await page.waitForTimeout(150);
+    ok("DB filter resigned", !(await page.textContent(".db-tbl")).includes("이력서.pdf"));
+    await shot(page, "DB-docbox");
+    ok("DB no errors", errors.length === 0, errors.join(" | "));
+    await ctx.close();
+    // 원장(admin)에게는 탭이 없다
+    const st2 = J(snapStore);
+    const a = await newPage(browser, { user: { uid: "u4", email: "x@x" }, store: st2, files: J(snapFiles) });
+    await a.page.goto(BASE + "/index.html#admin"); await a.page.waitForSelector("#viewAdmin:not(.hidden) .subtab");
+    ok("DB hidden for branch admin", !(await a.page.$('#adminTabs [data-t="status"]')) && !(await a.page.$("#dbScan")));
+    await a.ctx.close();
   }
 
   // ================= F. setup.html / 로그인 화면 =================

@@ -14,3 +14,4 @@ export async function listAll(r) {
 export async function getMetadata(r) { return { customMetadata: files[r.fullPath]?.meta || {} }; }
 export async function getDownloadURL(r) { if (!files[r.fullPath]) { const e = new Error("nf"); e.code = "storage/object-not-found"; throw e; } return "data:text/plain,mock-" + encodeURIComponent(r.fullPath); }
 export async function deleteObject(r) { if (!files[r.fullPath]) { const e = new Error("nf"); e.code = "storage/object-not-found"; throw e; } delete files[r.fullPath]; }
+export async function getBlob(r) { if (globalThis.__blobFail) { const e = new Error("cors"); e.code = "storage/unknown"; throw e; } if (!files[r.fullPath]) { const e = new Error("nf"); e.code = "storage/object-not-found"; throw e; } return new Blob(["mock-" + r.fullPath], { type: "text/plain" }); }

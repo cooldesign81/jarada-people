@@ -13,6 +13,7 @@ import { exportEmployees, backupAll, downloadText } from "./export.js";
 import { fixedItems, won, num } from "./payroll-calc.js";
 import { deleteEmployeeData } from "./detail.js";
 import { renderSignBatches } from "./sign-batch.js";
+import { renderDocBox } from "./docbox.js";
 import { FIELDS, BUILTIN_DEFAULTS, DEFAULT_KEYS, cleanDefaults, effectiveDefaults, getDocDefaults, setDocDefaults } from "./contract-docs.js";
 import { matUser, matSignIn, loadManagers, saveManagers, normEmail, validEmail, MAX_MANAGERS } from "./materials.js";
 
@@ -20,7 +21,7 @@ let ctx = { reload: async () => {}, rerender: () => {} };
 export function initAdmin(c) { ctx = { ...ctx, ...c }; }
 const TABS = [
   { id: "export", label: "내보내기·백업", ok: () => canManage() },
-  { id: "status", label: "현황 점검",     ok: () => isHR() },
+  { id: "status", label: "서류함·점검",   ok: () => isHR() },
   { id: "signs",  label: "서명 문서",     ok: () => canManage() },
   { id: "slips",  label: "급여 배포",    ok: () => can("comp") },
   { id: "labor",  label: "인건비",         ok: () => can("comp") },
@@ -137,26 +138,19 @@ function renderWorkFill(el) {
 
 // ---------- 현황 점검: 서류 미비·자격증 만료·계약 만료 ----------
 const st = { rows: null, busy: false };
-const keyOf = (name) => name.split("__")[0];
-async function scanDocs(emp, folder) {
-  try { return new Set((await listAll(ref(storage, `hr/${emp.id}/${folder}`))).items.map((i) => keyOf(i.name))); }
-  catch (e) { return null; } // 권한 없음 등
-}
 function renderStatus(body) {
-  const req = (state.settings?.requiredDocs || DEFAULT_REQUIRED_DOCS);
-  const docs = [...PUBLIC_DOCS, ...SECRET_DOCS];
-  body.innerHTML = `<div class="card"><h2>서류·자격 점검</h2>
-    <p>재직 중인 직원의 필수 서류 제출 여부와 자격증 만료일을 한 번에 확인합니다. 직원 수만큼 읽기가 발생하므로 필요할 때만 실행하세요. 필수 서류는 ‘설정’ 탭에서 바꿉니다.</p>
-    <p class="sub">필수 서류: ${req.map((k) => esc(docs.find((d) => d.key === k)?.label || k)).join(", ") || "없음"}${can("secDocs") ? "" : " · 비공개서류는 열람 권한이 없어 제외됩니다."}</p>
-    <button class="btn btn-primary" id="btnScan">${st.rows ? "다시 점검" : "점검 시작"}</button> <span class="sub" id="scanProg"></span></div>
+  body.innerHTML = `<div id="docBoxRoot"></div>
+    <div class="card"><h2>자격증 만료 점검</h2>
+    <p>재직 중인 직원의 자격증 만료일(60일 이내·지남)을 확인합니다. 직원 수만큼 읽기가 발생하므로 필요할 때만 실행하세요.</p>
+    <button class="btn btn-secondary" id="btnScan">${st.rows ? "다시 점검" : "점검 시작"}</button> <span class="sub" id="scanProg"></span></div>
     <div id="scanOut"></div><div id="birthFill"></div><div id="workFill"></div><div id="frontFill"></div>`;
+  renderDocBox($("docBoxRoot"));
   renderBirthFill($("birthFill")); renderWorkFill($("workFill")); renderFrontFill($("frontFill"));
   const out = $("scanOut");
   const draw = () => {
     if (!st.rows) return;
-    const miss = st.rows.filter((r) => r.missing.length), exp = st.rows.flatMap((r) => r.certs.map((c) => ({ ...c, name: r.e.name }))).filter((c) => c.n <= 60).sort((a, b) => a.n - b.n);
-    out.innerHTML = `<div class="card"><h2>서류 미비 (${miss.length}명)</h2>${miss.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>소속</th><th>미제출 서류</th></tr></thead><tbody>${miss.map((r) => `<tr><td><a href="#emp/${esc(r.e.id)}">${esc(r.e.name)}</a></td><td>${esc(orgNames(r.e.orgIds))}</td><td>${r.missing.map((m) => `<span class="badge off">${esc(m)}</span>`).join(" ")}</td></tr>`).join("")}</tbody></table></div>` : `<p>모두 제출했습니다.</p>`}</div>
-      <div class="card"><h2>자격증 만료 (60일 이내·지남)</h2>${exp.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>자격증</th><th>만료일</th><th></th></tr></thead><tbody>${exp.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.title)}</td><td>${esc(c.expiresDate)}</td><td>${c.n < 0 ? `<span class="badge s-leave">${-c.n}일 지남</span>` : `D-${c.n}`}</td></tr>`).join("")}</tbody></table></div>` : `<p>해당하는 자격증이 없습니다.</p>`}</div>`;
+    const exp = st.rows.flatMap((r) => r.certs.map((c) => ({ ...c, name: r.e.name }))).filter((c) => c.n <= 60).sort((a, b) => a.n - b.n);
+    out.innerHTML = `<div class="card"><h2>자격증 만료 (60일 이내·지남)</h2>${exp.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>이름</th><th>자격증</th><th>만료일</th><th></th></tr></thead><tbody>${exp.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.title)}</td><td>${esc(c.expiresDate)}</td><td>${c.n < 0 ? `<span class="badge s-leave">${-c.n}일 지남</span>` : `D-${c.n}`}</td></tr>`).join("")}</tbody></table></div>` : `<p>해당하는 자격증이 없습니다.</p>`}</div>`;
   };
   draw();
   $("btnScan").onclick = async () => {
@@ -168,12 +162,7 @@ function renderStatus(body) {
     };
     for (let k = 0; k < list.length; k += 5) {
       await Promise.all(list.slice(k, k + 5).map(async (e) => {
-        const [pub, sec, certs] = await Promise.all([scanDocs(e, "pub"), can("secDocs") ? scanDocs(e, "sec") : Promise.resolve(null), certsOf(e)]);
-        const missing = req.filter((key) => {
-          const isPub = PUBLIC_DOCS.some((d) => d.key === key); const got = isPub ? pub : sec;
-          if (!got) return false; return !got.has(key);
-        }).map((key) => docs.find((d) => d.key === key)?.label || key);
-        rows.push({ e, missing, certs }); $("scanProg").textContent = `${++i} / ${list.length}`;
+        rows.push({ e, certs: await certsOf(e) }); $("scanProg").textContent = `${++i} / ${list.length}`;
       }));
     }
     rows.sort((a, b) => a.e.name.localeCompare(b.e.name, "ko")); st.rows = rows; st.busy = false; renderStatus(body);
