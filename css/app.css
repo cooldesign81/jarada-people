@@ -423,9 +423,25 @@ ul.plain{ margin:0; padding-left:18px; line-height:1.8; }
 .db-bar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-bottom:10px; }
 .db-bar select, .db-bar input[type=search]{ min-height:34px; }
 .db-bar .seg-lbl{ color:var(--text-sub); font-size:13px; margin-left:6px; }
-.db-tbl th{ white-space:nowrap; vertical-align:top; }
-.db-tbl td{ vertical-align:top; min-width:120px; }
-.db-file{ display:flex; align-items:flex-start; gap:6px; font-size:13px; line-height:1.35; margin:2px 0; max-width:220px; }
-.db-file a{ word-break:break-all; }
-.db-file input{ margin-top:2px; flex:none; }
+.db-wrap{ max-height:72vh; overflow:auto; }
+.db-tbl{ font-size:12px; width:100%; }
+.db-tbl th, .db-tbl td{ padding:6px 6px; vertical-align:middle; white-space:nowrap; }
+.db-tbl thead th{ position:sticky; top:0; z-index:2; background:#fafafa; }
+.db-tbl .db-name{ position:sticky; left:0; z-index:1; background:#fff; }
+.db-tbl thead .db-name{ z-index:3; background:#fafafa; }
+.db-tbl .db-org{ font-size:11px; max-width:90px; overflow:hidden; text-overflow:ellipsis; }
+.db-col{ text-align:center; }
+.db-col label{ display:inline-flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer; font-weight:700; white-space:normal; max-width:76px; line-height:1.25; }
+.db-col .db-cnt{ font-size:10.5px; font-weight:400; color:var(--text-sub); white-space:nowrap; }
+.db-col .db-cnt b{ color:#B3261E; font-weight:600; }
+.db-tbl td:nth-child(n+3){ text-align:center; }
+.db-cell{ display:inline-flex; flex-wrap:wrap; gap:3px; justify-content:center; }
+.db-chip{ display:inline-flex; align-items:center; border:1px solid #cfe3d6; background:#eef8f1; color:#1d6b3a; border-radius:6px; overflow:hidden; font-size:11px; line-height:1; }
+.db-chip.on{ background:#1d6b3a; color:#fff; border-color:#1d6b3a; }
+.db-chip label{ display:inline-flex; align-items:center; gap:3px; padding:3px 5px; cursor:pointer; }
+.db-chip input{ width:12px; height:12px; margin:0; accent-color:#1d6b3a; }
+.db-dl{ border:0; border-left:1px solid #cfe3d6; background:transparent; color:inherit; padding:3px 6px; cursor:pointer; font-size:11px; }
+.db-dl:hover{ background:rgba(0,0,0,.08); }
+.db-miss{ display:inline-block; font-size:10.5px; padding:2px 6px; border-radius:6px; background:var(--danger-bg); color:#B3261E; }
+.db-none{ color:#bbb; }
 .badge.db-miss{ background:var(--danger-bg); color:#B3261E; }

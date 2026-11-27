@@ -75,7 +75,7 @@ export function renderDocBox(body) {
   const cs = cols(), req = required();
   const orgs = state.orgs.filter((o) => o.type !== "hq" || state.employees.some((e) => (e.orgIds || []).includes(o.id)));
   const head = `<div class="card"><h2>서류함</h2>
-    <p>직원들이 올린 서류를 한 표에서 보고, 원하는 것만 골라 <b>ZIP 파일 하나</b>로 받습니다. 칸의 체크박스로 고르고, 열 제목·이름 옆 체크박스로 한 줄씩 한 번에 고를 수 있어요. 파일 이름을 누르면 그 파일만 바로 받아요.</p>
+    <p>직원들이 올린 서류를 한 표에서 보고, 원하는 것만 골라 <b>ZIP 파일 하나</b>로 받습니다. 초록 칸(올린 날짜)을 눌러 고르고, 열 제목·이름 옆 체크박스로 한 줄씩 한 번에 고를 수 있어요. <b>↓</b>를 누르면 그 파일만 바로 받고, 칸에 마우스를 올리면 파일 이름이 보여요.</p>
     <p class="sub">직원 수만큼 파일 목록을 읽으므로 필요할 때 불러오세요. 프로필 사진·인사 평가 파일은 넣지 않습니다.${can("secDocs") ? "" : " 비공개서류(등본·통장 등)는 ‘비공개서류’ 권한이 없어 보이지 않습니다."} 빨간 <span class="badge db-miss">미제출</span>은 ‘설정’의 필수 서류입니다.</p>
     <button class="btn btn-primary" id="dbScan">${box.rows ? "다시 불러오기" : "서류 불러오기"}</button> <span class="sub" id="dbProg"></span>
     ${box.rows && box.errs.length ? `<div class="notice danger" style="margin-top:12px"><b>파일 목록을 ${box.errs.length}번 읽지 못했어요</b> (${esc([...new Set(box.errs)].join(", "))}). 표에 빠진 서류가 있을 수 있어요.
@@ -88,9 +88,11 @@ export function renderDocBox(body) {
   const ck = (paths) => paths.length && paths.every((p) => box.sel.has(p));
   const cell = (r, c) => {
     const fs = cellFiles(r, c);
-    if (!fs.length) return req.includes(c.key) ? `<span class="badge db-miss">미제출</span>` : `<span class="sub">—</span>`;
-    return fs.map((f) => `<label class="db-file" title="${esc(f.orig)} · ${ymd(f.ts)} 올림"><input type="checkbox" data-db-f="${esc(f.path)}" ${box.sel.has(f.path) ? "checked" : ""}>
-      <a href="#" data-db-dl="${esc(f.path)}" data-name="${esc(f.orig)}">${esc(c.multi ? (f.label || f.orig) : f.orig)}</a><span class="sub"> ${ymd(f.ts)}</span></label>`).join("");
+    if (!fs.length) return req.includes(c.key) ? `<span class="db-miss" title="필수 서류 미제출">미제출</span>` : `<span class="db-none">·</span>`;
+    // 작은 칩: 체크박스 + 올린 날짜(월.일). 파일 이름은 마우스를 올리면 보이고, ↓ 는 그 파일만 바로 받기
+    return `<span class="db-cell">${fs.map((f) => { const d = f.ts ? new Date(f.ts) : null, md = d ? `${d.getMonth() + 1}.${d.getDate()}` : "있음";
+      const tip = `${c.multi && f.label ? f.label + " · " : ""}${f.orig} · ${ymd(f.ts)} 올림`;
+      return `<span class="db-chip ${box.sel.has(f.path) ? "on" : ""}" title="${esc(tip)}"><label><input type="checkbox" data-db-f="${esc(f.path)}" ${box.sel.has(f.path) ? "checked" : ""} aria-label="${esc(r.e.name)} ${esc(c.label)} 선택">${md}</label><button type="button" class="db-dl" data-db-dl="${esc(f.path)}" data-name="${esc(f.orig)}" aria-label="${esc(f.orig)} 받기">↓</button></span>`; }).join("")}</span>`;
   };
   body.innerHTML = head + `<div class="card">
     <div class="db-bar">
@@ -108,10 +110,10 @@ export function renderDocBox(body) {
       <button class="btn btn-primary" id="dbZip" ${box.sel.size ? "" : "disabled"}>선택한 서류 ZIP으로 받기</button>
       <button class="btn btn-secondary btn-sm" id="dbClear" ${box.sel.size ? "" : "disabled"}>선택 해제</button>
     </div>
-    <div class="tbl-wrap"><table class="tbl db-tbl"><thead><tr><th>이름</th><th>소속</th>
-      ${cs.map((c) => { const ps = rows.flatMap((r) => cellFiles(r, c)).map((f) => f.path); return `<th><label class="chk" title="이 서류 전부 고르기"><input type="checkbox" data-db-col="${c.key}" ${ck(ps) ? "checked" : ""} ${ps.length ? "" : "disabled"}> ${esc(c.label)}</label><div class="sub">${ps.length}개${req.includes(c.key) && missCnt(c) ? ` · 미제출 ${missCnt(c)}` : ""}</div></th>`; }).join("")}
+    <div class="tbl-wrap db-wrap"><table class="tbl db-tbl"><thead><tr><th class="db-name">이름</th><th>소속</th>
+      ${cs.map((c) => { const ps = rows.flatMap((r) => cellFiles(r, c)).map((f) => f.path); return `<th class="db-col"><label title="이 서류 전부 고르기"><input type="checkbox" data-db-col="${c.key}" ${ck(ps) ? "checked" : ""} ${ps.length ? "" : "disabled"}><span>${esc(c.label)}</span></label><div class="db-cnt">${ps.length}개${req.includes(c.key) && missCnt(c) ? ` · <b>미제출 ${missCnt(c)}</b>` : ""}</div></th>`; }).join("")}
     </tr></thead><tbody>
-    ${rows.map((r, n) => { const ps = cs.flatMap((c) => cellFiles(r, c)).map((f) => f.path); return `<tr><td class="strong"><label class="chk" title="이 직원 서류 전부 고르기"><input type="checkbox" data-db-row="${n}" ${ck(ps) ? "checked" : ""} ${ps.length ? "" : "disabled"}> <a href="#emp/${esc(r.e.id)}">${esc(r.e.name || r.e.id)}</a></label>${r.e.status === "resigned" ? ` ${statusBadge("resigned")}` : ""}</td><td class="sub">${esc(orgNames(r.e.orgIds))}</td>${cs.map((c) => `<td>${cell(r, c)}</td>`).join("")}</tr>`; }).join("") || `<tr><td colspan="${cs.length + 2}" class="sub">조건에 맞는 직원이 없습니다.</td></tr>`}
+    ${rows.map((r, n) => { const ps = cs.flatMap((c) => cellFiles(r, c)).map((f) => f.path); return `<tr><td class="strong db-name"><label class="chk" title="이 직원 서류 전부 고르기"><input type="checkbox" data-db-row="${n}" ${ck(ps) ? "checked" : ""} ${ps.length ? "" : "disabled"}> <a href="#emp/${esc(r.e.id)}">${esc(r.e.name || r.e.id)}</a></label>${r.e.status === "resigned" ? ` ${statusBadge("resigned")}` : ""}</td><td class="sub db-org">${esc(orgNames(r.e.orgIds).replace(/원/g, ""))}</td>${cs.map((c) => `<td>${cell(r, c)}</td>`).join("")}</tr>`; }).join("") || `<tr><td colspan="${cs.length + 2}" class="sub">조건에 맞는 직원이 없습니다.</td></tr>`}
     </tbody></table></div><div id="dbOut"></div></div>`;
 
   $("dbScan").onclick = () => scan(body);
